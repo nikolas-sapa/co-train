@@ -314,6 +314,8 @@ Confidence: the binary-vs-continuous tie argument is **strong** (two sources, cl
 
 **R33. Screen the task pool for across-rollout dispersion, not for difficulty labels.** Binary: keep tasks solved 1-3 of 4. Continuous-scalar: keep tasks whose scalar has high but non-degenerate dispersion, dropping both floor- and ceiling-collapse. The same filter serves group-relative advantage and hacking resistance. Do not drop it in favor of a harder curriculum.
 
+**R33a (refinement, from the lane's closing note). Screen on dispersion AND level, never dispersion alone.** Floor-collapse and ceiling-collapse have the *same variance signature* and opposite causes: a broken verifier pins every rollout to the floor, a saturated task pins every rollout to the ceiling. Only the scalar's level distinguishes them. Screening on dispersion alone conflates the two and will silently delete your hardest legitimate tasks alongside your broken ones.
+
 **R34. Run the escalation channel as your standing verifier-QA pipeline, not only as an anti-hacking measure.** Gomez: +10.1pp defect-detection coverage at 99.4% accuracy, *"no detectable cost or performance overhead."* Given a ~2.5% base rate of broken verifier logic, route every escalation into a task-pool triage queue and treat escalation volume on a task as a defect prior. This makes R20/R34 the highest-ROI rule on the combined list: cuts hacking 23.6% → 5.3% **and** finds the broken tasks that cause hacking, from one implementation.
 
 ---
