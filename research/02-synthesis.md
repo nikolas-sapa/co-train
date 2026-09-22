@@ -247,3 +247,159 @@ Strong because: published baseline to beat · programmatic verifier already requ
 - No Semantic Scholar coverage anywhere in this research (429 blackout); arXiv-only recall.
 - No practitioner/forum sources: `exa_search` off, WebSearch broken, Twitter and Reddit channels off.
 - Benchmark-design lane (query #4) and browser/fetch lane (query #3) not yet run.
+
+---
+---
+
+# Addendum — after the bench and browser lanes (2026-09-22)
+
+Findings 1-6 above were written before `lanes/bench.md` and `lanes/browser.md` landed.
+Neither overturns them. Both sharpen the build, and together they surface a convergence
+that no single lane could see.
+
+## Finding 7 — Four independent literatures converge on the ACTION SPACE as the lever
+
+This is the strongest result in the whole corpus, and it is visible only across lanes.
+
+| Source | Finding |
+|---|---|
+| `tokens` — arXiv 2609.11999 | Plain **bash** beats typed tools by 21.8-24.5 pp at 19-72% fewer tokens; PTC underperforms shell-only on both quality and cost |
+| `browser` — AgentOccam 2410.13825 | Pruning 9 of 17 actions was the **only token-reducing step** in the ladder *and* delivered the **largest single accuracy gain** (+11.6 pp). Final success 3.1x vanilla at 1.33x the observation tokens |
+| `browser` — AutoTailor 2609.13548 | Compiling 1,283 candidate APIs down to **33** gave 90.6% correctness at −57.8% tokens, *with* a model fallback |
+| `browser` — Beyond Browsing 2410.16464 | API access costs ~12x per task, and the cost is **documentation volume** (GitLab ships 988 endpoints into the prompt), not inference. API-solvable tasks used only **2.1 API calls** out of 7.8 steps |
+| `bench` — Wang & Huang 2603.28063 | *"evaluation coverage declines toward zero as tool count grows"* — quality dimensions expand combinatorially while verification cost grows linearly per tool |
+
+Four different research questions — token efficiency, web-agent accuracy, capability compilation,
+and reward-hacking surface — all land on: **shrink the action space, keep a fallback.**
+
+**Consequence for the build.** The harness variable worth manipulating is not observation
+compression, prompt engineering, or context management. It is **how few actions the agent has and
+how good the escape hatch is.** That is also the cheapest thing to vary experimentally, which makes
+it the right axis for a first co-training run.
+
+## Finding 8 — Observation richness is a liability, not just a cost
+
+`browser` Q3 vs Q4 collide head-on, measured on the same systems:
+
+- Adding Set-of-Marks to GPT-4o's axtree **raises utility 0.595 → 0.622 and raises attack success
+  0.321 → 0.429** (WASP, 2504.18575). A richer observation is a larger attack surface.
+- Giving an agent both a screenshot and a serialized tree does not make it robust. When the two
+  disagree, models **follow the stale tree on up to 0.88 of probes**, self-recover **≤0.03**, and
+  fail **at the first step** (2607.04334). On an SPA between render and hydration, that is the
+  default state.
+- Yet removing the text element list costs Gemini **60.5 points** (64.20 → 3.70), so the naive fix
+  of going pixels-only collapses non-GPT-4 backbones.
+
+**Consequence:** observation design has no free lunch and no globally optimal setting. Element
+*ordering* (DOM pre-order, worth ~37 points to GPT-4V) is the one free win. Everything else trades.
+
+## Finding 9 — The verifier is the whole project, and partial hardening is negative
+
+`bench` produced 34 design rules; four facts dominate the build.
+
+1. **Partial hardening scores worse than none.** RECEIPT's precision ladder over 27 targets:
+   45% (agent self-judgment) → **9%** (browser-bound verdict alone) → 19% (+isolation) → 44%
+   (+PoC constraints) → **100%** (+role separation). A half-built verifier produces confident wrong
+   verdicts. **Budget the complete set or ship nothing.**
+2. **Never read the score from state the agent can write.** The Factorio failure exactly: Production
+   Score was read from the game's own counters, and RCON writes those counters without producing
+   anything. Verify by **constrained replay in a snapshot-restored instance**, bind the verdict to a
+   **fresh verifier-minted token**, and separate privileges so the agent never holds the keys to the
+   ledger it is scored on (role separation alone: 44% → 100%).
+3. **Broken verifiers teach hacking.** A task whose reference solution fails its own verifier has an
+   unreachable visible reward — the condition with the **fastest measured hack liftoff** (38 steps
+   vs 77 at moderate difficulty). At LEGO-RL's ~2.5% base rate, 2.5% of your gradient actively
+   trains the behavior you are preventing. Test the verifier **both ways** and delete failures.
+4. **Prompt-level anti-cheat is worthless or negative.** Three independent measurements: BAITBENCH
+   stays >50% under an explicit no-cheat prompt; Prime Intellect found a restrictive prompt was
+   *fastest* to hack; Prime Agent defeated an explicit heartbeat.
+
+**Cheapest high-yield rule (R20/R34):** a structured escalation channel cut hacking **23.6% → 5.3%**
+across 8 models, eliminated it in 6 of 8, at no performance cost — **and** doubles as a standing
+verifier-QA pipeline (+10.1pp defect detection at 99.4% accuracy). One implementation, two jobs.
+
+## Finding 10 — An argument for the uncapped scalar that did not exist in the brief
+
+The 0/8-and-8/8 dead-group problem is a property of **binary scoring**, not of task difficulty. Four
+binary trials give five distinguishable group states, two of which carry zero group-relative
+advantage. A continuous unbounded scalar gives a full ordering, so advantage is **dense by
+construction**. Success-only scoring ties on ~75% of instances vs ~35% trajectory-aware
+(2606.17541) — a 75% tie rate is a 75% waste of the rollout budget.
+
+**So the uncapped scalar is not just a leaderboard nicety, it is the right shape for an RL target.**
+
+Caveat with teeth: an uncapped metric with a gameable definition saturates instantly at infinity.
+FLE's own authors: *"the PS acts as the reward and is affected by exploitation."* Uncapped buys
+headroom, not safety. Finding 9 still governs.
+
+Screening analogue for continuous rewards: **dispersion AND level** (R33/R33a). Floor-collapse and
+ceiling-collapse share a variance signature and have opposite causes; dispersion alone conflates
+them and deletes your hardest legitimate tasks. **Unvalidated — no paper screens a continuous-reward
+environment this way. Cheap ablation, publishable either way.**
+
+## Finding 11 — On the browser/fetch thread specifically
+
+Not on the critical path for the co-training build, but it was one of the five original interests
+and the answers are clean:
+
+- **The SPA-shell detector does not exist.** No production tool detects JS shells by content. arXiv
+  `all:"JavaScript rendering" AND all:crawl` returns **zero results**. The only shipped detector
+  (Crawlee) learns per-host from URL similarity and validates by **differential execution** —
+  running both paths and diffing the output ~10% of the time. That design is better than any static
+  heuristic because ground truth is directly observable.
+- **Compile-the-flow works only with the model retained as exception handler.** 90.6% with fallback,
+  **60.1% without**, vs 87.5% for a plain agent.
+- **Semantic drift is unclaimed.** Every shipped detector fires when a *selector breaks*. None
+  detects "selector resolves, click lands, page silently means something else." A post-condition
+  assertion on extracted **values** rather than selector existence is open territory.
+- **Prompt injection is not solvable at the model layer.** Only CaMeL reaches zero (949 attacks,
+  3 backbones) and only by constraining the *program*, at 7 points of utility, ~2.8x tokens, and
+  three side channels its authors document. Spotlighting's own <2% claim measures **41.65%** on
+  AgentDojo. The field's low end-to-end numbers are **"security by incompetence"** — a capability
+  artifact that closes as agents improve.
+- **The agent-web contract is mostly announcements.** Only Web Bot Auth has a real standards process
+  (chartered IETF WG, active draft, Cloudflare+Google authors) and it names **one** signer with zero
+  telemetry. llms.txt has real publisher adoption and **no named consumer anywhere** — including in
+  the one paper that fingerprinted 15 agents against a live docs endpoint.
+
+## Revised build sequence
+
+Supersedes the sequence in Finding "Recommended project shape" above.
+
+0. **Template gate (free, CPU-only).** Verify the base model's chat template is prefix-preserving or
+   TRL raises at `grpo_trainer.py:1981-1982`. If it fails, LEGO-RL's **in-process LLM proxying** is
+   the documented escape hatch, not a dead end.
+1. **Confirm the free path.** Kaggle `NvidiaTeslaT4` (= T4 x2, the default since P100 retired),
+   TRL `vllm_mode="colocate"`, fp16, Qwen3-0.6B. 5-step smoke test. The open question is whether
+   **fp16 GRPO is stable at small scale** — no evidence found either way.
+2. **Build the verifier first, not the environment.** Snapshot-restored verification instance,
+   constrained replay, verifier-minted verdict token, role separation. Complete set or nothing
+   (Finding 9.1). Then **test it both ways**: reference solution must pass, planted mutant must fail.
+3. **Build the environment around a minimal action space**, with a structured escalation channel
+   from day one (Finding 7 + R20/R34).
+4. **Two harnesses behind one `environment_factory`:** bash and PTC. Measure the untrained gap and
+   confirm it reproduces the published direction *before* training anything.
+5. **Co-train.** Evaluate **cross-harness** from run 1 (DCAS + LEGO-RL both show the gain may not
+   survive a harness swap), in **billed cost** not tokens (2607.12161), with
+   `mask_truncated_completions=True`, and with a planted instrumented shortcut so hack telemetry is
+   deterministic (R21).
+
+## Four cheap publishable experiments sitting in the gaps
+
+1. **Token-meter ablation** — nobody has published with-meter vs without-meter on a Vending-Bench
+   shape. (`bench` gap #2)
+2. **RECEIPT-grade verifier ported to an economic environment** — RECEIPT is security-domain; the
+   transfer is the bench lane's own synthesis, unpublished. (`bench` gap #10)
+3. **Dispersion+level screening for continuous-reward environments** — no paper does it; negative
+   result is publishable. (`bench` gap #12)
+4. **Does co-training close the PTC-vs-bash gap** — the project thesis, with a published baseline
+   to beat (2609.11999) and Prime Intellect's own admission that no model has been trained around
+   their harness.
+
+## Standing caveat on this entire corpus
+
+Retrieval was degraded throughout. **WebSearch was broken for every lane** (Bedrock rejects the
+tool type), `exa_search` was off, Semantic Scholar 429'd or was skipped, and Twitter/Reddit channels
+were unavailable. Every source in 6,700+ lines is arXiv, GitHub, a vendor doc, or a page fetched by
+a URL someone could name in advance. **There is no practitioner or forum evidence anywhere in this
+research.** Where the literature is silent, that may reflect the retrieval gap rather than the world.

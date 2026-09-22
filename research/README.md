@@ -13,6 +13,9 @@ beat that harness's untrained baseline — and does it survive a harness swap?
 | `lanes/grpo.md` | GRPOTrainer multi-turn API, loss masking, verifiers, failure modes. 1,336 L |
 | `lanes/tokens.md` | PTC vs bash vs typed tools, compaction, token-vs-cost. 936 L |
 | `lanes/compute.md` | Pricing, VRAM, wall-clock, three-tier dollar answer. 793 L |
+| `lanes/bench.md` | Vending-Bench 2 verified, reward-hacking taxonomy, **34 design rules**. 336 L |
+| `lanes/browser.md` | SPA detection, compile-the-flow, observation space, prompt injection, agent-web contract. 666 L |
+| `04-prior-art-lego-rl.md` | LEGO-RL delta. Not scooped; their future work is our angle. |
 
 ## Headline findings
 1. **PTC loses to plain bash** on untrained models, on both quality and cost (arXiv 2609.11999).
@@ -25,6 +28,15 @@ beat that harness's untrained baseline — and does it survive a harness swap?
 5. **Trainability gate:** TRL masks tool tokens via `tool_mask`, but raises if the chat template
    is not prefix-preserving (`grpo_trainer.py:1981-1982`). Check before spending anything.
 6. **Free is viable.** Kaggle T4x2 + TRL colocate + fp16 + Qwen3-0.6B. Paid fallback ~$120.
+7. **Four literatures converge on the ACTION SPACE as the lever** (bash > typed tools; AgentOccam's
+   action pruning was the only token-reducing step and the biggest accuracy gain; AutoTailor 1,283
+   -> 33 APIs; verifier coverage decays as tool count grows). Shrink the actions, keep a fallback.
+8. **Partial verifier hardening scores WORSE than none** (RECEIPT: 45% -> 9% -> ... -> 100%).
+   Complete set or ship nothing.
+9. **Broken verifiers teach hacking** — unreachable visible reward is the fastest-liftoff condition
+   (38 steps vs 77). Test every verifier both ways.
+10. **The uncapped scalar suits an RL target**, because binary scoring wastes ~75% of the rollout
+    budget on ties. But uncapped buys headroom, not safety.
 
 ## Method notes
 - Every arXiv ID cited was independently re-resolved against the arXiv API before acceptance.
@@ -34,7 +46,10 @@ beat that harness's untrained baseline — and does it survive a harness swap?
   `exa_search` off, Semantic Scholar 429 blackout, Twitter/Reddit channels off. Recall is
   arXiv + GitHub + Jina Reader only. **No practitioner/forum sources anywhere in this corpus.**
 
-## Not yet done
-- Research #3: browser use and fetch.
-- Research #4: creative benchmark design (Vending-Bench 2 shape).
-- Close read of LEGO-RL (arXiv 2608.17393) for prior-art delta.
+## Status
+All six research lanes complete (~6,700 lines). `02-synthesis.md` carries the decision, including
+an addendum folding in the bench and browser lanes and a revised build sequence.
+
+## Next
+Execute the build sequence in `02-synthesis.md`. Step 0 (chat-template prefix-preservation gate)
+is free and CPU-only, and it decides whether TRL is usable at all.
