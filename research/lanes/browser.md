@@ -537,3 +537,130 @@ Timeline: reported 2025-07-25; initial fix 2025-07-27; **2025-07-28 "Retesting r
 **Measured NOT to hold:** spotlighting/delimiting in agentic settings (41.65% vs its own paper's <2%); instruction hierarchy on browser agents (o1 the worst row in WASP); classifier-based detection at acceptable utility (41.24% benign utility).
 
 **The framing to use:** the lethal trifecta is not a risk to be mitigated at the model layer. Every model-layer defense measured here leaks. The only thing that reaches zero constrains the *program*, and it does so by giving up the ability to plan over data the privileged model cannot see. Add the WASP result that richer observations raise ASR, and the Brave result that a patched agentic browser stayed exploitable across two fix rounds, and the honest position is: **do not give a browsing agent both private-data access and an external write channel in the same session, regardless of defense.**
+
+---
+
+## Q5 — The agent-web contract: standardization status vs real adoption
+
+### Answer
+
+**Only one of the five is a real standards effort, and it is the one with the least marketing.** Web Bot Auth has a chartered IETF working group (`webbotauth`) and an active standards-track WG draft as of 2026-09-01 — but its launch post names exactly **one** external signer (OpenAI Operator) and publishes **zero** traffic numbers. The other four are vendor or individual specs with adoption evidence ranging from thin (x402, NLWeb) to logo-count-only (AP2) to essentially unevidenced on the consumption side (llms.txt). **Confidence: strong** on standardization status; **strong** on the *absence* of adoption data, which is itself the finding.
+
+### 1. Web Bot Auth — strongest process, thinnest adoption data
+
+| Draft | Type | Latest | Status |
+|---|---|---|---|
+| `draft-meunier-web-bot-auth-architecture` | individual | -05, 2026-03-02 | Replaced, expired & archived. No WG, RFC stream `(None)` |
+| `draft-meunier-webbotauth-httpsig-protocol` | individual | -02, 2026-08-19 | Expired & archived; merged architecture + directory drafts |
+| **`draft-ietf-webbotauth-httpsig-protocol`** | **WG document** | **-00, 2026-09-01**, expires 2027-03-05 | **Active Internet-Draft**, WG `webbotauth`, stream IETF, IESG state "I-D Exists" |
+
+Title: "HTTP Message Signatures for automated traffic." Authors **Thibault Meunier (Cloudflare) and Sandor Major (Google)** — cross-vendor authorship is the strongest signal here. Datatracker's intended-status reads `(None)` while the draft header says "Intended status: Standards Track"; no shepherd, responsible AD, or milestones assigned yet.
+
+**Mechanism:** built on **HTTP Message Signatures (RFC 9421)**. Covered components `("@authority" "signature-agent")`. `Signature-Input` carries a validity window, a **Key ID that is a JWK Thumbprint (RFC 7638)**, and the tag `web-bot-auth`. A `Signature-Agent` header names the host serving the signer's JWKS directory and is itself covered by the signature. **Ed25519** demonstrated. Reference implementations at `cloudflareresearch/web-bot-auth`: Chrome extension, Workers debug server, Caddy Go plugin. A deprioritized second track is request mTLS via a proposed TLS flag (extension 65025 / `0xfe01`).
+
+**Adoption — one data point:**
+- Exactly **one external bot operator is named as signing**: "For example, OpenAI has started to sign their requests."
+- `crawler.search.google.com` and `operator.openai.com` appear **only as hypothetical directory-hostname examples**. Do not read Google Search as an adopter.
+- **Zero traffic or site-count numbers.** On uptake: "This is a metric we will monitor closely, and report on as adoption grows." Launch availability was a **closed beta**.
+
+### 2. NLWeb — spec ambition high, adopters zero, and it left Microsoft's org
+
+**Governance finding:** `api.github.com/repos/microsoft/NLWeb` **redirects to `nlweb-ai/NLWeb`**. Metadata: 6,254 stars, 699 forks, 65 open issues, MIT, Python, created 2025-04-28, last push 2026-08-11, **no releases at all**. The README still carries a Microsoft trademark notice and a microsoft.com support mailbox — the README has not caught up with the org move. (Another instance of the vendor-docs-lag pattern.)
+
+Self-positioning, verbatim: **"NLWeb is to MCP/A2A what HTML is to HTTP."** Every deployed instance doubles as an MCP server; A2A support "forthcoming."
+
+**Adopters: none named.** The only organizations listed are Microsoft (host/trademark) and third-party *supported integrations* (Qdrant, Snowflake, Milvus, Azure AI Search, Elasticsearch, Postgres, Cloudflare AutoRAG; OpenAI, DeepSeek, Gemini, Anthropic, HuggingFace; HubSpot, Dynamics 365, Jira) — integrations are not adopters.
+
+**Maturity, in the project's own words:** offered "not as the definitive solution, but as proof-of-concept demonstrations showing one possible approach," and **"CI/CD pipelines are not yet included."**
+
+### 3. llms.txt — weakest evidence base of the five
+
+**Status: an individual/community proposal.** Not a standard, not an IETF draft. The only IETF reference is **RFC 8615 (Well-Known URIs) cited as a rejected alternative design** — the well-known-URI route was deliberately not taken. No byline on the page.
+
+**Publisher-side adoption is real:** Mintlify, GitBook, Yoast SEO, AIOSEO, Wix auto-generate it; VitePress, Docusaurus, Drupal tooling exists; OpenAI, Anthropic, and Gemini publish llms.txt **for their own developer documentation**.
+
+**Consumer-side adoption: no named LLM provider consumes it.** The decisive gap. The AI labs appear only as publishers. The page frames consumption as expectation, not behavior: "Agents are expected to view or search `llms.txt`." The claim that it is used for inference is asserted **without naming a consuming product**.
+
+**Adoption statistics: essentially none.** The sole quantitative claim is "**thousands of sites publish an llms.txt file**" — no count, method, date, or source.
+
+**Independent corroboration: none.** arXiv `all:"llms.txt"` → 2 results, neither measuring adoption:
+- `2604.02544` — fingerprints nine coding agents and six assistant services against a live documentation endpoint. Finding: agent traffic "compresses multi-page navigation into a single or two requests," breaking session-depth and bounce-rate metrics. **llms.txt appears only in a recommendation list** — no per-agent fetch rate. **The paper best positioned to measure consumption did not.**
+- `2603.10700` — enhanced entity page reached "+29.6% accuracy improvement for standard RAG and +29.8% for the full agentic pipeline," but **the enhanced page bundled "llms.txt-style agent instructions, breadcrumbs, and neural search" — no isolated llms.txt effect.**
+
+### 4. x402 — active code, governance moved to a foundation, no usage data
+
+**Governance finding:** `coinbase/x402` reports `"fork": true` — its source is **`x402-foundation/x402`**.
+
+| | `x402-foundation/x402` (upstream) | `coinbase/x402` (fork) |
+|---|---|---|
+| Stars | **6,632** | 159 |
+| Forks | **2,064** | 222 |
+| Created | 2025-02-21 | 2026-04-02 |
+| Last push | **2026-09-22** | 2026-09-21 |
+| Issues/discussions | enabled | **disabled** |
+
+**Standardization: none determinable.** No standards body, RFC, or spec version in either record. **No release object, tag, or version string.** Adoption: nothing beyond repo engagement — no transaction volumes or integration counts reachable. Referenced as the crypto rail under AP2 via `google-a2a/a2a-x402`, which AP2 calls "a production-ready solution" — **readiness language, not a deployment claim.**
+
+### 5. AP2 — maximum logo count, zero deployment evidence
+
+Announced 2025-09-16. A "payment-agnostic framework" targeting three gaps when an agent rather than a human clicks buy: **Authorization**, **Authenticity**, **Accountability**. Positioned as an **extension** of A2A and MCP.
+
+Trust rests on **Mandates** — "tamper-proof, cryptographically-signed digital contracts" signed via verifiable credentials. Human-present flow captures an **Intent Mandate**, then approving the cart signs a **Cart Mandate** locking exact items and price. Delegated flow signs a detailed Intent Mandate upfront with price/timing rules. Produces a "non-repudiable audit trail" spanning intent → cart → payment.
+
+**Standardization: none.** A Google-authored spec plus reference implementations.
+
+**Adoption: 60+ organizations cited, 46 named, no live production deployment claimed anywhere.** Partner language is uniformly forward-looking — "looking forward to contributing," "committed to extending this support." The single "production" reference is the x402 extension.
+
+### Q5 ranking, by evidence rather than ambition
+
+1. **Web Bot Auth** — chartered IETF WG, active standards-track draft, Cloudflare+Google co-authors, RFC 9421 foundation. One named signer, zero telemetry.
+2. **x402** — no standards process, but a foundation, 6,632 stars, commits today. Zero usage data.
+3. **AP2** — vendor spec, 46 named partners, coherent VC/mandate model. Zero deployments claimed.
+4. **NLWeb** — single repo that moved out of Microsoft's org, self-described proof-of-concept, no CI, no releases, no adopters.
+5. **llms.txt** — individual proposal that explicitly declined the RFC 8615 route; real CMS-driven publisher adoption, **no named consumer and no measured fetch rate anywhere.**
+
+---
+
+## Known Gaps
+
+**Tooling constraints that shaped this report.** WebSearch returned HTTP 400 on every call, so only URLs nameable in advance could be fetched — anything discoverable only by search is absent. Bash and Write were disabled, so the report was delivered as six messages and concatenated by the lead. Semantic Scholar was never attempted.
+
+**Searches that came up empty:**
+- arXiv `all:"JavaScript rendering" AND all:crawl` → **`totalResults = 0`**
+- arXiv `all:"llms.txt"` → 2 results, neither with adoption counts or fetch measurements
+- arXiv `all:"web agent" AND all:"observation space"` → 2 results; the modality literature does not use that phrasing
+
+**404s / blocks encountered (recorded so nobody repeats them):** `mozilla/readability/main/isProbablyReaderable.js` (actual path `Readability-readerable.js`); `crawlee.dev/js/docs/guides/adaptive-playwright-crawler` and two sibling paths (read the source instead, more authoritative anyway); `ahrefs.com/blog/llms-txt`; `docs.skyvern.com/running-tasks/caching` (moved to `www.skyvern.com/docs`); `arxiv.org/html/2401.13649v3`. Content-blocked by the fetch proxy: `arxiv.org/html/2410.13825v2` and `arxiv.org/html/2409.12089v1`, both recovered via `r.jina.ai` on the PDF.
+
+**Could not verify, would not cite without a source check:**
+- **Stagehand's client-side `selfHeal` option** — only the caching docs page was read; it documents a server-side cache and never mentions `selfHeal`. Check `github.com/browserbase/stagehand` source.
+- **spider-rs `crawl_smart()` heuristic** — asserted, undisclosed. Needs the Rust source.
+- **Skyvern's cache-key semantics** — undocumented.
+- **Firecrawl's engine-selection hit rates** and **Crawlee's adaptive-crawler measured savings** — neither vendor publishes benchmarks. "Adaptive crawling saves X%" is unsupported in both directions.
+- **x402 transaction volume** and **Web Bot Auth post-beta traffic share** — neither exists in public.
+- **Defuddle's actual scoring thresholds** — `constants.ts` proves they exist; the module was not located.
+
+**Data-quality caveats on numbers reported above:**
+- **2409.12089** has two unreconciled internal inconsistencies (GPT-4V random ordering 44.44% vs 37.04%; Gemini baseline 64.03% vs 64.20%), and its VWA figures are on a **pre-filtered subset of previously-successful "easy" tasks**, ~60 points above the VWA paper's own numbers. Do not mix scales.
+- **AgentOccam's full 812-task ablation** was truncated in extraction; only the 190-task dev-set ablation is reported.
+- **AgentDojo states it is "not a leaderboard"** — not all models were run with all attacks/defenses, and **only gpt-4o-2024-05-13 was run with defenses**. Cross-row comparison is invalid.
+- **WASP n = 84**, so single-task changes move ASR by ~0.012. The 0.000 cells mean "0 of 84," not "proven safe."
+- **2603.10700's +29.6%/+29.8%** bundles llms.txt-style instructions with breadcrumbs and neural search.
+- Abstract-only, no numbers (labelled CLAIMED): WALT 2510.01524, Region4Web 2605.07134, ContractSkill 2603.20340, AdvAgent 2410.17401, Design Patterns 2506.08837, FCPAgent 2607.24167.
+- Read abstract-only via the API, not cross-checked in body: 2606.10742, 2602.14865, 2603.07024, 2606.04391, 2404.04902, 2510.10049, 2604.13318, 2609.19523, 2608.30207, 2606.10423, 2606.17645, 2605.23939, 2604.20940, 2608.24898, 2603.04364, 2506.14866, 2607.10079, 2608.24848.
+
+**arXiv IDs verified to resolve (via `id_list`), all confirmed present:** 2307.13854, 2401.13649, 2401.13919, 2410.16464, 2410.13825, 2409.12089, 2409.07429, 2504.07079, 2406.13352, 2504.18575, 2506.08837, 2411.02391, 2409.11295, 2410.17401, 2404.07972, 2503.18813, 2607.04334, 2604.20940, 2604.08516, 2605.07134, 2510.01524, 2510.14308, 2603.20340, 2609.13548, 2504.01382, 2306.06070, 2403.14720, 2412.16682. **No ID returned an empty entry.**
+
+---
+
+## Sources Consulted
+
+**Source code** (authoritative over docs — the lesson held twice: Skyvern's and Crawlee's docs URLs both 404'd while their source was fine): mozilla/readability `Readability-readerable.js` · trafilatura `settings.cfg`, `settings.py`, `core.py` · crawl4ai `content_filter_strategy.py` · firecrawl `scrapeURL/index.ts`, `scrapeURL/engines/index.ts` · crawlee `rendering-type-prediction.ts`, `adaptive-playwright-crawler.ts` · crawlee-python `_rendering_type_predictor.py` · defuddle `constants.ts` · spider-rs README · nlweb-ai/NLWeb README
+
+**Repo metadata:** `api.github.com/repos/nlweb-ai/NLWeb` (org move) · `api.github.com/repos/coinbase/x402` (fork-of-foundation) · `api.github.com/repos/lavague-ai/LaVague` (dormancy)
+
+**Vendor documentation:** jina.ai/reader · docs.zyte.com/zyte-api/usage/http.html · docs.stagehand.dev/best-practices/caching · www.skyvern.com/docs/developers/features/code-caching
+
+**Standards / protocol:** three IETF Datatracker draft pages including the active WG draft · blog.cloudflare.com/web-bot-auth · llmstxt.org · Google Cloud AP2 announcement
+
+**Benchmarks and papers:** agentdojo.spylab.ai/results (full per-model/per-defense table) · brave.com/blog/comet-prompt-injection (exploit chain, disclosure timeline, post-publication update) · arXiv full text via r.jina.ai for 2410.13825, 2409.12089, 2401.13649, 2307.13854 · arXiv HTML for 2410.16464, 2504.18575, 2503.18813, 2506.08837 · `id_list` verification for all 28 IDs · relevance searches: `abs:"web agent" AND abs:"reusable"` (19), `abs:"accessibility tree" AND abs:"screenshot"` (12), `all:"web agent" AND all:"observation space"` (2), `all:"llms.txt"` (2), `all:"JavaScript rendering" AND all:crawl` (0)
