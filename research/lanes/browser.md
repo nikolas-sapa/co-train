@@ -526,7 +526,7 @@ Proof-of-concept chain, from a payload "hidden behind the spoiler tag" in a Redd
 
 "The attack happens without any further user input." Because the agent runs with the user's own privileges across logged-in sessions, "same-origin policy (SOP) or cross-origin resource sharing (CORS) are all effectively useless."
 
-Timeline: reported 2025-07-25; initial fix 2025-07-27; **2025-07-28 "Retesting revealed the fix was incomplete"**; disclosure 2025-08-20. **Post-publication update on the same page: "Perplexity still hasn't fully mitigated the kind of attack described here. We've re-reported this to them."**
+Disclosure timeline, all six steps: reported **2025-07-25**; Perplexity acknowledged and shipped an initial fix **2025-07-27**; **2025-07-28 "Retesting revealed the fix was incomplete"**; one-week public-disclosure notice **2025-08-11**; **2025-08-13** "Final testing confirmed the vulnerability appears to be patched"; public disclosure **2025-08-20**. **Post-publication update on the same page: "Perplexity still hasn't fully mitigated the kind of attack described here. We've re-reported this to them."**
 
 ### Q4 synthesis — what holds versus what is proposed
 
@@ -664,3 +664,5 @@ Trust rests on **Mandates** — "tamper-proof, cryptographically-signed digital 
 **Standards / protocol:** three IETF Datatracker draft pages including the active WG draft · blog.cloudflare.com/web-bot-auth · llmstxt.org · Google Cloud AP2 announcement
 
 **Benchmarks and papers:** agentdojo.spylab.ai/results (full per-model/per-defense table) · brave.com/blog/comet-prompt-injection (exploit chain, disclosure timeline, post-publication update) · arXiv full text via r.jina.ai for 2410.13825, 2409.12089, 2401.13649, 2307.13854 · arXiv HTML for 2410.16464, 2504.18575, 2503.18813, 2506.08837 · `id_list` verification for all 28 IDs · relevance searches: `abs:"web agent" AND abs:"reusable"` (19), `abs:"accessibility tree" AND abs:"screenshot"` (12), `all:"web agent" AND all:"observation space"` (2), `all:"llms.txt"` (2), `all:"JavaScript rendering" AND all:crawl` (0)
+
+END OF REPORT
