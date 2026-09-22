@@ -111,7 +111,9 @@ Correction to a common assumption (and to the task brief): **this is a server-si
 - Bypasses: `locator`-scoped and `ignoreLocators` calls "currently bypass the server-side result cache". `variables` travel with the request, so differing values miss — docs advise disabling cache for calls carrying credentials.
 - Fail-soft: "If the cache is unreachable, Stagehand falls back to normal inference rather than failing your run."
 
-**Caveat flagged by the lane:** only the caching docs page was read, not Stagehand's source. A client-side `selfHeal` option may exist and simply not be documented there. Verify against `github.com/browserbase/stagehand` source before relying on the absence.
+**Caveat flagged by the lane, since RESOLVED by the lead against source (2026-09-22).** The lane read only the caching docs page and correctly refused to conclude Stagehand has no repair loop. It does. `SelfHeal *bool` is a client-level option in `packages/sdk-go/client_options.go`; `gh api search/code` returns 23 matches across `packages/extension/services/actService.ts`, `packages/evals/initStagehand.ts`, `packages/sdk-go/`, and a dedicated eval task `packages/evals/tasks/bench/act/heal_scroll_50.ts`. The README states: *"`act`, `observe`, and `extract` refresh how an action happens when the site changes underneath it."*
+
+**The two mechanisms are complementary, not contradictory.** Self-healing is client-level and re-derives the action when the page changes; the caching page's *"replays a cached `act()` result deterministically with self-healing turned off"* describes healing being suppressed **during cache replay specifically**, which is what makes replay deterministic. So Stagehand has both a preventive path (content-hash cache miss) and a reactive path (self-heal on live calls). Reading the caching page alone would have produced the wrong conclusion — a clean instance of the lane's own source-over-docs rule.
 
 ### Dormant: LaVague — MEASURED (ind., repo metadata)
 
@@ -633,7 +635,7 @@ Trust rests on **Mandates** — "tamper-proof, cryptographically-signed digital 
 **404s / blocks encountered (recorded so nobody repeats them):** `mozilla/readability/main/isProbablyReaderable.js` (actual path `Readability-readerable.js`); `crawlee.dev/js/docs/guides/adaptive-playwright-crawler` and two sibling paths (read the source instead, more authoritative anyway); `ahrefs.com/blog/llms-txt`; `docs.skyvern.com/running-tasks/caching` (moved to `www.skyvern.com/docs`); `arxiv.org/html/2401.13649v3`. Content-blocked by the fetch proxy: `arxiv.org/html/2410.13825v2` and `arxiv.org/html/2409.12089v1`, both recovered via `r.jina.ai` on the PDF.
 
 **Could not verify, would not cite without a source check:**
-- **Stagehand's client-side `selfHeal` option** — only the caching docs page was read; it documents a server-side cache and never mentions `selfHeal`. Check `github.com/browserbase/stagehand` source.
+- ~~**Stagehand's client-side `selfHeal` option**~~ — **RESOLVED 2026-09-22 by the lead against source.** `SelfHeal *bool` exists as a client-level option (`packages/sdk-go/client_options.go`, 23 code-search matches, dedicated eval `heal_scroll_50.ts`). Healing runs on live calls and is suppressed only during deterministic cache replay. Full note in Q2.
 - **spider-rs `crawl_smart()` heuristic** — asserted, undisclosed. Needs the Rust source.
 - **Skyvern's cache-key semantics** — undocumented.
 - **Firecrawl's engine-selection hit rates** and **Crawlee's adaptive-crawler measured savings** — neither vendor publishes benchmarks. "Adaptive crawling saves X%" is unsupported in both directions.
