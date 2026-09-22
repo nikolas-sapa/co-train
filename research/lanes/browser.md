@@ -298,3 +298,242 @@ Gemini-1.5-Flash ladder: 11.6 → 23.2 → 24.2 → 30.0 → 32.1 → **33.7**. 
 What AgentOccam does to the tree: merges descriptive nodes into interactive nodes carrying the same label; converts tables/lists to Markdown so `columnheader`/`gridcell` tokens disappear; strips IDs and `[required: False]` attributes; marks "pivotal" nodes and retains only those plus "ancestor nodes... sibling nodes", collapsing the rest to "Other invisible node"; and on `branch` drops steps belonging to earlier plans (call-stack scoping).
 
 Final action space — 8 actions: `click [id]`, `type [id] [content]`, `go_back`, `go_home`, `note [content]`, `stop [answer]`, `branch [id] [intent]`, `prune [id] [reason]`. **Removed from WebArena's original set: `noop`, `hover`, `press`, `scroll`, `tab_focus`, `new_tab`, `tab_close`, `go_forward`, `goto`.** Observed action counts: click 4720, type 1159, stop 769, go_back 339, note 197, prune 47, go_home 42, branch 34.
+
+### Code-mediated access: Beyond Browsing (2410.16464) — MEASURED (vendor)
+
+GPT-4o under the OpenHands framework. WebArena success rate %:
+
+| Agent | GitLab | Map | Shopping | Shop Admin | Reddit | Multi-site | **Avg** |
+|---|---|---|---|---|---|---|---|
+| Browsing only | 12.8 | 20.2 | 10.2 | 22.0 | 10.4 | 10.4 | **14.8** |
+| API only | 43.9 | 45.4 | 25.1 | 20.3 | 18.9‡ | 8.3 | **29.2** |
+| Hybrid | 44.4 | 45.9 | 25.7 | 41.2 | 51.9‡ | 16.7 | **38.9** |
+
+‡ Reddit uses APIs the authors added themselves. Before adding them: API-only Reddit was **9.4% with 18 endpoints** vs **18.9% with 31 endpoints** — a clean demonstration that API-agent performance is a function of **API surface, not agent capability**.
+
+Comparison rows: WebArena baseline 12.3, AutoEval 26.9, AWM 35.5, SteP 36.5 (authors flag SteP as using WebArena-specific prompts "while other agents are task-agnostic").
+
+**Steps and dollar cost per task (Table 7):**
+
+| Agent | GitLab | Map | Shopping | Shop Admin | Reddit | Multi | **Avg** |
+|---|---|---|---|---|---|---|---|
+| Browsing steps / $ | 9.4 / 0.2 | 8.0 / 0.1 | 7.3 / 0.1 | 7.0 / 0.2 | 11.1 / 0.1 | 7.5 / 0.1 | **8.4 / 0.1** |
+| API steps / $ | 7.0 / 1.7 | 6.6 / 1.1 | 8.2 / 1.0 | 8.4 / 1.1 | 8.8 / 0.6 | 7.7 / 1.6 | **7.8 / 1.2** |
+| Hybrid steps / $ | 8.1 / 2.0 | 9.4 / 1.7 | 8.2 / 1.3 | 9.0 / 1.4 | 7.8 / 0.6 | 8.0 / 1.9 | **8.5 / 1.4** |
+
+**API access costs ~12x per task in dollars while taking fewer steps.** No raw token counts are given, but the paper attributes the spend to endpoint documentation volume — for GitLab "the agent is provided with 988 available APIs, leading to much longer prompts," versus browsing needing only interface instructions and ~14 actions. Reddit, with the shortest documentation, is cheapest. Sites above 100 endpoints use two-stage retrieval via a `get_api_documentation` tool rather than inlining docs; Map (53) and Reddit (31) get full docs inline.
+
+API availability per site as the authors rate it: GitLab 988 endpoints (good), Map 53 (good), Shopping/Shop Admin 556 shared (fair), Reddit 31 (poor).
+
+Efficiency detail: API-solvable tasks needed on average **2.1 API calls**, but total agent steps averaged 7.8 — the rest went to documentation lookups, error recovery, and verification. Hybrid action mix: browsing-only 14.3% of tasks @ 25.0% accuracy; API-only 8.0% @ 40.0%; both 77.7% @ **42.0%**.
+
+**Design implication:** code-mediated access is the single biggest accuracy win in this lane (+24.1 absolute over browsing), but it converts a browsing problem into a *tool-documentation retrieval* problem, and the retrieval is what costs money. The leverage is compiling a minimal API surface (cf. AutoTailor's 1,283 → 33) rather than paging full OpenAPI specs into context.
+
+### Bandwidth/latency accounting: Sema (2604.20940) — MEASURED (vendor)
+
+Best source found for actual transport cost of observations, framed in Shannon-Weaver Level A/B terms:
+
+- **screenshot upload accounts for >60% of end-to-end action latency**
+- a hybrid screen representation (lossless a11y-tree/OCR text + compact visual tokens) gives **130–210x screenshot uplink reduction**
+- accuracy stays **within 0.7 percentage points** of the raw-screenshot baseline
+- (companion audio result: voice transport sends "43-64x more data than needed")
+
+The number to cite for "text observations are two orders of magnitude cheaper on the wire than pixels, at negligible accuracy cost" — but it is the authors' own measurement, single paper, and the 0.7pp figure is not broken out by benchmark in the abstract.
+
+### Channel conflict: Do GUI Agents Believe Their Eyes? (2607.04334) — MEASURED (ind.)
+
+The most decision-relevant reliability result on observation design. Formalizes "visual state reliance" and a "Perception-Fusion Gap" using **735 paired single-channel probes** across models from **4 vendors**, with **225 zero-edit divergences** (channels disagreeing without any intervention):
+
+- when pixels and serialized structure (DOM/a11y tree) disagree, models **follow the outdated structure on up to 0.88 of probes**
+- **self-recovery rate ≤ 0.03**
+- the failure **triggers at the 1st step**
+- a white-box ablation traces the effect to **a single copied structural value**
+
+**Practical reading:** giving an agent both a screenshot and an a11y tree does not make it robust — it makes it confidently wrong whenever the tree is stale, which is exactly what happens on SPAs after a client-side re-render. **This connects Q1 and Q3: the SPA-shell problem does not end when the browser renders.** A tree snapshot taken before hydration completes will be *believed over the pixels*.
+
+### Vision-only and tree-quality datapoints
+
+- **MolmoWeb (2604.08516)** — fully open 4B/8B screenshot-only web agents "requiring no access to HTML, accessibility trees, or specialized APIs." WebVoyager **pass@1 78.2% / pass@4 94.7%**; Online-Mind2Web **pass@1 35.3% / pass@4 60.5%**. Trained on "over 100K synthetic task trajectories" + 30K+ human demonstrations. MEASURED (vendor). Cross-system comparison, not a controlled input ablation.
+- **BrowserForge (2608.24848)** — 203,238 trajectories from distinct sites via parallel sandboxes; a11y tree used as a *synthesis-time* signal only, released agent "acts purely from the screenshot"; Online-Mind2Web **25.66% → 33.33%**. MEASURED (vendor).
+- **Screen2AX (2507.16704)** — builds tree-structured macOS accessibility metadata from a single screenshot, **77% F1** tree reconstruction, and reports **"a 2.2x performance improvement over native accessibility representations"**. MEASURED (vendor). Uncomfortable implication: the platform-native a11y tree is often *worse* than one inferred from pixels, undercutting the assumption that a11y trees are ground truth.
+- **ShowUI (2411.17465)** — UI-guided visual token selection: **75.1% zero-shot screenshot grounding, 33% fewer visual tokens, 1.4x speedup**. MEASURED (vendor).
+- **UGround (2410.05243 v3)** — 10M elements over 1.3M screenshots; beats prior grounding models by up to **20% absolute** and outperforms agents that additionally consume text input, across six benchmarks. Argues directly against HTML/a11y-tree inputs on noise, incompleteness, and overhead grounds. MEASURED (vendor).
+- **MAG (2607.10079 v3)** — ablates Set-of-Mark vs raw pixel coordinates; GRPO lifts a 9B agent from **6.9% to 13.2%**. MEASURED (vendor).
+- **Region4Web (2605.07134)** — restructures the a11y tree into "functional regions" as a persistent PageDigest; criticizes prior work for treating "observation at the same element-level granularity as the action space." **No numbers in the abstract.** CLAIMED.
+
+### Benchmark context for calibrating any of the above
+
+- **WebVoyager (2401.13919)** — 59.1% task success; auto-evaluation 85.3% agreement with human raters. MEASURED (vendor).
+- **OSWorld (2404.07972)** — 369 tasks; humans finish "over 72.36%", best model **12.24%**. MEASURED (vendor).
+- **Mind2Web (2306.06070 v3)** — "over 2,000 open-ended tasks collected from 137 websites spanning 31 domains." No accuracy figures in the abstract.
+- **An Illusion of Progress? (2504.01382 v4, COLM 2025)** — Online-Mind2Web: **300 realistic tasks across 136 websites**, LLM-as-a-Judge at ~**85% agreement** with human judgments. Thesis is that earlier reported results reflected "over-optimism" about agent competency. **Cite this whenever quoting a WebArena number as evidence of real-world capability.** MEASURED (ind.).
+- **WebMall (2508.13024 v3, SIGIR 2026)** — offline four-shop benchmark from Common Crawl; eight agent configurations differing in "observation space, availability of short-term memory, and the employed LLM"; top performers stayed **under 65% completion** on the hardest categories. Possible additional modality ablation in the body; not read past the abstract. MEASURED (vendor).
+
+### Q3 synthesis — what to act on
+
+1. **Order the element list by DOM pre-order, always.** Free, and worth ~37 points to GPT-4V on the easy-task subset. (2409.12089)
+2. **Keep a text element list in the observation even for vision-capable models.** Gemini-class models collapse to 3.70% without it.
+3. **Cut the action space before touching the observation.** Fewest tokens *and* the biggest single accuracy gain in the AgentOccam ladder.
+4. **Do not sell observation compression as a token-saving measure.** The winning configuration uses 33% *more* observation tokens than vanilla.
+5. **Prefer API/code paths where an API surface exists, but compile a minimal surface.** 988 endpoints of docs is where the 12x cost comes from; AutoTailor's 33-API set with a model fallback got 90.6% at −57.8% tokens.
+6. **Never trust a serialized tree taken before hydration settles.** Models follow the stale tree over the pixels on up to 0.88 of conflicting probes and essentially never self-correct (≤0.03).
+7. **Report pass@1, not pass@4.** MolmoWeb's WebVoyager figure swings 78.2% → 94.7% on that choice alone.
+
+---
+
+## Q4 — Prompt injection in fetched content: what has been measured to hold
+
+### Answer
+
+**Exactly one defense has a measured near-zero attack success rate against a real attack corpus, and its own authors say the problem is not solved.** CaMeL drove 949 AgentDojo attacks to 0 successes on three backbones, at 7 points of utility (77% vs 84%) and ~2.8x input tokens — and the paper enumerates three side channels it does not close plus a data-flow-becomes-control-flow escalation its authors weaponize. Most instructive negative result: **Spotlighting, which its own paper reports as cutting ASR from >50% to <2%, only moves AgentDojo's targeted ASR from 47.69% to 41.65%.** **Confidence: strong.**
+
+### AgentDojo (2406.13352) — the measurement substrate
+
+97 realistic tasks, 629 security test cases. The results page states up front that it is **"not a leaderboard"** — not every model was tested with every attack/defense, so cross-row comparison is not apples-to-apples.
+
+**No defense, `important_instructions` attack** — MEASURED (ind.):
+
+| Model | Utility | Utility under attack | Targeted ASR |
+|---|---|---|---|
+| claude-3-7-sonnet-20250219 | **88.66%** | 77.27% | 7.31% |
+| claude-3-5-sonnet-20241022 | 79.38% | 72.50% | **1.11%** |
+| claude-3-5-sonnet-20240620 | 79.38% | 51.19% | 33.86% |
+| claude-3-opus-20240229 | 68.04% | 52.46% | 11.29% |
+| claude-3-sonnet-20240229 | 53.61% | 33.23% | 26.71% |
+| claude-3-haiku-20240307 | 39.18% | 33.39% | 9.06% |
+| gpt-4-0125-preview | 65.98% | 40.70% | **56.28%** |
+| gpt-4-turbo-2024-04-09 | 64.95% | 54.05% | 28.62% |
+| gpt-4o-mini-2024-07-18 | 68.04% | 49.92% | 27.19% |
+| gpt-3.5-turbo-0125 | 35.05% | 34.66% | 10.33% |
+| gemini-2.0-flash-001 | 43.30% | 39.75% | 20.83% |
+| gemini-1.5-pro-002 | 61.86% | 47.06% | 17.01% |
+| gemini-1.5-pro-001 | 46.39% | 28.93% | 28.62% |
+| gemini-1.5-flash-002 | 38.14% | 32.43% | 3.50% |
+| command-r-plus | 24.74% | 25.12% | 4.45% |
+| Llama-3-70b-chat-hf | 34.02% | 18.28% | 25.60% |
+
+Note the non-monotonicity: **claude-3-5-sonnet-20241022 at 1.11% ASR is 30x more robust than its own June predecessor at 33.86%, with identical benign utility (79.38%).** Robustness is a per-checkpoint property, not a model-family property.
+
+**Attack-strength sweep, gpt-4o-2024-05-13, no defense** (benign utility 69.07% throughout):
+
+| Attack | Utility under attack | Targeted ASR |
+|---|---|---|
+| important_instructions | 50.08% | **47.69%** |
+| tool_knowledge | 57.71% | 34.50% |
+| injecagent | 68.52% | 5.72% |
+| ignore_previous | 66.77% | 5.41% |
+| direct | 67.25% | 3.66% |
+
+**A 13x spread in measured ASR on the same model from attack choice alone.** Any paper reporting a single ASR without naming the attack is uninterpretable.
+
+**Defenses, gpt-4o-2024-05-13 vs `important_instructions`:**
+
+| Defense | Utility | Utility under attack | Targeted ASR |
+|---|---|---|---|
+| none | 69.07% | 50.08% | 47.69% |
+| repeat_user_prompt | **84.54%** | 67.25% | 27.82% |
+| tool_filter | 72.16% | 56.28% | **6.84%** |
+| spotlighting_with_delimiting | 72.16% | 55.64% | 41.65% |
+| transformers_pi_detector | 41.24% | 21.14% | 7.95% |
+
+`tool_filter` is the best utility/security trade. `transformers_pi_detector` buys comparable ASR by destroying utility — a classifier defense that fails closed on legitimate work. `repeat_user_prompt` is the only defense that *raised* benign utility above baseline (84.54% vs 69.07%), suggesting part of what looks like "injection vulnerability" is ordinary instruction-following drift.
+
+### CaMeL (2503.18813 v2) — the one that measures near-zero, with its own caveats
+
+"Defeating Prompt Injections by Design." Code: `github.com/google-research/camel-prompt-injection`.
+
+Mechanism: derive control and data flow from the trusted user query up front so untrusted retrieved data "can never impact the program flow"; attach capabilities to data and enforce policies at tool-call time. A privileged P-LLM emits code; a quarantined Q-LLM reads untrusted content and returns symbolic values; a custom interpreter tracks provenance.
+
+**Utility:** **77%** of AgentDojo tasks "with provable security" vs **84%** undefended. Newer backbones narrow the gap — Travel-suite utility for the Claude Sonnet line moved **25% → 55% → 75%** across 3.5, 3.7, and 4 **with no changes to CaMeL**. Claude 3.5 Haiku as Q-LLM under a Claude 4 Sonnet P-LLM cost ~1% utility while cutting median-task cost ~12%.
+
+**Security — 949 attacks total:**
+- Gemini 2.5 Pro: **300 successful attacks without CaMeL, 0 with it**
+- Claude 3.5 Sonnet + CaMeL: **0**; strongest baseline (tool filter) still allowed **8**
+- GPT-4o Mini: **276** successes via the native tool-calling API → **0** under CaMeL
+- Residual non-zero ASR comes from two injection tasks outside the threat model.
+- Policy friction is uneven: lowest on Workspace, highest on Slack and Banking.
+
+**Overhead:** median AgentDojo task under attack runs **~2.82x input and ~2.73x output tokens** vs native tool calling, driven by re-prompting the P-LLM to fix generated code (**up to 10 repair attempts**). Spotlighting is ~1.06x input for comparison.
+
+**What CaMeL explicitly does NOT defend (authors' own list):**
+- "text-to-text attacks which have no consequences on the data flow" — a distorted summary — and injection-driven phishing.
+- Trust assumptions: the user prompt is trusted and not pasted from an untrusted source; agent memory is uncompromised.
+- **Data flow turning into control flow:** Claude 3.5 Sonnet, o3-mini, and o1 generated dispatch-over-all-tools code driven by email contents, which the authors weaponize into potential arbitrary execution; they expect **ROP-style composition of individually-permitted blocks**.
+- No atomicity or rollback once a partially-executed plan has side effects.
+- Human factors: de-classification prompts risk fatigue and rubber-stamping.
+
+**Three side channels:** (1) indirect inference via an external resource, blocked by STRICT mode; (2) exception-based 1-bit leak — STRICT mode helps but **the authors concede an attacker may still raise exceptions by manipulating tool-visible data**; (3) timing — "not currently exploitable because the time module is not available," other timing channels not ruled out.
+
+Authors' verdict, verbatim: **"No, prompt injection attacks are not fully solved."**
+
+### Dual-LLM and the pattern catalogue: Design Patterns (2506.08837 v2) — CLAIMED (no measurement)
+
+| Pattern | Mechanism | Utility cost |
+|---|---|---|
+| Action-Selector | LLM as a switch mapping requests to predefined tool calls, no result feedback | confined to a pre-enumerated action list |
+| Plan-Then-Execute | fix the full tool-call plan *before* touching untrusted data | cannot branch on intermediate results; planned-call *parameters* can still be tampered with |
+| LLM Map-Reduce | isolated tool-less LLM per untrusted item, constrained reduce | only per-item decomposable tasks with tightly constrained outputs |
+| Dual LLM | privileged LLM never reads untrusted text; quarantined tool-less LLM returns symbolic variables | privileged LLM cannot inspect content it manipulates; quarantined output can still be attacker-shaped |
+| Code-Then-Execute | emit an explicit program calling tools and spawning unprivileged LLMs | task must be expressible as code up front |
+| Context-Minimization | strip content no longer needed before generating the answer | reply cannot draw on removed material |
+
+**No quantitative results anywhere in the paper.** The abstract advertises "provable resistance"; the body hedges to "mitigate — if not entirely eliminate." Scope limit stated plainly: reliable guarantees are unlikely for general-purpose agents, but **"*application-specific* agents can be secured through principled system design."**
+
+### Web/browser-specific attack measurements
+
+**WASP (2504.18575 v3, Meta)** — MEASURED (ind.). 84 attack tasks, 37 utility tasks. Table 2:
+
+| Model | Scaffold | Inputs | Defense | ASR-interm | ASR-e2e | Utility |
+|---|---|---|---|---|---|---|
+| GPT-4o-mini | VWA | axtree | — | 0.345 | 0.024 | 0.432 |
+| GPT-4o-mini | Tool Calling | axtree | instr. hierarchy | 0.536 | **0.000** | 0.270 |
+| GPT-4o | VWA | axtree | — | 0.321 | 0.012 | 0.595 |
+| GPT-4o | VWA | axtree | system prompt | 0.167 | **0.000** | 0.459 |
+| GPT-4o | VWA | axtree + SoM | — | 0.429 | 0.036 | 0.622 |
+| GPT-4o | VWA | axtree + SoM | system prompt | 0.226 | 0.012 | 0.459 |
+| OpenAI o1 | Tool Calling | axtree | instr. h. (system) | **0.857** | **0.167** | 0.486 |
+| OpenAI o1 | Tool Calling | axtree | instr. h. (developer) | 0.583 | 0.155 | 0.459 |
+| Claude Sonnet 3.5 v2 | CURI | screenshot | — | 0.583 | 0.060 | 0.081 |
+| Claude Sonnet 3.7 Ext. Th. | CURI | screenshot | — | 0.536 | 0.036 | 0.486 |
+
+Three results that should change how we build:
+
+- **Adding Set-of-Marks to GPT-4o's axtree raises ASR-intermediate 0.321 → 0.429 and e2e 0.012 → 0.036 while raising utility 0.595 → 0.622.** A richer observation is a larger attack surface. **Direct collision between Q3 and Q4.**
+- **The reasoning model with the instruction-hierarchy defense is the most hijackable configuration in the table** (o1, 0.857 interm / 0.167 e2e). Instruction hierarchy is not a browser-agent defense.
+- **URL-borne injections dominate plain-text ones** (interm / e2e): GPT-4o axtree+SoM 0.619/0.071 vs 0.238/**0.000**; o1 (system) 0.976/0.095 vs 0.738/0.238; Claude-3.5 0.857/0.048 vs 0.310/0.071. **Sanitizing URLs in fetched content is a high-leverage, cheap mitigation.**
+- Defensive system prompts cost utility: GPT-4o 0.595 → 0.459.
+
+Authors' framing: hijacking "between 17-86% ASR-intermediate" against end-to-end success "of only up to 16%", attributed to agents being unable to finish multi-step malicious goals — **"security by incompetence."** The load-bearing caveat for the whole field: **the low e2e numbers are a capability artifact that disappears as agents improve.**
+
+**Other measured web attacks:**
+- **Pop-ups (2411.02391)** — adversarial pop-ups give **86% average ASR** and cut task success by **47%**. MEASURED (vendor).
+- **EIA (2409.11295)** — across 177 action steps, **up to 70% ASR for stealing specific PII, 16% for the full user request**. MEASURED (vendor).
+- **AdvAgent (2410.17401)** — "high success rates", **no numbers**. CLAIMED.
+- **Task Shield (2412.16682)** — AgentDojo + GPT-4o: **ASR 2.07% at 69.79% utility**. MEASURED (vendor), not independently reproduced.
+- **Spotlighting (2403.14720)** — authors report **>50% to <2%**. **Contradicted by AgentDojo's independent run: 41.65%.** Likely because Spotlighting was evaluated on single-turn injection, not multi-turn agentic tool use. The <2% figure should not be cited for agent settings.
+
+### Shipped-product evidence: Brave vs Perplexity Comet — MEASURED (ind.)
+
+Source: `brave.com/blog/comet-prompt-injection/`.
+
+Vector: "Comet feeds a part of the webpage directly to its LLM without distinguishing between the user's instructions" and untrusted page content. Payloads can sit on attacker-owned sites (white-on-white text, HTML comments) **or in user-generated content the attacker does not control** — Reddit comments, Facebook posts. Trigger: the user asking for a summary.
+
+Proof-of-concept chain, from a payload "hidden behind the spoiler tag" in a Reddit comment:
+1. open the victim's Perplexity account details page, read their email address
+2. visit a variant of the account URL where "the trailing dot creates a different domain" — "to bypass existing authentication" — and sign in with that email to trigger a one-time password
+3. jump to Gmail, where the victim is already authenticated, and read the OTP
+4. post the email and OTP back as a reply to the attacker's Reddit comment → account takeover
+
+"The attack happens without any further user input." Because the agent runs with the user's own privileges across logged-in sessions, "same-origin policy (SOP) or cross-origin resource sharing (CORS) are all effectively useless."
+
+Timeline: reported 2025-07-25; initial fix 2025-07-27; **2025-07-28 "Retesting revealed the fix was incomplete"**; disclosure 2025-08-20. **Post-publication update on the same page: "Perplexity still hasn't fully mitigated the kind of attack described here. We've re-reported this to them."**
+
+### Q4 synthesis — what holds versus what is proposed
+
+**Measured to hold:** CaMeL's control/data-flow separation plus capability policies — 0 of 949 attacks on three backbones — at 7 points of utility and ~2.8x tokens, with three acknowledged side channels, no defense against text-to-text manipulation or phishing, and a data-to-control-flow escalation its authors expect to be composable ROP-style. Tool filtering is the cheap 80% answer (6.84% ASR at 72.16% utility).
+
+**Proposed but unmeasured:** the six design patterns (2506.08837) have zero quantitative evaluation. Dual-LLM quarantine is implemented inside CaMeL, so its evidence rides on CaMeL's numbers.
+
+**Measured NOT to hold:** spotlighting/delimiting in agentic settings (41.65% vs its own paper's <2%); instruction hierarchy on browser agents (o1 the worst row in WASP); classifier-based detection at acceptable utility (41.24% benign utility).
+
+**The framing to use:** the lethal trifecta is not a risk to be mitigated at the model layer. Every model-layer defense measured here leaks. The only thing that reaches zero constrains the *program*, and it does so by giving up the ability to plan over data the privileged model cannot see. Add the WASP result that richer observations raise ASR, and the Brave result that a patched agentic browser stayed exploitable across two fix rounds, and the honest position is: **do not give a browsing agent both private-data access and an external write channel in the same session, regardless of defense.**
