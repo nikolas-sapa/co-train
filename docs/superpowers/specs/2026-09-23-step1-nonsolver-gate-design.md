@@ -134,6 +134,34 @@ channel"; `submit` is R3's interface; `escalate` is the escape hatch, which the
 corpus shows is load-bearing (90.6% with fallback / 60.1% without / 87.5% plain
 agent — removing it is worse than not compiling at all).
 
+**Constraint: a harness exposes `bash` XOR `ptc`, never both.** Adding a
+catalog alongside a shell is measurably *degrading*, not merely redundant
+(`tokens.md:140`, verbatim): "Bash+Tool has the lowest median shell calls per
+shell-using task combined with the highest failure rate and lowest retry rate
+in both benchmarks — adding a catalog alongside the shell reduces shell use
+without improving the reliability of the remaining shell calls." Lowest usage
+*and* highest failure. The four kinds are the union across harnesses, not the
+menu within one episode. `contract.py` enforces this rather than documenting it.
+
+**Which PTC.** The corpus carries two incompatible PTC definitions from two
+papers and never flags the difference:
+
+| | 2609.11999 | 2608.06370 |
+|---|---|---|
+| Execution | unstated | native shell subprocess |
+| Observation | unstated | stdout |
+| Turns after execution | multi-turn (delta tool calls -4.0 / -3.0) | zero; stop middleware kills the loop |
+| Compared against | bash, Bash+Tool, Bash+Synthesis, Tool-only | JSON tool calling only, **no bash arm** |
+
+This project is built on **2609.11999's multi-turn PTC** — the bash-over-PTC
+ordering exists only there. 2608.06370's PTC executes *inside a shell
+subprocess*, which would partially collapse the bash/PTC axis this project
+measures. Recorded so that the single-shot definition is not imported later by
+accident on the strength of the shared name.
+
+The contract already admits both without change: a single-shot harness returns
+`done=True` from the first `step()`. No special case needed.
+
 **Decision, not assumption:** `escalate` is **in** the action space.
 `lanes/bench.md` is silent on in-space vs side channel. R34 wants escalation
 volume per task as a defect prior, which requires it in the recorded
@@ -220,3 +248,9 @@ the mutant; the real environment, when it exists, is the reference.
 - `lanes/tokens.md` is **silent** on stdout/stderr separation, exit codes,
   truncation limits, timeouts, cwd persistence, and shell statefulness. Those
   are free choices here, and are recorded in `contract.py` as choices.
+- The lane carries **no Protocol, ABC, base class or harness interface** at all
+  — every Python block in it is nano-rlm implementation source (compaction
+  constants, `truncate_tool_output`, prompt assembly), not an abstraction
+  anyone proposed for swapping harnesses. There is no prior art to conform to,
+  so the contract in section 4 is this project's own and should be treated as
+  unvalidated rather than inherited.
