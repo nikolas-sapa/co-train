@@ -16,6 +16,7 @@ beat that harness's untrained baseline — and does it survive a harness swap?
 | `lanes/bench.md` | Vending-Bench 2 verified, reward-hacking taxonomy, **34 design rules**. 336 L |
 | `lanes/browser.md` | SPA detection, compile-the-flow, observation space, prompt injection, agent-web contract. 666 L |
 | `04-prior-art-lego-rl.md` | LEGO-RL delta. Not scooped; their future work is our angle. |
+| `05-delta-tierlist-and-rdi.md` | Berkeley RDI broke 8/8 agent benchmarks. Four harnesses the sweep missed. |
 
 ## Headline findings
 1. **PTC loses to plain bash** on untrained models, on both quality and cost (arXiv 2609.11999).
@@ -37,6 +38,9 @@ beat that harness's untrained baseline — and does it survive a harness swap?
    (38 steps vs 77). Test every verifier both ways.
 10. **The uncapped scalar suits an RL target**, because binary scoring wastes ~75% of the rollout
     budget on ties. But uncapped buys headroom, not safety.
+11. **Every major agent benchmark audited has been broken** (Berkeley RDI, 8/8, near-perfect scores
+    with zero tasks solved and zero LLM calls). OpenAI dropped SWE-bench Verified after finding
+    59.4% of audited problems had flawed tests. Verifier correctness is THE problem, not a detail.
 
 ## Method notes
 - Every arXiv ID cited was independently re-resolved against the arXiv API before acceptance.
