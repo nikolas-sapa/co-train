@@ -18,6 +18,7 @@ beat that harness's untrained baseline — and does it survive a harness swap?
 | `04-prior-art-lego-rl.md` | LEGO-RL delta. Not scooped; their future work is our angle. |
 | `05-delta-tierlist-and-rdi.md` | Berkeley RDI broke 8/8 agent benchmarks. Four harnesses the sweep missed. |
 | `06-perplexity-delta.md` | **fp16-on-T4 unknown RESOLVED.** BenchJack tooling, practitioner failure modes, sandbox economics, from-scratch verdict. |
+| `07-prior-art-closure.md` | OpenForgeRL, Harness-Bench, Agentic Routing. Honest novelty assessment: narrower but better-posed. |
 
 ## Headline findings
 1. **PTC loses to plain bash** on untrained models, on both quality and cost (arXiv 2609.11999).
