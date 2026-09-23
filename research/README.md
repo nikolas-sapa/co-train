@@ -17,6 +17,7 @@ beat that harness's untrained baseline — and does it survive a harness swap?
 | `lanes/browser.md` | SPA detection, compile-the-flow, observation space, prompt injection, agent-web contract. 666 L |
 | `04-prior-art-lego-rl.md` | LEGO-RL delta. Not scooped; their future work is our angle. |
 | `05-delta-tierlist-and-rdi.md` | Berkeley RDI broke 8/8 agent benchmarks. Four harnesses the sweep missed. |
+| `06-perplexity-delta.md` | **fp16-on-T4 unknown RESOLVED.** BenchJack tooling, practitioner failure modes, sandbox economics, from-scratch verdict. |
 
 ## Headline findings
 1. **PTC loses to plain bash** on untrained models, on both quality and cost (arXiv 2609.11999).
@@ -41,6 +42,12 @@ beat that harness's untrained baseline — and does it survive a harness swap?
 11. **Every major agent benchmark audited has been broken** (Berkeley RDI, 8/8, near-perfect scores
     with zero tasks solved and zero LLM calls). OpenAI dropped SWE-bench Verified after finding
     59.4% of audited problems had flawed tests. Verifier correctness is THE problem, not a detail.
+12. **fp16 GRPO on T4 works** — Unsloth ships 40 Kaggle-targeted GRPO notebooks. The free path is
+    unblocked, but use Unsloth rather than raw TRL+vLLM on Turing hardware.
+13. **BenchJack (Apache-2.0) can attack our own verifier**, with a V1-V8 taxonomy and four
+    adversarial toy agents. Build those four before the environment is finished.
+14. **From-scratch pretraining is a detour.** nanochat's $100 buys a GPT-2-class model (MMLU 31%);
+    useful agents need >=1B params and >=1T tokens. A 7B LoRA costs $40-200.
 
 ## Method notes
 - Every arXiv ID cited was independently re-resolved against the arXiv API before acceptance.
@@ -55,5 +62,10 @@ All six research lanes complete (~6,700 lines). `02-synthesis.md` carries the de
 an addendum folding in the bench and browser lanes and a revised build sequence.
 
 ## Next
-Execute the build sequence in `02-synthesis.md`. Step 0 (chat-template prefix-preservation gate)
-is free and CPU-only, and it decides whether TRL is usable at all.
+Execute the build sequence in `02-synthesis.md` as amended by `06-perplexity-delta.md` §1 and §2:
+1. Four adversarial toy agents (null, random, prompt-injection, state-tampering) — cheapest
+   high-value work available, and they must exist before the environment is called done.
+2. Unsloth on Kaggle T4x2, fp16, `use_vllm=False`, Qwen3-0.6B, 5-step smoke test.
+3. Verifier first, environment second. Snapshot-restored, replay-scored, verdict-token-bound,
+   role-separated. Complete set or nothing.
+Set `NCCL_CUMEM_ENABLE=0` before any vLLM weight sync (180s -> 4s on 70B).
