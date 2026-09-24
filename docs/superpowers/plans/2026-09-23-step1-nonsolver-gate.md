@@ -1136,7 +1136,8 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ```python
 # tests/test_gate.py
-"""The non-solver gate. Eight assertions: four predicates x two directions.
+"""The non-solver gate. Ten assertions: four predicates x two directions,
+plus a protocol check on the decorator and a meta-test on the liveness guard.
 
 Berkeley RDI's rule is "if a zero-capability agent scores above baseline,
 your evaluation has a bug" -- but the four agents have four DIFFERENT tests,
@@ -1159,7 +1160,9 @@ looser reading is deferred to Step 4 deliberately, so that it is not
 silently inherited here.
 """
 
-from cotrain.contract import Env, rollout
+import pytest
+
+from cotrain.contract import Act, Env, rollout
 from cotrain.nonsolvers import (
     INJECTIONS,
     TAMPER_PROBES,
@@ -1254,6 +1257,38 @@ def _sweep(env_cls) -> list[float]:
     return scores
 
 
+def test_liveness_guard_actually_trips():
+    """`expect=` is what makes every SILENT predicate non-vacuous, and it is a
+    CONDITIONAL assertion -- dormant on correct code. So no mutation of this
+    file can kill it: `_score` ignoring `expect` entirely survives the whole
+    suite, measured. Its load-bearing-ness was instead proven by composition --
+    an acting Null fails four tests with the guard intact and only one with the
+    guard removed, because both Null predicates go blind.
+
+    A guard that has never been observed tripping is not evidence (R24: "a green
+    anti-cheat check that has never gone red is not evidence"). This is the one
+    test in the file that exercises the gate's own machinery rather than the
+    agents, and it is why the four SILENT predicates can be trusted.
+    """
+
+    class _Dead:
+        def act(self, obs):
+            return None
+
+    class _Acts:
+        def act(self, obs):
+            return Act("bash", "noop")
+
+    # Default form: silence must be attributable to the environment being sound,
+    # so a dead agent is rejected rather than quietly scored zero.
+    with pytest.raises(AssertionError, match="no accepted action"):
+        _score(SoundStubEnv, _Dead())
+
+    # Null's inverted form: an agent that started acting must not pass as Null.
+    with pytest.raises(AssertionError, match="expected 0 accepted acts"):
+        _score(SoundStubEnv, _Acts(), expect=0)
+
+
 def test_landed_decorator_satisfies_the_env_protocol():
     # If the decorator stopped conforming, every predicate below would be
     # measuring a different contract than Step 4's environment implements.
@@ -1335,7 +1370,7 @@ def test_tamper_silent_on_sound():
 - [ ] **Step 2: Run the gate — expect it to PASS immediately**
 
 Run: `cd /Users/nikolassapalidis/Developer/misc/co-train && pytest tests/test_gate.py -v`
-Expected: PASS, 9 passed.
+Expected: PASS, 10 passed.
 
 **This task has no red step, and manufacturing one would be dishonest.**
 Task 4 adds no implementation — Tasks 1-3 supply every name the gate imports, so
@@ -1350,7 +1385,7 @@ the only honest red step — and it is the reason this task exists.
 - [ ] **Step 3: Run the whole suite**
 
 Run: `cd /Users/nikolassapalidis/Developer/misc/co-train && pytest -v`
-Expected: PASS, 48 passed (12 contract + 13 nonsolvers + 14 stub envs + 9 gate)
+Expected: PASS, 49 passed (12 contract + 13 nonsolvers + 14 stub envs + 10 gate)
 
 - [ ] **Step 4: Prove the gate can actually fail**
 
@@ -1394,7 +1429,7 @@ Confirm green is restored before committing.
 ```bash
 cd /Users/nikolassapalidis/Developer/misc/co-train
 git status --short   # expect clean
-pytest -q            # expect 48 passed
+pytest -q            # expect 49 passed
 ```
 
 Record both mutant results in the commit message. A green gate that has never been observed red is not evidence.
@@ -1409,7 +1444,7 @@ git commit -m "feat: the non-solver gate, eight assertions both directions
 Verified the gate can fail, not only that it passes:
   mutant A  FLOOR 0.25 -> 0.0             => test_null_fires_on_leaky RED
   mutant B  token leaked into observation => R4 exposure test RED
-Both reverted; 48 passed green.
+Both reverted; 49 passed green.
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
@@ -1418,7 +1453,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ## Done when
 
-- `pytest -q` reports 48 passed from the repo root with no `PYTHONPATH` set.
+- `pytest -q` reports 49 passed from the repo root with no `PYTHONPATH` set.
 - Both mutants have been observed red and reverted, and `git status --short` is clean.
 - `grep -rnE '^[[:space:]]*(import|from) (torch|trl|unsloth)' src/ tests/` returns nothing. Anchor the pattern to the start of the line: the `uninit_memory` probe contains the literal text `import torch` *inside a payload string*, so an unanchored grep always matches and the check can never pass.
 - Four source files exist; no config beyond `pytest.ini`.
