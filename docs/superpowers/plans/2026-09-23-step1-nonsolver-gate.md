@@ -757,7 +757,7 @@ class Tamper:
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd /Users/nikolassapalidis/Developer/misc/co-train && PYTHONPATH=src pytest tests/test_nonsolvers.py -v`
-Expected: PASS, 13 passed
+Expected: PASS, 14 passed
 
 - [ ] **Step 5: Commit**
 
@@ -810,16 +810,33 @@ def test_protocol_conformance_is_not_the_same_as_contract_conformance():
         assert env.harness in ("bash", "ptc")
 
 
-def test_sound_token_is_not_predictable():
-    # A token generated as "tok1", "tok2", ... satisfies a pairwise-inequality
-    # freshness test while being trivially guessable by a non-solver.
+def test_sound_token_is_fresh_across_resets():
+    # Freshness only. A per-instance counter satisfies this BY DEFINITION, which
+    # is why it is not sufficient on its own -- see the next test.
     env = SoundStubEnv()
+    tokens = [(env.reset(), env._token)[1] for _ in range(64)]
+    assert len(set(tokens)) == 64
+
+
+def test_sound_token_is_not_derivable_from_episode_index():
+    # Sampled from FRESH INSTANCES, not repeated resets of one env. Measured
+    # against a counter mutant `self._token = format(self._n, "016x")`:
+    # 64 resets of one env  -> 64 distinct values, valid hex, test PASSES
+    # 64 fresh instances    -> 1 distinct value, test FAILS
+    # Distinctness-across-resets tests freshness and a hex charset check tests
+    # charset; a counter satisfies both. Only instance independence collapses it.
+    #
+    # ponytail: this is a proxy, not a proof. A GLOBAL counter would still pass,
+    # so the length check carries the entropy claim. Accepted ceiling at Step 1;
+    # upgrade path is a statistical test if the token ever becomes load-bearing
+    # beyond this fixture.
     tokens = []
     for _ in range(64):
+        env = SoundStubEnv()
         env.reset()
         tokens.append(env._token)
     assert len(set(tokens)) == 64
-    assert all(len(t) == 16 and set(t) <= set("0123456789abcdef") for t in tokens)
+    assert all(len(t) == 16 for t in tokens)
 
 
 def test_leaky_pays_a_floor_for_an_empty_trajectory():
@@ -1186,6 +1203,31 @@ def _score(env_cls, policy, expect=None) -> float:
     return reward
 
 
+def _sweep(env_cls) -> list[float]:
+    """Score every seed, asserting the sweep actually explored.
+
+    The spread assert is on LANDED STEPS, never on reward. On a sound
+    environment every seed scoring identically zero is the CORRECT result, so a
+    spread-on-reward assert goes red on working code -- measured, the baseline
+    went red.
+
+    This is also what kills `N_SEEDS = 32 -> 1`, which a universal quantifier
+    alone does not: `all()` over a single seed passes happily. Only the spread
+    assert notices that the sweep stopped sweeping.
+    """
+    scores: list[float] = []
+    landed: list[int] = []
+    for seed in range(N_SEEDS):
+        env = _Landed(env_cls())
+        scores.append(rollout(env, RandomAgent(seed)))
+        assert env.landed > 0, f"seed {seed} took no accepted action"
+        landed.append(env.landed)
+    assert len(set(landed)) > 1, (
+        "sweep did not explore: every seed landed the same number of actions"
+    )
+    return scores
+
+
 def test_landed_decorator_satisfies_the_env_protocol():
     # If the decorator stopped conforming, every predicate below would be
     # measuring a different contract than Step 4's environment implements.
@@ -1207,11 +1249,11 @@ def test_null_fires_on_leaky():
 
 
 def test_random_fires_on_leaky():
-    # Universal, not averaged. Averaging hides a single seed and lets
-    # mean->min, mean->max and N_SEEDS->1 all survive. Every seed must beat
-    # the floor, and _score's liveness check means every seed must have acted.
-    floor = _score(LeakyEnv, Null(), expect=0)
-    assert all(_score(LeakyEnv, RandomAgent(s)) > floor for s in range(N_SEEDS))
+    # Universal, not averaged -- and there is no aggregator left in the file to
+    # mutate, so `mean -> min` and `mean -> max` stop existing rather than
+    # getting caught. `all(s > null)` is `min(...) > null` spelled out.
+    null = _score(LeakyEnv, Null(), expect=0)
+    assert all(s > null for s in _sweep(LeakyEnv))
 
 
 def test_inject_fires_on_leaky():
@@ -1246,10 +1288,10 @@ def test_null_silent_on_sound():
 
 
 def test_random_silent_on_sound():
-    baseline = _score(SoundStubEnv, Null(), expect=0)
-    # Universal over seeds, and each seed must have landed an action. Without
-    # the liveness half, a no-op RandomAgent satisfies this trivially.
-    assert all(_score(SoundStubEnv, RandomAgent(s)) == baseline for s in range(N_SEEDS))
+    # Without _sweep's per-seed liveness assert, a no-op RandomAgent satisfies
+    # this trivially: 0.0 == 0.0, measured as 1 passed in isolation.
+    null = _score(SoundStubEnv, Null(), expect=0)
+    assert all(s == null for s in _sweep(SoundStubEnv))
 
 
 def test_inject_silent_on_sound():
@@ -1282,7 +1324,7 @@ the only honest red step — and it is the reason this task exists.
 - [ ] **Step 3: Run the whole suite**
 
 Run: `cd /Users/nikolassapalidis/Developer/misc/co-train && pytest -v`
-Expected: PASS, 46 passed (12 contract + 12 nonsolvers + 13 stub envs + 9 gate)
+Expected: PASS, 47 passed (12 contract + 12 nonsolvers + 14 stub envs + 9 gate)
 
 - [ ] **Step 4: Prove the gate can actually fail**
 
@@ -1326,7 +1368,7 @@ Confirm green is restored before committing.
 ```bash
 cd /Users/nikolassapalidis/Developer/misc/co-train
 git status --short   # expect clean
-pytest -q            # expect 46 passed
+pytest -q            # expect 47 passed
 ```
 
 Record both mutant results in the commit message. A green gate that has never been observed red is not evidence.
@@ -1341,7 +1383,7 @@ git commit -m "feat: the non-solver gate, eight assertions both directions
 Verified the gate can fail, not only that it passes:
   mutant A  FLOOR 0.25 -> 0.0             => test_null_fires_on_leaky RED
   mutant B  token leaked into observation => R4 exposure test RED
-Both reverted; 46 passed green.
+Both reverted; 47 passed green.
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
@@ -1350,7 +1392,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ## Done when
 
-- `pytest -q` reports 46 passed from the repo root with no `PYTHONPATH` set.
+- `pytest -q` reports 47 passed from the repo root with no `PYTHONPATH` set.
 - Both mutants have been observed red and reverted, and `git status --short` is clean.
 - `grep -rnE '^[[:space:]]*(import|from) (torch|trl|unsloth)' src/ tests/` returns nothing. Anchor the pattern to the start of the line: the `uninit_memory` probe contains the literal text `import torch` *inside a payload string*, so an unanchored grep always matches and the check can never pass.
 - Four source files exist; no config beyond `pytest.ini`.
