@@ -50,6 +50,8 @@ Five conditions the spec implies but which no predicate test exercises. Each get
 
 ```python
 # tests/test_contract.py
+import dataclasses
+
 import pytest
 from cotrain.contract import Act, permits, rollout
 
@@ -145,7 +147,7 @@ def test_null_policy_returning_none_ends_rollout_immediately():
 
 def test_act_is_frozen():
     a = Act("bash", "ls")
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         a.payload = "mutated"
 ```
 
