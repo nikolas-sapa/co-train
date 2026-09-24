@@ -1196,6 +1196,12 @@ class _Landed:
     see five emissions and pass.
     """
 
+    # ponytail: counts accepted steps without inspecting what step() returns, so
+    # an environment that accepted actions and then ignored them entirely would
+    # still read as live. No mutation against these four files can reach that.
+    # Upgrade path: inspect the returned observation or a reward delta if a real
+    # environment ever makes "accepted but ignored" a reachable state.
+
     def __init__(self, env) -> None:
         self._env = env
         self.landed = 0
@@ -1214,14 +1220,31 @@ class _Landed:
         return self._env.get_reward()
 
 
-def _score(env_cls, policy, expect=None) -> float:
+def _score(env_cls, policy, *, expect) -> float:
     """Run `policy` against a fresh `env_cls` and return the reward.
 
-    `expect` is the number of accepted actions required. None means "at least
-    one": silence must be attributable to the environment being sound, never to
-    the agent being dead. expect=0 is Null's inverted form, and it makes Null's
-    predicate load-bearing for the first time -- a Null that started acting is
-    otherwise invisible to the gate.
+    `expect` is the number of accepted actions required, and it is keyword-only
+    and REQUIRED -- not defaulted. A call site that omits it raises TypeError
+    rather than silently downgrading to the weakest check, which is what
+    happened when `test_inject_silent_on_sound` was measured with its
+    `expect=len(INJECTIONS)` removed: Inject landed 3, the weaker "at least one"
+    branch accepted it, and the suite stayed green. Proving the guard trips is
+    not the same as proving every call site uses it.
+
+    `None` means "at least one": silence must be attributable to the environment
+    being sound, never to the agent being dead. `expect=0` is Null's inverted
+    form, and it makes Null's predicate load-bearing for the first time -- a Null
+    that started acting is otherwise invisible to the gate.
+
+    ponytail: making `expect` required stops a call site OMITTING it, not a call
+    site passing `expect=None` explicitly and thereby asking for the weakest
+    check. That mutation survives, and it is the inherent limit of mutation-
+    testing a test suite rather than a defect in the gate: any test can be
+    weakened by editing it to assert less, and no assertion inside the same file
+    can prevent that without circularity. The defence is review of this file, not
+    more machinery in it. Upgrade path, only if it ever earns its keep: split
+    into `_score_live()` and `_score_exact(n)` so "the weakest check" has no
+    spelling at a call site that wants an exact count.
     """
     env = _Landed(env_cls())
     reward = rollout(env, policy)
@@ -1249,6 +1272,13 @@ def _sweep(env_cls) -> list[float]:
     for seed in range(N_SEEDS):
         env = _Landed(env_cls())
         scores.append(rollout(env, RandomAgent(seed)))
+        # ponytail: this per-seed check is largely redundant with the spread
+        # assert below -- a wholly dead policy lands 0 for every seed, so the
+        # spread collapses to one value and fails there anyway. It only adds
+        # coverage for a policy dead on SOME seeds. Left in because it names the
+        # failure precisely, but not probed by the meta-test: closing it would
+        # need _sweep to take a policy factory, and RandomAgent lands at least
+        # one action with probability 1-(1/4)**32.
         assert env.landed > 0, f"seed {seed} took no accepted action"
         landed.append(env.landed)
     assert len(set(landed)) > 1, (
@@ -1288,12 +1318,20 @@ def test_liveness_guard_actually_trips():
 
     # Default form: silence must be attributable to the environment being sound,
     # so a dead agent is rejected rather than quietly scored zero.
-    with pytest.raises(AssertionError, match="no accepted action"):
-        _score(SoundStubEnv, _Dead())
+    # `match=` anchors on "silence is not attributable", which is unique to
+    # _score. "no accepted action" alone also matches _sweep's per-seed message.
+    with pytest.raises(AssertionError, match="silence is not attributable"):
+        _score(SoundStubEnv, _Dead(), expect=None)
 
     # Null's inverted form: an agent that started acting must not pass as Null.
     with pytest.raises(AssertionError, match="expected 0 accepted acts"):
         _score(SoundStubEnv, _Acts(), expect=0)
+
+    # The expect>0 branch, which the four matched-pair predicates actually use.
+    # Covering only the default and expect=0 left it open: `assert env.landed ==
+    # expect or expect > 0` neutered the guard for all four and stayed green.
+    with pytest.raises(AssertionError, match="expected 99 accepted acts"):
+        _score(SoundStubEnv, _Acts(), expect=99)
 
     # `_sweep`'s spread assert is the third dormant guard, and the only thing
     # that kills N_SEEDS 32 -> 1 (a universal quantifier over one seed passes
