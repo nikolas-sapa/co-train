@@ -1269,6 +1269,13 @@ def test_liveness_guard_actually_trips():
     anti-cheat check that has never gone red is not evidence"). This is the one
     test in the file that exercises the gate's own machinery rather than the
     agents, and it is why the four SILENT predicates can be trusted.
+
+    It covers all three of the gate's dormant guards -- the default liveness
+    requirement, Null's inverted expect=0, and `_sweep`'s spread assert. Each
+    one survives removal on correct code, so each is exercised here instead.
+    The `match=` strings are load-bearing, not decorative: mutating a guard's
+    message alone fails this test, which is what stops it passing on some
+    unrelated AssertionError.
     """
 
     class _Dead:
@@ -1287,6 +1294,26 @@ def test_liveness_guard_actually_trips():
     # Null's inverted form: an agent that started acting must not pass as Null.
     with pytest.raises(AssertionError, match="expected 0 accepted acts"):
         _score(SoundStubEnv, _Acts(), expect=0)
+
+    # `_sweep`'s spread assert is the third dormant guard, and the only thing
+    # that kills N_SEEDS 32 -> 1 (a universal quantifier over one seed passes
+    # happily). Removing it also changes nothing on correct code, so it is
+    # exercised directly too: against an env that terminates on its first step,
+    # every seed lands exactly one action and the sweep has stopped exploring.
+    class _AlwaysDone:
+        harness = "bash"
+
+        def reset(self):
+            return "obs"
+
+        def step(self, act):
+            return "obs", True
+
+        def get_reward(self):
+            return 0.0
+
+    with pytest.raises(AssertionError, match="sweep did not explore"):
+        _sweep(_AlwaysDone)
 
 
 def test_landed_decorator_satisfies_the_env_protocol():
