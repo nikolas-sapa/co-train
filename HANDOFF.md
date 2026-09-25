@@ -62,10 +62,15 @@ This is the cheapest high-value work in the whole plan and it is the concrete fo
 inverts the usual order deliberately: **you cannot write the verifier correctly until you have
 something trying to break it.**
 
-### Step 2 — Prove the loop on free hardware
+### Step 2 — 🔶 PARTIAL (2026-09-25). Prove the loop on free hardware
 Kaggle, accelerator `NvidiaTeslaT4` (= T4 x2), **Unsloth** (not raw TRL — see Hard Constraints),
 fp16, LoRA rank 16-32, Qwen3-0.6B, `use_vllm=False`, 5 steps. Goal is only: does it run and is
 fp16 stable.
+
+`step2/` — gate check, run script, pass criteria, 47 tests, 46 mutants / 0 survivors.
+**The hard gate is resolved and the run is written. Nothing has touched a GPU yet**, so
+"does it run, is fp16 stable" is still open. Read `step2/README.md`; its Verification
+Status section separates what was executed from what was not.
 
 ### Step 3 — Verifier before environment
 Snapshot-restored verification instance · constrained replay · verdict bound to a fresh
@@ -122,7 +127,7 @@ the asymmetry (`08` §8): a deliberately minimal PTC vocabulary makes a PTC loss
 | **Kaggle reality** | T4 x2 (P100 retired 2026-09-15), **30 GPU-h/week**, **12 h/session**, **20-30 min idle timeout**, 20 GB persisted at `/kaggle/working`. No A100/H100 free. Multi-process vLLM+trainer in one session is demonstrated (`kaggle-vllm`). |
 | **T4 = no bf16** | Compute capability 7.5. bf16 needs 8.0. fp16 only. vLLM floor is 7.5, so T4 just clears it; **P100 (6.0) cannot run vLLM at all.** |
 | **Use Unsloth on T4, not raw TRL** | A TRL PR exists *solely* because "T4 in collab need fp16 and vllm defaults to bf16." Unsloth ships 40 Kaggle GRPO notebooks and has done the fp16-on-Turing work. Migrate to TRL/prime-rl only when renting proper hardware. |
-| **TRL trainability gate** | TRL raises at `grpo_trainer.py:1981-1982` if the chat template is not prefix-preserving. Escape hatch if it fails: proxy the model call (LEGO-RL and OpenForgeRL both do this). |
+| **TRL trainability gate** | ⚠ **CORRECTED by Step 2 — see `step2/README.md`.** The raise is guarded by `if self.tools`: it is inside the multi-turn tool loop, so a no-tools GRPO run never reaches it. It does not exist at all in TRL ≤ 0.24.0 (`trl/chat_template_utils.py` is 404 at that tag; `self.tools` appears zero times), and **Unsloth pins `trl<=0.24.0`** — so on the Step 2 stack the gate is absent, not merely unfired. Qwen3-0.6B **does fail** the check where it exists (it drops `<think></think>` from history), but TRL auto-repairs it via `get_training_chat_template`, verified False→True here. **The proxy escape hatch is not needed.** Steps 5-6 are a different matter: PTC *is* tool calling, and that path does not exist on the Unsloth stack. |
 | **`NCCL_CUMEM_ENABLE=0`** | Set before any vLLM weight sync. 180 s → 4 s on 70B. One env var. |
 | **Sandbox cost ≈ GPU cost** | 256 concurrent rollouts ≈ $42/hr (E2B/Daytona), $61 (Modal), $3.5-9 (Fly Machines). E2B Hobby caps at **20 concurrent** — unusable. Wall-clock billed, so idle environments cost money. |
 
