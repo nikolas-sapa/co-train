@@ -142,6 +142,14 @@ def _sweep(env_cls) -> list[float]:
     alone does not: `all()` over a single seed passes happily. Only the spread
     assert notices that the sweep stopped sweeping.
     """
+    # The sweep's breadth is a STATED property, not an accident of which seeds
+    # happen to produce varied episodes. Spec 3.1 fixes it at 32. The spread
+    # assert below alone pinned only N_SEEDS >= 4, and it did so through a seed
+    # coincidence -- landed counts happened to be [3,18,3] on SoundStubEnv --
+    # so the floor would move silently if Step 4's environment changed
+    # RandomAgent's termination profile.
+    assert N_SEEDS >= 32, f"spec 3.1 fixes the sweep at 32 seeds, got {N_SEEDS}"
+
     scores: list[float] = []
     landed: list[int] = []
     for seed in range(N_SEEDS):
