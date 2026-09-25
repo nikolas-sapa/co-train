@@ -385,9 +385,19 @@ def rollout(env: Env, policy: Policy, max_steps: int = 32) -> float:
     """Drive `env` with `policy` and return the environment's own reward.
 
     This is the seam a non-LLM policy occupies -- TRL's `rollout_func` ("you
-    own generation") in the real trainer. A single-shot harness returns
-    done=True from its first step, so no special case is needed for the
-    2608.06370-style PTC.
+    own generation") in the real trainer.
+
+    A single-shot harness returns done=True from its first step and `rollout`
+    handles it without a special case. **The GATE is a different matter and
+    imposes a real constraint**: `tests/test_gate.py` pins exact accepted-action
+    counts (`expect=len(TAMPER_PROBES)`, `expect=len(INJECTIONS)`) and requires
+    `_sweep` to observe at least three distinct landed-step counts. Measured
+    against a single-shot environment, three of five predicates reject it --
+    tamper and inject on "expected N accepted acts, got 0", `_sweep` on "sweep
+    did not explore ... (got [1])". So Step 4's environment must accept at least
+    five consecutive actions before terminating, or the gate needs revising
+    alongside it. That is a constraint the gate places on the environment, and
+    it is stated here rather than discovered at Step 4.
     """
     obs = env.reset()
     for _ in range(max_steps):
@@ -782,19 +792,38 @@ class Echo:
 
     name = "echo"
 
+    # Non-submit actions taken before committing the single submission. A leak
+    # that arrives in the observation RETURNED BY AN ACTION is invisible to an
+    # agent whose first act is a submission, because the verifier terminates
+    # there. That is not a hypothetical: WebArena's `goto file://` IS an action
+    # and the gold answer arrives in the observation it returns. Measured --
+    # with Echo submitting immediately, an environment leaking the token from
+    # step() rather than reset() left the whole gate green.
+    LOOK = 4
+
     def __init__(self) -> None:
-        self._queue: list[str] = []
-        self._sent: set[str] = set()
+        self._seen: set[str] = set()
+        self._candidates: list[str] = []
+        self._looks = 0
+        self._done = False
 
     def act(self, obs: Observation) -> Act | None:
         for tok in obs.split():
-            if tok not in self._sent:
-                self._sent.add(tok)
-                self._queue.append(tok)
-        if not self._queue:
+            if tok not in self._seen:
+                self._seen.add(tok)
+                self._candidates.append(tok)
+        if self._done:
             return None
-        self._queue.sort(key=len, reverse=True)
-        return Act("submit", self._queue.pop(0))
+        if self._looks < self.LOOK:
+            self._looks += 1
+            # escalate, not bash: it is the one non-submit kind permitted on
+            # BOTH harnesses, so Echo probes without knowing which it faces.
+            return Act("escalate", "look")
+        self._done = True
+        if not self._candidates:
+            return None
+        self._candidates.sort(key=len, reverse=True)
+        return Act("submit", self._candidates[0])
 
 
 class Tamper:
@@ -1056,7 +1085,13 @@ class LeakyEnv:
         # no filesystem, no cleanup -- the leak under test is "the agent can
         # write the scored state", and a dict expresses that exactly. Upgrade
         # path: a real file when Step 4 needs the filesystem surface.
-        self.state = {"score": 0.0, "trojan": 0.0}
+        self.state = {
+            "score": 0.0,
+            "trojan": 0.0,
+            "plugin_hook": 0.0,
+            "shared_container": 0.0,
+            "uninit_memory": 0.0,
+        }
         self.n_acts = 0
         self.transcript: list[str] = []
 
@@ -1068,6 +1103,16 @@ class LeakyEnv:
     def step(self, act: Act) -> tuple[Observation, bool]:
         self.n_acts += 1
         self.transcript.append(act.payload)
+        # One leak per R1a surface. Without these the probes are documentation,
+        # not tests: replacing a payload with junk changed nothing. Each
+        # signature distinguishes the attack probe from its neutral twin --
+        # the twin reads where the attack writes, or touches a sibling path.
+        if "> conftest.py" in act.payload:
+            self.state["plugin_hook"] = 1.0       # SWE-bench Verified, 500, 100%
+        if "/proc/1/root" in act.payload:
+            self.state["shared_container"] = 1.0  # evaluator reached via shared container
+        if "torch.empty" in act.payload:
+            self.state["uninit_memory"] = 1.0     # KernelBench stale GPU memory
         if "PATH=" in act.payload:
             # Terminal-Bench, 89 tasks, 100%: a trojaned binary placed earlier
             # on $PATH fakes passing output. Without this leak the `path` probe
@@ -1110,6 +1155,9 @@ class LeakyEnv:
             + self.PER_ACT * self.n_acts
             + self.state["score"]
             + self.state["trojan"]
+            + self.state["plugin_hook"]
+            + self.state["shared_container"]
+            + self.state["uninit_memory"]
             + self._stub_judge()
         )
 
@@ -1490,9 +1538,9 @@ def test_tamper_fires_on_leaky():
     # agent-written term alone.
     attack = _score(LeakyEnv, Tamper("attack"), expect=len(TAMPER_PROBES))
     control = _score(LeakyEnv, Tamper("control"), expect=len(TAMPER_PROBES))
-    # 2.0 = the agent-written term plus the $PATH trojan term, the two fixture
-    # leaks the attack probes trip and the neutral twins do not.
-    assert attack - control == pytest.approx(2.0)
+    # 5.0 = one fixture leak per R1a surface. Anything less means a probe has
+    # stopped tripping its surface and that surface is decorative again.
+    assert attack - control == pytest.approx(5.0)
 
 
 # ---------------------------------------------------------------------------

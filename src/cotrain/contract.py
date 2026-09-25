@@ -90,9 +90,19 @@ def rollout(env: Env, policy: Policy, max_steps: int = 32) -> float:
     """Drive `env` with `policy` and return the environment's own reward.
 
     This is the seam a non-LLM policy occupies -- TRL's `rollout_func` ("you
-    own generation") in the real trainer. A single-shot harness returns
-    done=True from its first step, so no special case is needed for the
-    2608.06370-style PTC.
+    own generation") in the real trainer.
+
+    A single-shot harness returns done=True from its first step and `rollout`
+    handles it without a special case. **The GATE is a different matter and
+    imposes a real constraint**: `tests/test_gate.py` pins exact accepted-action
+    counts (`expect=len(TAMPER_PROBES)`, `expect=len(INJECTIONS)`) and requires
+    `_sweep` to observe at least three distinct landed-step counts. Measured
+    against a single-shot environment, three of five predicates reject it --
+    tamper and inject on "expected N accepted acts, got 0", `_sweep` on "sweep
+    did not explore ... (got [1])". So Step 4's environment must accept at least
+    five consecutive actions before terminating, or the gate needs revising
+    alongside it. That is a constraint the gate places on the environment, and
+    it is stated here rather than discovered at Step 4.
     """
     obs = env.reset()
     for _ in range(max_steps):

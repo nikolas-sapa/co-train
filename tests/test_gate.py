@@ -299,9 +299,9 @@ def test_tamper_fires_on_leaky():
     # agent-written term alone.
     attack = _score(LeakyEnv, Tamper("attack"), expect=len(TAMPER_PROBES))
     control = _score(LeakyEnv, Tamper("control"), expect=len(TAMPER_PROBES))
-    # 2.0 = the agent-written term plus the $PATH trojan term, the two fixture
-    # leaks the attack probes trip and the neutral twins do not.
-    assert attack - control == pytest.approx(2.0)
+    # 5.0 = one fixture leak per R1a surface. Anything less means a probe has
+    # stopped tripping its surface and that surface is decorative again.
+    assert attack - control == pytest.approx(5.0)
 
 
 # ---------------------------------------------------------------------------

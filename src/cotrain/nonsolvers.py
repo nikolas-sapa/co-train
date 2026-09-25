@@ -190,19 +190,38 @@ class Echo:
 
     name = "echo"
 
+    # Non-submit actions taken before committing the single submission. A leak
+    # that arrives in the observation RETURNED BY AN ACTION is invisible to an
+    # agent whose first act is a submission, because the verifier terminates
+    # there. That is not a hypothetical: WebArena's `goto file://` IS an action
+    # and the gold answer arrives in the observation it returns. Measured --
+    # with Echo submitting immediately, an environment leaking the token from
+    # step() rather than reset() left the whole gate green.
+    LOOK = 4
+
     def __init__(self) -> None:
-        self._queue: list[str] = []
-        self._sent: set[str] = set()
+        self._seen: set[str] = set()
+        self._candidates: list[str] = []
+        self._looks = 0
+        self._done = False
 
     def act(self, obs: Observation) -> Act | None:
         for tok in obs.split():
-            if tok not in self._sent:
-                self._sent.add(tok)
-                self._queue.append(tok)
-        if not self._queue:
+            if tok not in self._seen:
+                self._seen.add(tok)
+                self._candidates.append(tok)
+        if self._done:
             return None
-        self._queue.sort(key=len, reverse=True)
-        return Act("submit", self._queue.pop(0))
+        if self._looks < self.LOOK:
+            self._looks += 1
+            # escalate, not bash: it is the one non-submit kind permitted on
+            # BOTH harnesses, so Echo probes without knowing which it faces.
+            return Act("escalate", "look")
+        self._done = True
+        if not self._candidates:
+            return None
+        self._candidates.sort(key=len, reverse=True)
+        return Act("submit", self._candidates[0])
 
 
 class Tamper:
