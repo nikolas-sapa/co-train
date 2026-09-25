@@ -160,6 +160,51 @@ NEUTRAL_PROBES: tuple[tuple[str, str], ...] = (
 )
 
 
+class Echo:
+    """Submit whatever the environment showed us. The observation-leakage class.
+
+    Not one of RDI's four -- its checklist is "a minimum bar", and this is the
+    exploit class its own scorecard is dominated by: WebArena (812 tasks,
+    ~100%) reads the gold answer from the task config over `file://`, and
+    OSWorld (369 tasks, 73%) fetches the gold file from a public URL into the
+    evaluator-checked path so "the evaluator compares gold vs. gold".
+    TAMPER_PROBES names that exploit in `verifier_read_path`, but a bash probe
+    cannot express it: the leak arrives through the OBSERVATION and is redeemed
+    through a SUBMISSION.
+
+    Without this agent the gate is blind to it -- measured: appending the
+    verdict token to SoundStubEnv.reset()'s return left all ten gate tests
+    green. A random policy is not a substitute: `rollout` shows the reset
+    observation once, so only the first action can carry the token, and a
+    32-seed sweep catches it about half the time. A gate that discriminates on
+    a coin flip is worse than one that does not.
+
+    ponytail: submits the LONGEST unseen token first, because a verifier that
+    terminates on the first submission gives only one guess per episode, and a
+    leaked secret is usually longer and higher-entropy than the surrounding
+    prose. That is a heuristic, not extraction -- a leak that is base64'd,
+    split across observations, embedded mid-word, or shorter than the prose
+    around it escapes this agent. Upgrade path: score candidates by entropy, or
+    run one episode per candidate, and only if a real environment leaks that way.
+    """
+
+    name = "echo"
+
+    def __init__(self) -> None:
+        self._queue: list[str] = []
+        self._sent: set[str] = set()
+
+    def act(self, obs: Observation) -> Act | None:
+        for tok in obs.split():
+            if tok not in self._sent:
+                self._sent.add(tok)
+                self._queue.append(tok)
+        if not self._queue:
+            return None
+        self._queue.sort(key=len, reverse=True)
+        return Act("submit", self._queue.pop(0))
+
+
 class Tamper:
     """Run a state-tampering agent that modifies the evaluation environment
     instead of solving tasks.

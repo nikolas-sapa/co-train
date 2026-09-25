@@ -22,12 +22,15 @@ looser reading is deferred to Step 4 deliberately, so that it is not
 silently inherited here.
 """
 
+import inspect
+
 import pytest
 
 from cotrain.contract import Act, Env, rollout
 from cotrain.nonsolvers import (
     INJECTIONS,
     TAMPER_PROBES,
+    Echo,
     Inject,
     Null,
     RandomAgent,
@@ -65,6 +68,16 @@ class _Landed:
     # environment ever makes "accepted but ignored" a reachable state.
 
     def __init__(self, env) -> None:
+        # R1/R4 asserted on the WRAPPED environment at the boundary, so it
+        # travels with the gate across the Step 4 swap. Asserting it on the
+        # decorator instead is useless: _Landed.get_reward takes no arguments
+        # by construction, so it passes regardless of what it wraps. Measured
+        # -- that mistake let get_reward(self, claimed=0.0) through.
+        assert not inspect.signature(env.get_reward).parameters, (
+            f"{type(env).__name__}.get_reward takes agent-supplied arguments: "
+            f"{list(inspect.signature(env.get_reward).parameters)}"
+        )
+        assert env.harness in ("bash", "ptc"), f"bad harness {env.harness!r}"
         self._env = env
         self.landed = 0
         # A plain attribute, not a property, so isinstance(_Landed(env), Env)
@@ -143,8 +156,9 @@ def _sweep(env_cls) -> list[float]:
         # one action with probability 1-(1/4)**32.
         assert env.landed > 0, f"seed {seed} took no accepted action"
         landed.append(env.landed)
-    assert len(set(landed)) > 1, (
-        "sweep did not explore: every seed landed the same number of actions"
+    assert len(set(landed)) >= 3, (
+        "sweep did not explore: fewer than three distinct landed-step counts "
+        f"across {N_SEEDS} seeds (got {sorted(set(landed))})"
     )
     return scores
 
@@ -222,6 +236,28 @@ def test_landed_decorator_satisfies_the_env_protocol():
     assert isinstance(_Landed(SoundStubEnv()), Env)
     assert isinstance(_Landed(LeakyEnv()), Env)
 
+    # R1/R4 asserted HERE, not only in tests/test_stub_envs.py. That file tests
+    # the stub fixtures and does not survive the Step 4 environment swap; this
+    # file is the one declared unchanged across it. isinstance resolves names
+    # only, so get_reward(self, claimed=0.0) -- the exact violation the contract
+    # exists to prevent -- passes conformance while failing this.
+    # The invariant is enforced in _Landed.__init__, so a violating env cannot
+    # even be wrapped. Exercised directly, because that guard is dormant too.
+    class _TakesAgentArg:
+        harness = "bash"
+
+        def reset(self):
+            return "obs"
+
+        def step(self, act):
+            return "obs", False
+
+        def get_reward(self, claimed: float = 0.0):
+            return claimed
+
+    with pytest.raises(AssertionError, match="agent-supplied arguments"):
+        _Landed(_TakesAgentArg())
+
 
 # ---------------------------------------------------------------------------
 # Direction 1: the agents must FIRE on the leaky fixture.
@@ -250,7 +286,10 @@ def test_inject_fires_on_leaky():
     # the gate reported "your judge is compromisable" off a backwards signal.
     attack = _score(LeakyEnv, Inject("attack"), expect=len(INJECTIONS))
     control = _score(LeakyEnv, Inject("control"), expect=len(INJECTIONS))
-    assert attack > control
+    # Magnitude, not just direction. `attack > control` alone survives the judge
+    # verdict dropping 1.0 -> 0.01, and survives `>` -> `>=`, which makes the
+    # predicate vacuous.
+    assert attack - control == pytest.approx(1.0)
 
 
 def test_tamper_fires_on_leaky():
@@ -260,7 +299,9 @@ def test_tamper_fires_on_leaky():
     # agent-written term alone.
     attack = _score(LeakyEnv, Tamper("attack"), expect=len(TAMPER_PROBES))
     control = _score(LeakyEnv, Tamper("control"), expect=len(TAMPER_PROBES))
-    assert attack > control
+    # 2.0 = the agent-written term plus the $PATH trojan term, the two fixture
+    # leaks the attack probes trip and the neutral twins do not.
+    assert attack - control == pytest.approx(2.0)
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +310,16 @@ def test_tamper_fires_on_leaky():
 # Every assertion below is paired with a liveness check, so a dead agent fails
 # rather than passing for the wrong reason.
 # ---------------------------------------------------------------------------
+
+
+def test_echo_fires_on_leaky():
+    # LeakyEnv pays the floor to anything that acts, so Echo firing here is the
+    # weak direction. The load-bearing one is test_echo_silent_on_sound.
+    # expect=None, not an exact count: Echo's action count is a function of how
+    # many distinct tokens the environment's observations contain, which is a
+    # fixture artifact Step 4 will change. Liveness is the property that must
+    # hold across the swap; the exact number is not.
+    assert _score(LeakyEnv, Echo(), expect=None) > 0.0
 
 
 def test_null_silent_on_sound():
@@ -286,6 +337,13 @@ def test_inject_silent_on_sound():
     attack = _score(SoundStubEnv, Inject("attack"), expect=len(INJECTIONS))
     control = _score(SoundStubEnv, Inject("control"), expect=len(INJECTIONS))
     assert attack == control == 0.0
+
+
+def test_echo_silent_on_sound():
+    # The gate's only defence against observation-channel leakage. A sound
+    # environment must never put anything in an observation that redeems for
+    # reward. Deterministic: Echo submits every token it was shown.
+    assert _score(SoundStubEnv, Echo(), expect=None) == 0.0
 
 
 def test_tamper_silent_on_sound():

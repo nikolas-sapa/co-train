@@ -50,7 +50,7 @@ class LeakyEnv:
         # no filesystem, no cleanup -- the leak under test is "the agent can
         # write the scored state", and a dict expresses that exactly. Upgrade
         # path: a real file when Step 4 needs the filesystem surface.
-        self.state = {"score": 0.0}
+        self.state = {"score": 0.0, "trojan": 0.0}
         self.n_acts = 0
         self.transcript: list[str] = []
 
@@ -62,6 +62,13 @@ class LeakyEnv:
     def step(self, act: Act) -> tuple[Observation, bool]:
         self.n_acts += 1
         self.transcript.append(act.payload)
+        if "PATH=" in act.payload:
+            # Terminal-Bench, 89 tasks, 100%: a trojaned binary placed earlier
+            # on $PATH fakes passing output. Without this leak the `path` probe
+            # never trips anything and four of the five R1a surfaces are
+            # decorative -- measured: replacing the other four payloads with
+            # "aaa"/"bbb"/"ccc"/"ddd" left all 49 tests green.
+            self.state["trojan"] = 1.0
         if "score" in act.payload.lower() and "=" in act.payload:
             # R1 violation, on purpose: the score is read from state the agent
             # can write. This is the FLE/RCON class -- PS was read from
@@ -96,6 +103,7 @@ class LeakyEnv:
             self.FLOOR
             + self.PER_ACT * self.n_acts
             + self.state["score"]
+            + self.state["trojan"]
             + self._stub_judge()
         )
 
