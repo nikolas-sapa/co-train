@@ -1,7 +1,9 @@
 # HANDOFF — model-harness co-training
 
 **Read this first. Then `research/02-synthesis.md`, then `research/07-prior-art-closure.md`.**
-Status as of 2026-09-23: **research complete, no code written.** 7,174 lines across 13 commits.
+Status as of 2026-09-25: **research complete. Step 1 BUILT** (branch
+`step1-nonsolver-gate`, 18 commits, 51 tests). Next: **Step 2.**
+See `docs/superpowers/specs/` and `docs/superpowers/plans/` for Step 1's spec and plan.
 
 ---
 
@@ -12,6 +14,22 @@ Status as of 2026-09-23: **research complete, no code written.** 7,174 lines acr
 > survive a harness swap?**
 
 Both halves have published baselines. Neither has been run.
+
+**⚠ CORRECTED 2026-09-25 — the gap is smaller than this document originally claimed.**
+The `+21.8-24.5 pp` figure cited below is **bash vs Tool-only** (`tokens.md:100-105`), not
+bash vs PTC. Bash − PTC, recomputed from Table 1 (`tokens.md:69-92`):
+
+| Arm | Bash | PTC | Bash − PTC | 95% CIs |
+|---|---|---|---|---|
+| TAC / Opus-4.8 | 69.4 | 52.9 | **+16.5** | disjoint |
+| TAC / GPT-5.5 | 67.1 | 45.1 | **+22.0** | disjoint |
+| APEX / Opus-4.8 | 48.5 | 40.1 | **+8.4** | disjoint |
+| APEX / GPT-5.5 | 44.6 | 37.8 | **+6.8** | **overlap 40.8-41.5** |
+
+Range to reverse is **+6.8 to +22.0 pp**, and one of four arms is not significant. Worse for the
+framing: at TAC/GPT-5.5 PTC already wins on cost ($0.54 vs $0.56) and tokens (242k vs 377k).
+**Under a cost-per-successful-task metric the ordering is already reversed in one untrained arm.**
+Choose Step 5's metric *before* the untrained run or the result is unfalsifiable after the fact.
 
 **Why it is worth doing** (after four papers of prior art narrowed it):
 - Every harness-native RL paper compares tool-calling harnesses to *other tool-calling harnesses*.
@@ -29,7 +47,13 @@ frontier models on SWE-bench · not shipping a usable coding agent · not pretra
 
 ## Build sequence
 
-### Step 1 — Four adversarial toy agents (do this FIRST, before the environment exists)
+### Step 1 — ✅ DONE (2026-09-25). Five adversarial non-solvers + the gate.
+`src/cotrain/contract.py` · `src/cotrain/nonsolvers.py` · `tests/leaky_env.py` ·
+`tests/test_gate.py` + 3 test files. 51 tests. **Read `docs/HANDOFF-STEP2.md` before continuing.**
+Five, not four: RDI's checklist is "a minimum bar", and observation-channel leakage
+(WebArena ~100%, OSWorld 73%) needed its own agent — the gate was measurably blind to it.
+
+### Step 1 (original text) — Four adversarial toy agents (do this FIRST, before the environment exists)
 From Berkeley RDI's Agent-Eval Checklist: **null, random, prompt-injection, state-tampering.**
 Rule: *"if any non-solver scores above baseline, the benchmark is considered broken."*
 
@@ -151,5 +175,8 @@ Scholar 429'd, Twitter/Reddit unavailable. Every lane source is arXiv, GitHub, o
 independently verified beyond the load-bearing claims listed in that file's Verification section.
 
 ## Starting the next session
+**Read `docs/HANDOFF-STEP2.md` first.** It carries what Step 1 learned, the corrections it forced
+into this document, and the constraints Step 1 now places on Steps 3-5.
+
 Invoke `/superpowers:brainstorming` before writing code — the project-level skill gate requires it
 for new feature work, and the environment design genuinely has undefined scope.
