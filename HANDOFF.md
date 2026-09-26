@@ -1,6 +1,7 @@
 # HANDOFF — model-harness co-training
 
-**Read this first. Then `research/02-synthesis.md`, then `research/07-prior-art-closure.md`.**
+**Read this first. Then `research/02-synthesis.md`, `research/07-prior-art-closure.md`, then
+`research/08-gap-closure.md` — which supersedes `07`'s novelty assessment.**
 Status as of 2026-09-25: **research complete. Step 1 BUILT** (branch
 `step1-nonsolver-gate`, 18 commits, 51 tests). Next: **Step 2.**
 See `docs/superpowers/specs/` and `docs/superpowers/plans/` for Step 1's spec and plan.
@@ -61,10 +62,15 @@ This is the cheapest high-value work in the whole plan and it is the concrete fo
 inverts the usual order deliberately: **you cannot write the verifier correctly until you have
 something trying to break it.**
 
-### Step 2 — Prove the loop on free hardware
+### Step 2 — 🔶 PARTIAL (2026-09-25). Prove the loop on free hardware
 Kaggle, accelerator `NvidiaTeslaT4` (= T4 x2), **Unsloth** (not raw TRL — see Hard Constraints),
 fp16, LoRA rank 16-32, Qwen3-0.6B, `use_vllm=False`, 5 steps. Goal is only: does it run and is
 fp16 stable.
+
+`step2/` — gate check, run script, pass criteria, 47 tests, 46 mutants / 0 survivors.
+**The hard gate is resolved and the run is written. Nothing has touched a GPU yet**, so
+"does it run, is fp16 stable" is still open. Read `step2/README.md`; its Verification
+Status section separates what was executed from what was not.
 
 ### Step 3 — Verifier before environment
 Snapshot-restored verification instance · constrained replay · verdict bound to a fresh
@@ -72,7 +78,16 @@ verifier-minted token · role separation so the agent never holds keys to the le
 **Complete set or ship nothing** — RECEIPT's ablation: 45% (self-judgment) → **9%** (partial) →
 100% (full). Partial hardening scores *worse than none*.
 Then **test it both ways**: reference solution must PASS, planted mutant must FAIL.
-Then run **BenchJack** (`github.com/benchjack/benchjack`, Apache-2.0) against it.
+Then **source-audit** it with **BenchJack** — **it shipped**: `github.com/benchjack/benchjack`,
+Apache-2.0, 46 stars, pushed 2026-05-25, paper arXiv 2605.12673. The RDI blog's "preparing for
+public release" is stale, which is why `06` recorded it as unlocated. Know what it is (`08` §4c):
+a static + LLM audit pipeline that scans a *repository* against V1-V8 and shells out to
+`claude --print` / `codex`. It is **not** an adversarial rollout, and the four toy agents are
+**not** in it — they are a checklist item from the RDI blog, which is why Step 1 builds them.
+For the runtime half add **`moogician/trustworthy-env`** (MIT, 62 stars, Z3-backed,
+`detect.py audit --run-cmd`). Take two things from Harness-Bench's design (`08` §5.2): the
+model/state secret split, and `Security ∈ {0,1}` as a **multiplicative** gate so a hack zeroes
+the whole task rather than costing a penalty term.
 
 ### Step 4 — Environment, minimal action space, escalation channel from day one
 Reward computed from state the agent cannot write. Structured escalation channel (cut hacking
@@ -80,10 +95,26 @@ Reward computed from state the agent cannot write. Structured escalation channel
 rule-legal shortcut so hack telemetry is deterministic.
 
 ### Step 5 — Two harnesses behind one interface, measure untrained first
-bash and PTC. **Confirm the published gap reproduces in your setup before training anything.**
+bash and PTC. **Confirm the published gap reproduces in your setup before training anything** —
+and target the conservative **+6.8 pp** APEX figure, not the TAC number. `08` §6: APEX's "bash"
+arm is a real `sh -c` server (the MCP-confound fear is **refuted** by the paper's own Appendix
+B.2), but TAC's typed catalog is author-built and self-declared *"not every shell-accessible
+endpoint"*, so TAC's larger delta is the one to discount.
+**Evaluate `verifiers` before building two harnesses** (`08` §2.5): it already ships `bash` and
+`rlm(builtin_tools=["ipython"])` — which is 2609.11999's PTC definition — behind one `Harness`
+ABC, selected by `--env.agent.harness.id`. Add two leading indicators: tool-call **success rate**
+(untrained PTC 65.2% vs bash 92.1%, Table 2) and **shell-call share** (OpenForgeRL measured RL
+moving it 22.6% → 13.9%, its §5.3 — the closest published result to this project's question).
 
 ### Step 6 — Co-train, then evaluate cross-harness
 Cross-harness eval from run 1. Report **billed cost**, not tokens. `mask_truncated_completions=True`.
+**Pre-register token cost and stability as primary outcomes alongside score** — 2603.01209 held
+everything but one runtime property fixed and found *"solution quality is statistically
+indistinguishable across conditions, but token cost and stability differ substantially"*. State
+the GRPO **grouping boundary** and test under an unseen harness (2609.04518, whose sealed
+24,000-evaluation result is that the *evaluation* harness moves solve rate 4.3x where the
+training recipe moves it 1.16x). Hold action-space **altitude** comparable across arms or declare
+the asymmetry (`08` §8): a deliberately minimal PTC vocabulary makes a PTC loss unattributable.
 
 ---
 
@@ -91,11 +122,12 @@ Cross-harness eval from run 1. Report **billed cost**, not tokens. `mask_truncat
 
 | Constraint | Detail |
 |---|---|
-| **No local training** | Dev machine is darwin/arm64. prime-rl requires NVIDIA. All training rented or Kaggle. |
+| **No local training** | Dev machine is darwin/arm64. prime-rl requires NVIDIA. All training rented or Kaggle. Every prime-rl GPU dep is gated `sys_platform == 'linux'`. |
+| **prime-rl is Ampere+, not just "NVIDIA"** | Source, not docs (`08` §3): `DTYPE_MAP` has **no float16** and FSDP hardcodes `param_dtype=torch.bfloat16` (`trainer/model.py:98-101,471`), so **prime-rl cannot train on a T4 at all** — not slowly, not at all. Tested floor is RTX 3090/A100+ (`README.md:68`); the pinned flash-attn wheels carry sm_80/90/100/120, **no sm_75**. A rented T4 does not unlock prime-rl: the Unsloth-on-T4 path and the prime-rl path are **disjoint**, not two rungs of one ladder. `verifiers` (MIT, pure Python, runs on darwin/arm64) is the part that carries across both. |
 | **Kaggle reality** | T4 x2 (P100 retired 2026-09-15), **30 GPU-h/week**, **12 h/session**, **20-30 min idle timeout**, 20 GB persisted at `/kaggle/working`. No A100/H100 free. Multi-process vLLM+trainer in one session is demonstrated (`kaggle-vllm`). |
 | **T4 = no bf16** | Compute capability 7.5. bf16 needs 8.0. fp16 only. vLLM floor is 7.5, so T4 just clears it; **P100 (6.0) cannot run vLLM at all.** |
 | **Use Unsloth on T4, not raw TRL** | A TRL PR exists *solely* because "T4 in collab need fp16 and vllm defaults to bf16." Unsloth ships 40 Kaggle GRPO notebooks and has done the fp16-on-Turing work. Migrate to TRL/prime-rl only when renting proper hardware. |
-| **TRL trainability gate** | TRL raises at `grpo_trainer.py:1981-1982` if the chat template is not prefix-preserving. Escape hatch if it fails: proxy the model call (LEGO-RL and OpenForgeRL both do this). |
+| **TRL trainability gate** | ⚠ **CORRECTED by Step 2 — see `step2/README.md`.** The raise is guarded by `if self.tools`: it is inside the multi-turn tool loop, so a no-tools GRPO run never reaches it. It does not exist at all in TRL ≤ 0.24.0 (`trl/chat_template_utils.py` is 404 at that tag; `self.tools` appears zero times), and **Unsloth pins `trl<=0.24.0`** — so on the Step 2 stack the gate is absent, not merely unfired. Qwen3-0.6B **does fail** the check where it exists (it drops `<think></think>` from history), but TRL auto-repairs it via `get_training_chat_template`, verified False→True here. **The proxy escape hatch is not needed.** Steps 5-6 are a different matter: PTC *is* tool calling, and that path does not exist on the Unsloth stack. |
 | **`NCCL_CUMEM_ENABLE=0`** | Set before any vLLM weight sync. 180 s → 4 s on 70B. One env var. |
 | **Sandbox cost ≈ GPU cost** | 256 concurrent rollouts ≈ $42/hr (E2B/Daytona), $61 (Modal), $3.5-9 (Fly Machines). E2B Hobby caps at **20 concurrent** — unusable. Wall-clock billed, so idle environments cost money. |
 
@@ -122,7 +154,13 @@ ablations for ~$140 total; GRPO-Zero does Qwen2.5-3B on one A40 for $1-2/run) ·
    a documented hack surface (V4).
 6. **Do not compress the observation to save tokens.** AgentOccam tripled success while *increasing*
    observation tokens 33%. The only token-reducing step was cutting the action space — which was
-   also the biggest single accuracy gain.
+   also the biggest single accuracy gain. **But "shrink the action space" is a rule with an
+   exception** (`08` §8): shrink same-altitude primitives, do **not** cap abstraction depth.
+   SCAFFOLD, on the same 7B base, beat AgentOccam 42.7 vs 16.8 with a *larger* recursively
+   composed vocabulary; flattening it to depth ≤ 1 cost 6.3 pp and leaving it unpruned cost 3.1 pp,
+   so the optimum is interior. NapMem is the trained version of the same shape: the wide interface
+   **prompted** (48.39) loses to the narrow one (54.08), the wide interface **trained** wins
+   (62.74). Expect narrow to win at 0.6-1.7B anyway, and pre-register that.
 7. **Do not trust vendor docs over vendor source.** Bit twice this research: Kaggle's docs still say
    P100; TRL's doc URLs 404'd while the source was fine. Check the repo or its test suite.
 8. **Do not let a research agent own a file-writing contract.** The `research` agent type's tool
@@ -136,14 +174,42 @@ mid-run; removing the group-mean baseline → gradient blowup. Stay on-policy.
 ---
 
 ## Known unknowns
-- **fp16 GRPO on Qwen3 specifically at 0.6-1.7B.** 40 Kaggle GRPO notebooks exist, and Gemma-3's
-  fp16 failure (activations >800k vs fp16 max 65,504) is architecture-specific and does not apply to
-  Qwen3 — but no public log shows Qwen3 GRPO fp16 loss/KL curves on T4. You are in a narrow but
-  travelled corridor.
-- **Harness-Bench tasks/code** — 106 oracle-checkable tasks, would save weeks. Repo not located.
-- **OpenForgeRL code** — claimed open-source, repo not found (only a 2-star paper mirror).
-- **R33 dispersion+level screening** for continuous rewards — unvalidated, publishable either way.
-- Full texts of 2607.21557 and 2605.27922 read at abstract level only.
+Five of these closed on 2026-09-25. Detail and sourcing: `research/08-gap-closure.md`.
+
+- **fp16 GRPO on Qwen3 — narrowed to the KL curve only** (`08` §7). A public Kaggle **2×T4**
+  run settles the rest: `rkkzone/qwen3-0.6b-math-l45-grpo-adapter` ships `training_logs.json`
+  and `hardware_profile.json` — `fp16=True`, `bf16=False`, `use_vllm=False`, dense Qwen3-0.6B,
+  **314 steps over 5.9 h, 2.40 GB peak VRAM, zero non-finite values** in loss/grad_norm/reward.
+  It logged no KL (`beta=0`); a sibling run with `beta=0.04` finished and merged but published
+  no log. **Mechanism confirmed in source, and it flips one corpus assumption:** Unsloth
+  force-float32s `qwen3_5` and `qwen3_moe` for *"NaN grad norms in float16 training"* but
+  **not dense `qwen3`** (`loader.py:118-127`), and Qwen3 has **QK-norm** where Qwen2 has none
+  (`modeling_qwen3.py:237-238`), bounding exactly the attention logits that used to overflow.
+  So Gemma-3's failure does not transfer to *dense* Qwen3 — but it **does** transfer to Qwen3.5
+  and MoE. **Model choice is load-bearing: pin dense Qwen3-0.6B/1.7B, never Qwen3.5 or MoE.**
+  Unsloth's fp16-on-T4 path is by design (`rl.py`: *"V100/T4 never pick bf16"*) and carries
+  no-bf16 regression tests; TRL's 5,073-line GRPO test file has **zero** `fp16` hits and its
+  GPU CI left Turing (T4 → L40S). That asymmetry is why Step 2 stays on Unsloth.
+- **Harness-Bench — FOUND**: `github.com/Qihoo360/harness-bench`, 112 stars, in **footnote 1**
+  of the paper, invisible to arXiv metadata. 106 task dirs verified real (`task.yaml` ×106,
+  `oracle_grade.py` ×106, 812 fixtures), plus 12 harness adapters. **No LICENSE file →
+  all-rights-reserved.** Read it, do not vendor it. Also: *"106 oracle-checkable"* is
+  overstated — the criterion is *"deterministic checks **or a specified rubric**"*, 86 tasks
+  ship an `llm_rubric.py`, and the aggregate multiplies in an LLM judge, which rule #5 bars
+  from a reward. Usable subset is `Security × Completion`.
+- **OpenForgeRL code — FOUND**: `github.com/MSR-Orchard/OpenForge-RL`, 17 stars, default branch
+  **`master`** (so `/main` 404s). The v3 "added github link" is the vanity redirect
+  `aka.ms/OpenForge-RL`, which is why a `github.com` search missed it. Recording proxy is real
+  (58 KB `vllm_proxy.py`). **No LICENSE.**
+- **R33 dispersion+level screening** for continuous rewards — still unvalidated, publishable
+  either way, and now **corroborated by that public run**: its reward went flat with
+  `frac_reward_zero_std` at 0.56-1.00, i.e. most groups carried zero advantage. Signal
+  starvation, not numerics. Log this metric from step 1.
+- **Full texts of 2607.21557 and 2605.27922 — now read** (`08` §5). Three corpus claims fell,
+  the largest being that OpenForgeRL **does** run a cross-harness transfer test (its §5.2,
+  Table 5) — `07` read only the abstract.
+- **Still genuinely open:** the KL curve at `beta>0` on T4; whether any of this reproduces at
+  0.6-1.7B; and whether 2609.11999's untrained gap reproduces at all (zero citations, §6).
 
 ## Three publishable experiments sitting in the gaps
 1. Token-meter ablation (with vs without charging the agent for its own output tokens) — never run.
@@ -157,7 +223,8 @@ mid-run; removing the group-mean baseline → gradient blowup. Stay on-policy.
 | File | Read when |
 |---|---|
 | `research/02-synthesis.md` | **Start here.** The decision, + addendum folding in bench/browser. |
-| `research/07-prior-art-closure.md` | Before committing to the thesis. Honest novelty assessment. |
+| `research/07-prior-art-closure.md` | Before committing to the thesis. Honest novelty assessment — **partly superseded by `08` §1**. |
+| `research/08-gap-closure.md` | **Read with `07`.** Closes 8 gaps: novelty narrowed to one axis, four transfer scoops, three "missing" repos found, fp16 unknown narrowed to KL, counter-evidence to "shrink the action space", and `verifiers` vs our `contract.py`. |
 | `research/06-perplexity-delta.md` | Before touching Kaggle or the verifier. fp16 + BenchJack + costs. |
 | `research/03-free-compute.md` | Setting up the free path. |
 | `research/05-delta-tierlist-and-rdi.md` | Verifier design. RDI broke 8/8 benchmarks. |
@@ -173,6 +240,14 @@ Retrieval was degraded for the whole research phase: WebSearch broken, `exa_sear
 Scholar 429'd, Twitter/Reddit unavailable. Every lane source is arXiv, GitHub, or a vendor doc.
 **Practitioner evidence arrived only via user-supplied Perplexity reports** (`06`), and was not
 independently verified beyond the load-bearing claims listed in that file's Verification section.
+`08` ran under the same broken `WebSearch`, using `curl`/`gh`/arXiv-API/OpenAlex and repo clones;
+every load-bearing claim there was re-verified against the primary artifact (paper full text,
+repo, or committed run log) rather than a lane report.
+**One risk unchanged and now quantified:** arXiv 2609.11999, the measurement this whole project
+rests on, has **zero citations** by five independent routes (OpenAlex, Scholar, HF papers,
+full-text grep, Semantic Scholar). It is unreplicated, uncriticised and first-party. Step 5's
+untrained reproduction is not a formality — it is the experiment that decides whether the premise
+is real.
 
 ## Starting the next session
 **Read `docs/HANDOFF-STEP2.md` first.** It carries what Step 1 learned, the corrections it forced

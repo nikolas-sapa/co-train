@@ -9,10 +9,35 @@ Three surfaces, per research/lanes/bench.md R2 and R3:
                         restricted action vocabulary (R3) and mints the
                         verdict token (R4)
 
-ponytail: there is no prior art to conform to. research/lanes/tokens.md
-carries no Protocol, ABC, base class or harness interface anywhere -- every
-Python block in it is nano-rlm implementation source. This contract is this
-project's own and should be treated as unvalidated rather than inherited.
+ponytail: this contract is deliberately our own, but NOT for want of prior
+art -- the original note here claimed there was none, and that was wrong.
+`research/lanes/tokens.md` really does carry no Protocol, ABC or harness
+interface (every Python block in it is nano-rlm implementation source), but
+the abstraction lives one layer up, in PrimeIntellect-ai/verifiers v1: an
+`Env(ABC)`, a `Harness(ABC)`, a `Client(ABC)` and a `Rollout`, plus 13
+shipped harnesses -- including both arms of this project's axis and the tool
+gate Step 4 was going to build. See research/08-gap-closure.md section 2.
+
+Three deliberate divergences, and they are why this file still exists:
+
+  seam altitude     Their policy seam is the model call (messages in,
+                    completion out). Ours is the action. Consequence, stated
+                    so nobody mistakes it for coverage: our non-solvers drive
+                    OUR stubs, never a real harness, because a real harness
+                    parses actions out of a completion in its own wire
+                    dialect. This gate tests the verifier, not the harness.
+  action vocabulary We name action kinds in the framework and enforce
+                    bash XOR ptc in `permits()`. verifiers has no framework
+                    action type at all -- the equivalent is per-harness
+                    config. Ours is checkable, theirs is configurable.
+  reward signature  `get_reward()` takes nothing, ever (R1/R4). Theirs hands
+                    the reward function the agent's own trace, and their own
+                    example environment scores a path the agent could have
+                    written. R1 is our rule, not an inherited one.
+
+Conform at Step 5, not here: implement a verifiers `Client` whose
+`get_response` is our policy, and `Act` becomes what we parse FROM a
+completion for telemetry rather than what the framework executes.
 """
 
 from __future__ import annotations
