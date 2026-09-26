@@ -7,7 +7,7 @@ machine, not taken on report.**
 
 | Q | Verdict |
 |---|---|
-| Q1 — a non-LLM policy drives a **real** harness | **WORKS**, with a negative control that goes red |
+| Q1 — a non-LLM policy drives a **real** harness | **WORKS**, with a negative control that goes red — but via a monkeypatch, not the supported seam (see below) |
 | Q2 — the PTC arm (`rlm`) | **NEEDS DOCKER**, ~1-2 days |
 | Q3 — a ready-made verified environment | **WORKS** (`glossary`) |
 | Q4 — cost of the untrained measurement | ~$10 and ~1 day for the *cheap* axis |
@@ -79,9 +79,64 @@ next and run the untrained bash-vs-PTC measurement before Step 3's verifier. Kee
 are needed, exactly as `08` §2.6 proposed, now with the seam demonstrated rather than
 assumed.
 
+## The seam that was demonstrated is NOT the seam to build on
+
+This qualifies Q1 above and is the most important correction in this document.
+
+The working spike injected its policy by rebinding `resolve_client` **inside another
+module's namespace**: `interception/server.py` does
+`from verifiers.v1.clients import resolve_client`, so `server_mod.resolve_client = ...`
+patches that module's local name. `resolve_client` is public
+(`verifiers/v1/__init__.py:284`), but the rebinding target is not. **It breaks silently
+if upstream inlines the call or renames the import** — no error, the real client is
+simply used instead.
+
+The supported seam is the one `Harness.launch` states verbatim: *every model call goes
+through `endpoint` + `secret`*. The upgrade-safe form is `EvalClientConfig(base_url=...)`
+pointed at your own OpenAI-compatible server, with no patching at all. **That variant was
+not run** — roughly an hour of work, and it is what anything durable should use.
+
+Treat the monkeypatch as spike scaffolding, not as the design. The *mechanism* is
+proven; the *injection point* still needs doing properly.
+
+### Two gotchas that cost real time, both found by running
+
+- **`Response.raw` is mandatory.** A hand-built typed `Response` with `raw=None` kills
+  the harness program with `openai.APIConnectionError: Model stream ended before a
+  completion finished`. `server.py:764` frames SSE from `dialect.stream_events(response.raw or {})`
+  and `server.py:116` serializes `raw` on the non-streaming path. The typed `Response`
+  feeds the trace; `raw` feeds the wire. Emit a native dict and let
+  `dialect.parse_response` build the typed half, as `clients/eval.py:93-100` does.
+- **`client={"type": "train"}` is required or the policy is never called.**
+  `server.py:600`: `relay = streaming and not isinstance(session.ctx.client, TrainClientConfig)`.
+  With an eval client a streaming request relays straight upstream and `get_response`
+  never fires — and the bash program always streams (`core.py:268`). The flag only flips
+  that branch; `TrainClient` is never constructed.
+
+## Why `glossary`, and the environments that are disqualified
+
+`glossary` is the only shipped environment that is deterministic, offline,
+container-free, **and** whose reward is 1.0 only if the agent actually used its tool
+channel — which is what makes it able to discriminate between harnesses at all.
+
+Confirmed with a discrimination control: a tool-using policy scores `[1.0]×5` and a
+guessing policy `[0.0]×5`, in **both** harnesses. Tool lists measured off the wire:
+`bash` → `['bash', 'facts_lookup']`, `null` → `['facts_lookup']`.
+
+Ruled out, with reasons worth keeping:
+
+| Environment | Why not |
+|---|---|
+| `wiki_search`, `interception`, `proposer_solver` | **LLM judge in the reward** — disqualified by project rule #5 |
+| `deepwiki`, `web_search_interception`, `nemo_gym_weather`, `openenv_wordle` | external network or API key |
+| `reverse_text`, `alphabet_sort`, `scratchpad`, `color_codeword`, `kuhn_poker` | deterministic, but no tool channel to discriminate between harnesses |
+| `gsm8k` | deterministic and offline, but the harness barely participates |
+| `code_golf` | the environment runs the program, not the harness |
+| `bash_interception` | needs the tool gate that `rlm` lacks |
+
 ## Open
 
-The spike's full report truncated twice on a budget cutout. Still outstanding: whether
-the client-injection point is a supported surface or a monkeypatch of a private one
-(this decides whether the seam survives a `verifiers` upgrade), the full `environments/`
-survey, Q4's arithmetic, and the exact Docker requirement for `rlm` on darwin/arm64.
+The spike's report truncated three times on budget cutouts. Outstanding: Q4's full
+arithmetic (the headline ~$10 / ~1 day is recorded above), and the exact Docker
+requirement for `rlm` on darwin/arm64 — whether colima suffices or it needs
+linux/amd64.
