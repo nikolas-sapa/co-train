@@ -8,7 +8,7 @@ machine, not taken on report.**
 | Q | Verdict |
 |---|---|
 | Q1 — a non-LLM policy drives a **real** harness | **WORKS**, with a negative control that goes red — but via a monkeypatch, not the supported seam (see below) |
-| Q2 — the PTC arm (`rlm`) | **RUNS on arm64** (minutes, not days) — but **it is not a clean PTC arm** |
+| Q2 — the PTC arm (`rlm`) | **RUNS on arm64** (minutes, not days) — but it is **not the paper's PTC interface at all**, and cannot be made into it |
 | Q3 — a ready-made verified environment | **WORKS** (`glossary`) |
 | Q4 — cost of the untrained measurement | ~$10 and ~1 day for the *cheap* axis |
 
@@ -211,22 +211,70 @@ Left unaddressed it silently destroys Steps 5 and 6: a co-trained model would be
 learn shell use *inside* the PTC arm, and the measured bash-vs-PTC gap would be a
 measurement of nothing.
 
-## Options, none free
+## Removing `rlm.shell` would not fix it — raw `subprocess` works too
 
-1. **Fork nano-rlm and remove `rlm.shell`.** Cleanest axis, adds a maintained fork, and
-   the system prompt in `prompt.py` must change too or the model is told to use a tool
-   that no longer exists.
-2. **Write a minimal PTC harness against the `Harness` ABC.** More control, and `08`
-   §2.5 already established the ABC is small. Loses nano-rlm's compaction and ACP work.
-3. **Keep `rlm` and measure shell-use rate as a covariate.** Cheapest, scientifically
-   weakest: the arms are no longer cleanly separated, but OpenForgeRL's §5.3 shell-call
-   share (22.6% -> 13.9%) becomes directly comparable, and a pre-declared covariate is
-   far better than an undetected leak.
+Executed, third mode of the same script:
 
-**Recommendation: (1) for the real experiment, (3) for the first untrained probe.** The
-probe's job is to check whether the published gap reproduces at all; contaminating it
-with a measured, reported shell-use rate is acceptable when the alternative is delaying
-the premise check behind a fork. Do not let (3) survive into the trained runs.
+| Policy | Reward |
+|---|---|
+| `await rlm.shell.run("echo ... > answer.txt")` | 1.0, 1.0 |
+| `import subprocess; subprocess.run(..., shell=True)` | **1.0, 1.0** |
+
+nano-rlm's own prompt says it (`src/rlm/prompt.py:187`): *"The supervisor API is the only
+shell: do not call subprocess or os.system from the kernel."* That is an **instruction to
+the model, not an enforced restriction** — and this project's own rule #1 is that
+prompting an agent not to do something is measured at zero effect.
+
+**So forking nano-rlm to delete `rlm.shell` is pointless.** Any full Python kernel has
+`subprocess`, `os.system`, `os.popen`, `pty`. A code-execution PTC arm cannot be
+shell-free by construction unless the interpreter itself is restricted.
+
+## What the source paper actually claims, and why that matters
+
+arXiv 2609.11999 §3, verbatim:
+
+> "PTC lets the model write a restricted program over the typed catalog. Our
+> implementation uses Python as the program language and exposes the catalog as ordinary
+> functions **within a restricted runtime that provides no shell or other action
+> channel**."
+
+So their PTC is Python **plus a restricted runtime**. The restriction *is* the interface.
+The paper does not describe its mechanism, but it is load-bearing: without it, "PTC" is
+just an interpreter, which is a strictly more capable interface than the one they
+measured.
+
+**Consequence: `rlm` cannot be the PTC arm at all.** Not "leaky and needs patching" —
+it is a *different interface* from the one the published +6.8 to +22.0 pp gap was
+measured on. Running bash-vs-`rlm` would be a construct-validity failure before a single
+training step, and it would look like a clean result.
+
+## Options, revised
+
+1. ~~Fork nano-rlm and remove `rlm.shell`~~ — **dead**, `subprocess` remains.
+2. **Build a minimal PTC harness with a genuinely restricted runtime** against the
+   `Harness` ABC (`08` §2.5 established the ABC is small). The restriction is the
+   deliverable, not the harness: an AST-validated program — allowlist the catalog
+   functions, reject `import`, attribute access outside the allowlist, `exec`/`eval`,
+   and dunder traversal — with OS-level backstop (seccomp denying `execve`, or simply no
+   shell binaries and a non-fork-capable sandbox) because Python-level restriction alone
+   is defeatable. This is the only route that reproduces the paper's interface.
+3. **Keep `rlm` and report shell-use rate as a pre-declared covariate** — for the
+   *untrained probe only*, and relabelled honestly: it is bash vs **unrestricted
+   code-execution**, which is a real interface and an interesting arm, but it is not the
+   paper's PTC and must not be reported as such.
+
+**Decision: (2) is the real work, and it is now on the critical path.** (3) is acceptable
+for a first probe provided the arm is named for what it is. The restricted runtime is
+also a natural target for the Step 1 non-solver gate's state-tampering agent — the
+escape-resistance of the PTC runtime is exactly the kind of claim that must be tested
+adversarially rather than asserted, and this section is the evidence that asserting it
+would have been wrong.
+
+**Silver lining:** the escape tests above are a ready-made adversarial suite. Any
+candidate restricted runtime must make all three modes go red — `rlm.shell`, raw
+`subprocess`, and pure-Python-file-write must score 0.0 while the catalog path scores
+1.0. That is a falsifiable acceptance test for option 2, written before the runtime
+exists.
 
 ## Verified parity of the two arms
 
