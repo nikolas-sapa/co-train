@@ -13,7 +13,9 @@ python step2/smoke.py                 # Kaggle only; writes step2_metrics.jsonl
 python step2/verdict.py step2_metrics.jsonl   # re-check a saved run
 ```
 
-Kaggle: accelerator `NvidiaTeslaT4` (= T4 x2). `pip install unsloth`. Copy
+Kaggle: accelerator `NvidiaTeslaT4` (= T4 x2).
+**`pip install unsloth "transformers<5"`** — the pin is load-bearing, see the
+next section. Copy
 `step2/` to `/kaggle/working`, `cd` there, run. Output lands in
 `/kaggle/working`, which persists; notebook scrollback does not, and the
 20-30 min idle timeout can take the kernel before you read it.
@@ -60,6 +62,39 @@ proper hardware":
 - **Proxy the model call** — keeps Unsloth, owns the multi-turn loop.
 
 Deciding this is Step 5's, not Step 2's. Recorded so it is not discovered late.
+
+## The dependency trap, found before spending a Kaggle slot
+
+`pip install unsloth` on Kaggle resolves `trl==0.24.0` — Unsloth's ceiling, so
+`gc24.py` is validating against the right version. It also resolves
+**`transformers==5.5.0`**, because TRL 0.24 declares `transformers>=4.56.1`
+with no upper bound. That pair does not work:
+
+```
+>>> from trl import GRPOTrainer
+ModuleNotFoundError: No module named 'mergekit'
+```
+
+transformers 5 changed `_is_package_available` to return `tuple[bool, str]`.
+TRL 0.24 calls it without `return_version=True` and stores the raw result, so
+every optional-dependency flag becomes `(False, None)` — a non-empty tuple,
+therefore truthy. Every `if is_X_available():` guard in TRL then fires against
+a package that is not installed:
+
+```python
+_mergekit_available = _is_package_available("mergekit")   # (False, None)
+if is_mergekit_available():                               # truthy -> passes
+    from mergekit.config import MergeConfiguration        # ModuleNotFoundError
+```
+
+Measured: **11 of 12 flags inverted** on trl 0.24.0 + transformers 5.5.0, zero
+on trl 0.24.0 + transformers 4.57.6. The error names neither transformers nor
+the real cause, and it lands *after* the Kaggle queue and the model download.
+
+**Install `transformers<5`.** Verified: 4.57.6 resolves with trl 0.24.0 intact,
+un-poisons every flag, imports `GRPOTrainer`, and accepts every `GRPOConfig`
+kwarg `smoke.py` passes. `gate_chat_template.py` now checks this and exits 1
+with the fix, so the run cannot start into it.
 
 ## Why a continuous reward, not a task
 
