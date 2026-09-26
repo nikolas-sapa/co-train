@@ -115,3 +115,20 @@ Truthfulness-of-output issue, not a crash.
 
 1 and 2 are blocking — the run cannot report a pass without them. 3 is the one worth
 a decision rather than a patch. 4 and 5 are cosmetic and can ride along.
+
+---
+
+## Addendum — a pre-existing hole in step2's own test suite
+
+Surfaced by mutation testing during this audit, and **not introduced by any change
+proposed above**: no test in `step2/test_step2.py` exercises a *mixed* `reward_std`
+(some steps zero, some non-zero). So tightening `verdict.py`'s reward-spread check from
+`any(...)` to `all(...)` — a real semantic change, and the wrong one — passes the suite
+unnoticed.
+
+The suite reports 47 mutants / 0 survivors, so this is worth stating plainly: that
+figure is relative to the mutations the suite can see. A surviving mutant here means
+the reward-degeneracy guard is less pinned than the number suggests.
+
+**Fix:** add one test with a mixed `reward_std` across steps, asserting that a run with
+*some* spread passes and a run with *no* spread fails. One test, kills the mutant.
