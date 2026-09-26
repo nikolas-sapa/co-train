@@ -8,7 +8,7 @@ machine, not taken on report.**
 | Q | Verdict |
 |---|---|
 | Q1 — a non-LLM policy drives a **real** harness | **WORKS**, with a negative control that goes red — but via a monkeypatch, not the supported seam (see below) |
-| Q2 — the PTC arm (`rlm`) | **NEEDS DOCKER**, ~1-2 days |
+| Q2 — the PTC arm (`rlm`) | **RUNS on arm64** (minutes, not days) — but **it is not a clean PTC arm** |
 | Q3 — a ready-made verified environment | **WORKS** (`glossary`) |
 | Q4 — cost of the untrained measurement | ~$10 and ~1 day for the *cheap* axis |
 
@@ -140,3 +140,96 @@ The spike's report truncated three times on budget cutouts. Outstanding: Q4's fu
 arithmetic (the headline ~$10 / ~1 day is recorded above), and the exact Docker
 requirement for `rlm` on darwin/arm64 — whether colima suffices or it needs
 linux/amd64.
+
+---
+
+# The PTC arm leaks a shell — executed 2026-09-26
+
+The most consequential finding so far, and it invalidates the obvious way of building
+Step 5. Everything below was run on this machine, not inferred.
+
+## The Docker gate is cleared, and it was cheap
+
+Estimated at 1-2 days. It took minutes. `colima start --cpu 4 --memory 8 --disk 40`
+gives a **native aarch64** VM (Docker 29.5.2, Ubuntu 24.04 host, Debian trixie images),
+so `rlm`'s installer — which shells out to `apt-get` and then fetches `uv` — works
+without any x86 emulation. `rlm` with `builtin_tools=["ipython"]` installed inside the
+container, launched, and reached a canned policy:
+
+```
+model calls intercepted: 1
+   {'call': 1, 'n_msgs': 2, 'tools': ['ipython', 'wait'], 'roles': ['system','user'], 'stream': False}
+trace 65e64661 ok=True reward=0.0 errors=[]
+```
+
+Note `stream: False` — unlike the bash harness, which always streams. And the advertised
+tool list is `['ipython', 'wait']`: a program over a typed catalog, **no `bash` entry**.
+On the wire it looks exactly like PTC.
+
+## It is not PTC. The shell is reachable from inside it.
+
+arXiv 2609.11999 defines PTC as a restricted program over the typed catalog with
+*"no shell or other action channel"*. The `ipython` tool's own description, served to
+the model in the system prompt, says:
+
+> "Use `await rlm.shell.run(command, yield_after=10)` for Bash"
+
+Two canned policies, same task, same harness, same container — differing only in the
+body of the `ipython` call:
+
+| Policy | How it solves | Reward |
+|---|---|---|
+| **PURE** — `open("answer.txt","w").write(str(a+b))` | Python only | **1.0, 1.0** |
+| **SHELL** — `await rlm.shell.run("echo $(( a + b )) > answer.txt")` | shells out from inside the kernel | **1.0, 1.0** |
+
+Both `ok=True`, no errors. **The shell escape works.** So a model in the "PTC" arm can
+reach a shell whenever it wants, and the advertised tool list hides that completely.
+
+## There is no configuration switch
+
+- `rlm.shell` is core nano-rlm API, not a tool and not a skill. It is documented
+  throughout `src/rlm/prompt.py` (`:45`, `:57`, `:125`, `:140`, `:143`, `:152`), including
+  `rlm.shell.setenv`.
+- Grepping nano-rlm for `allow_shell`, `disable_shell`, `no_shell` or an enabled-flag
+  returns **nothing**.
+- The rlm harness config *explicitly rejects* the one knob that sounds right:
+  `reject_disabled_tools` (`harnesses/rlm/harness.py:126-130`) raises with *"the rlm
+  harness does not support `disabled_tools`"*.
+- `builtin_tools=["ipython"]` controls the **native tool list**, which is why `bash`
+  vanished from the catalog while `rlm.shell` kept working.
+
+## Why this matters more than it looks
+
+This is the same class of confound the corpus already flagged for arXiv 2608.06370,
+whose PTC executes *inside a shell subprocess* and which
+`docs/superpowers/specs/2026-09-23-step1-nonsolver-gate-design.md` warns would
+*"partially collapse the bash/PTC axis this project measures"*. Here it arrives from the
+other direction — a PTC arm with a shell escape hatch — and it is **invisible in the
+tool list**, so it would not have been caught by inspecting the config.
+
+Left unaddressed it silently destroys Steps 5 and 6: a co-trained model would be free to
+learn shell use *inside* the PTC arm, and the measured bash-vs-PTC gap would be a
+measurement of nothing.
+
+## Options, none free
+
+1. **Fork nano-rlm and remove `rlm.shell`.** Cleanest axis, adds a maintained fork, and
+   the system prompt in `prompt.py` must change too or the model is told to use a tool
+   that no longer exists.
+2. **Write a minimal PTC harness against the `Harness` ABC.** More control, and `08`
+   §2.5 already established the ABC is small. Loses nano-rlm's compaction and ACP work.
+3. **Keep `rlm` and measure shell-use rate as a covariate.** Cheapest, scientifically
+   weakest: the arms are no longer cleanly separated, but OpenForgeRL's §5.3 shell-call
+   share (22.6% -> 13.9%) becomes directly comparable, and a pre-declared covariate is
+   far better than an undetected leak.
+
+**Recommendation: (1) for the real experiment, (3) for the first untrained probe.** The
+probe's job is to check whether the published gap reproduces at all; contaminating it
+with a measured, reported shell-use rate is acceptable when the alternative is delaying
+the premise check behind a fork. Do not let (3) survive into the trained runs.
+
+## Verified parity of the two arms
+
+Before the leak was found, the PTC arm was shown to work as intended: the PURE policy
+solves the task with Python only, reward `1.0, 1.0`, no errors. So `rlm` **is** a usable
+PTC arm once the shell is removed — the problem is removal, not capability.
