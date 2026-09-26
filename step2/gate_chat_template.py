@@ -109,7 +109,7 @@ def poisoned_optional_flags() -> list[str]:
             continue  # unrelated breakage; not this bug
         if not isinstance(value, bool):
             bad.append(name)
-    return sorted(bad)
+    return bad  # dir() is documented to return a sorted list; no re-sort needed
 
 
 def main() -> int:

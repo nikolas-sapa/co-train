@@ -506,3 +506,101 @@ def test_lora_rank_stays_in_the_range_handoff_settled():
     rank = _resolve(kw["r"], tree)
     assert rank is not _UNREADABLE
     assert 16 <= rank <= 32, f"LoRA rank {rank} is outside HANDOFF's 16-32"
+
+
+# ------------------------------------- the transformers-5 tuple-poisoning check
+
+import sys
+import types
+
+from gate_chat_template import poisoned_optional_flags
+
+
+def test_no_poisoned_flags_on_the_installed_stack():
+    """Non-mocked: runs against whatever trl is actually installed. Guards the
+    detector against false positives, which would block every run."""
+    assert poisoned_optional_flags() == []
+
+
+def _stub_import_utils(monkeypatch, **flags):
+    """Install a stand-in trl.import_utils. The stub is the detector's INPUT,
+    not a stand-in for the thing under test — the real stack is covered by the
+    test above, which is the non-mocked half."""
+    mod = types.ModuleType("trl.import_utils")
+    for name, value in flags.items():
+        setattr(mod, name, lambda v=value: v)
+    monkeypatch.setitem(sys.modules, "trl.import_utils", mod)
+    return mod
+
+
+def test_detects_the_tuple_return_that_transformers_5_introduces(monkeypatch):
+    """(False, None) is the exact shape transformers 5 returns, and it is
+    truthy — which is why the guards invert instead of erroring."""
+    _stub_import_utils(
+        monkeypatch,
+        is_mergekit_available=(False, None),
+        is_vllm_available=(True, None),
+        is_deepspeed_available=False,
+    )
+    assert poisoned_optional_flags() == ["is_mergekit_available", "is_vllm_available"]
+
+
+def test_a_healthy_stub_reports_nothing(monkeypatch):
+    _stub_import_utils(monkeypatch, is_mergekit_available=False, is_vllm_available=True)
+    assert poisoned_optional_flags() == []
+
+
+def test_a_raising_flag_is_not_mistaken_for_poisoning(monkeypatch):
+    """Unrelated breakage in an optional-dep probe must not be reported as this
+    bug, or the fix message sends the reader somewhere wrong."""
+    mod = types.ModuleType("trl.import_utils")
+    def boom():
+        raise RuntimeError("unrelated")
+    mod.is_vllm_available = boom
+    mod.is_mergekit_available = lambda: (False, None)
+    monkeypatch.setitem(sys.modules, "trl.import_utils", mod)
+    assert poisoned_optional_flags() == ["is_mergekit_available"]
+
+
+def test_non_flag_attributes_are_ignored(monkeypatch):
+    """Both halves of the name filter are load-bearing. `_mergekit_available`
+    is the real module-level variable TRL sets next to the accessor, and it
+    must not be probed as though it were the accessor."""
+    mod = types.ModuleType("trl.import_utils")
+    mod.is_mergekit_available = lambda: (False, None)
+    mod._mergekit_available = lambda: (False, None)   # endswith, not startswith
+    mod.available_is_not_a_flag = lambda: (False, None)
+    mod.is_something_else = lambda: (False, None)     # startswith, not endswith
+    monkeypatch.setitem(sys.modules, "trl.import_utils", mod)
+    assert poisoned_optional_flags() == ["is_mergekit_available"]
+
+
+def test_preflight_blocks_rather_than_only_reporting():
+    """The gate exists to stop smoke.py starting into a stack where
+    `from trl import GRPOTrainer` dies. If the poisoned branch printed and
+    returned 0, the run would proceed — Step 1's recurring defect, a guard
+    that reports without gating. Checked on the AST because main() needs a
+    network round-trip and a real tokenizer."""
+    tree = ast.parse((STEP2 / "gate_chat_template.py").read_text())
+    main = next(n for n in ast.walk(tree)
+                if isinstance(n, ast.FunctionDef) and n.name == "main")
+    for node in ast.walk(main):
+        if (isinstance(node, ast.If) and isinstance(node.test, ast.Name)
+                and node.test.id == "poisoned"):
+            returns = [n.value for n in ast.walk(node) if isinstance(n, ast.Return)]
+            assert returns, "the poisoned branch does not return at all"
+            assert all(isinstance(r, ast.Constant) and r.value != 0 for r in returns), \
+                "the poisoned branch returns 0 — smoke.py would run anyway"
+            return
+    raise AssertionError("main() has no `if poisoned:` guard")
+
+
+def test_missing_trl_is_not_an_error(monkeypatch):
+    """The gate must still report on a machine with no trl at all."""
+    monkeypatch.setitem(sys.modules, "trl.import_utils", None)
+    monkeypatch.setattr(
+        "builtins.__import__",
+        lambda name, *a, **k: (_ for _ in ()).throw(ImportError(name))
+        if name == "trl.import_utils" else __import__(name, *a, **k),
+    )
+    assert poisoned_optional_flags() == []

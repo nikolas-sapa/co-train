@@ -156,11 +156,11 @@ collapse rather than an error, which is worse than a crash. The tests read
 stable. That is Step 2's actual question and it is still open. 47 green tests
 here say the *verdict* is trustworthy, not that the run passed.
 
-`pytest step2/ -q` → 47 passed. Root `pytest -q` → Step 1's 51, untouched.
+`pytest step2/ -q` → 54 passed. Root `pytest -q` → Step 1's 51, untouched.
 
 ## Mutation testing
 
-46 mutants, zero survivors — 19 on `verdict.py`, 13 on `gate_chat_template.py`,
+56 mutants, zero survivors — 19 on `verdict.py`, 23 on `gate_chat_template.py`,
 14 on `smoke.py`'s config, all re-run against the final code state rather than
 carried over from the round that first killed them. Harness:
 `step2/mutate.py` — fresh copy per mutation, `PYTHONDONTWRITEBYTECODE=1`,
@@ -177,7 +177,11 @@ reported. What survived longest, in order:
    `except` branch passed. Now both answers go through that path.
 3. **`except TypeError` widened to `except Exception`.** Swallows a genuine
    template bug and retries it into a confident verdict. Pinned.
-4. **`grad_norm` used as both the step marker and a required key** — deleting
+4. **A preflight that reported without gating.** The `transformers<5` check
+   printed its diagnosis and the run continued — nothing asserted it *blocked*.
+   Same shape as the dormant guards Step 1 kept finding, caught by mutating
+   `if poisoned:` to `if False:`.
+5. **`grad_norm` used as both the step marker and a required key** — deleting
    it shrank the step count instead of reporting a missing signal. The marker
    is now `loss`, which is not one of the required keys.
 
@@ -185,7 +189,13 @@ reported. What survived longest, in order:
 
 - **`gc24.py` is a vendored snapshot.** If Unsloth lifts its TRL ceiling, the
   kwarg test validates against a version no longer installed and still passes.
-  The refresh command is in that file's header.
+  The refresh command is in that file's header. The resolve on 2026-09-26 did
+  pick `trl==0.24.0`, so it is currently the right snapshot.
+- **The `transformers<5` pin is a ceiling, not a fix.** TRL's unbounded
+  `transformers>=4.56.1` is still there; a future TRL that handles the tuple
+  return will want the pin lifted, and nothing here notices that.
+- **`poisoned_optional_flags()` only catches the tuple shape.** A different
+  transformers change that breaks TRL some other way passes it silently.
 - **The reward measures length, not competence.** It cannot detect a model
   that emits 20 tokens of noise. Correct for a stability probe, useless as a
   task signal.
