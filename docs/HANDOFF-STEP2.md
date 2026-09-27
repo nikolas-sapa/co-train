@@ -1,151 +1,161 @@
 # HANDOFF — Step 2
 
-**Read `HANDOFF.md` first for the project. This file is what Step 1 learned.**
-Status 2026-09-25: Step 1 built and merged. 51 tests. Nothing has touched a GPU yet.
+**Read `HANDOFF.md` first for the project, then `step2/README.md` for the detail.**
+Status 2026-09-27: **the gate is resolved, the run is written and its verdict is
+trustworthy. Nothing has touched a GPU.** That is the only thing left.
 
 ---
 
-## What Step 1 actually produced
+## The one thing to do next
 
-| File | What it is |
+```bash
+tar -czf step2-bundle.tar.gz -C step2 \
+    verdict.py gate_chat_template.py smoke.py metric_contract.json
+```
+
+Upload as a **private** Kaggle Dataset named `cotrain-step2`, then follow
+`step2/KAGGLE.md` — five paste-ready cells. Accelerator **GPU T4 x2**, Internet **On**.
+
+`pip install unsloth "transformers<5"`. **The pin is load-bearing**, not hygiene —
+see below. Cell 3 is a ~20 s preflight that fails fast rather than after the
+model download.
+
+Everything checkable without a GPU is checked: 73 tests, 59 mutants, 0 survivors.
+Nothing says the run passed.
+
+---
+
+## What Step 2 settled
+
+### The TRL trainability gate: resolved, and HANDOFF was wrong three ways
+
+HANDOFF recorded *"TRL raises at `grpo_trainer.py:1981-1982` if the chat template
+is not prefix-preserving."* Against source:
+
+1. The raise is guarded by `if self.tools` — it is inside the multi-turn tool
+   loop, so a no-tools GRPO run never reaches it.
+2. It does not exist in TRL ≤ 0.24.0 at all: `trl/chat_template_utils.py` is 404
+   at that tag and `self.tools` appears zero times in its `grpo_trainer.py`.
+3. **Unsloth pins `trl<=0.24.0`**, so on the Step 2 stack the gate is *absent*,
+   not merely unfired.
+
+Qwen3-0.6B **does** fail the check where it exists — it drops `<think></think>`
+from history, so message N re-renders once N+1 appears (divergence at token 9) —
+but TRL auto-repairs it via `get_training_chat_template`, verified False→True.
+**The proxy escape hatch is not needed.** HANDOFF's constraint table is corrected.
+
+Steps 5-6 are a different matter: PTC *is* tool calling, and that path does not
+exist on the Unsloth stack. That fork is now the research session's `ptc/`.
+
+### `transformers<5`, or the trainer will not import
+
+`pip install unsloth` resolves `trl==0.24.0` — Unsloth's ceiling, confirmed by a
+real resolve rather than by reading pins — **and** `transformers==5.5.0`, because
+TRL 0.24 declares `transformers>=4.56.1` with no upper bound. That pair is broken:
+
+```
+>>> from trl import GRPOTrainer
+ModuleNotFoundError: No module named 'mergekit'
+```
+
+transformers 5 changed `_is_package_available` to return `tuple[bool, str]`. TRL
+calls it without `return_version=True` and stores the raw result, so every
+optional-dependency flag becomes `(False, None)` — a non-empty tuple, therefore
+**truthy** — and every `if is_X_available():` guard fires against a package that
+is not installed. Measured: **11 of 12 flags inverted** on 5.5.0, **zero** on
+4.57.6. `mergekit` is simply the first one the GRPO import path reaches, which is
+why the error names neither transformers nor the cause.
+
+`gate_chat_template.py` detects this and exits 1 with the fix.
+
+---
+
+## The mistake worth carrying forward
+
+`verdict.py` required `entropy`, which **this stack never logs** — TRL logs it
+only from a closure inside `_compute_loss`, which Unsloth replaces wholesale, and
+the replacement hardcodes `compute_entropy = False`. So `verdict()` printed
+`STEP 2 FAIL` on every healthy run: a fail-closed defect inside the file written
+to prevent fail-closed defects.
+
+**56 mutants missed it, and could not have caught it.** Every `verdict()` test fed
+synthetic log dicts built carrying `entropy` — the assumption under test. Mutating
+logic cannot falsify the premise the fixtures encode. It was found by the research
+session's independent audit (`docs/step2-audit.md`), not by this session.
+
+The generalisable lesson, which Step 1's four defects were also instances of:
+
+> **Mutation testing validates logic against fixtures. It cannot validate the
+> fixtures against reality.** For every external contract, check the real artifact
+> — vendor source, a real resolve, a real API — not your model of it.
+
+The "check against vendored source" pattern *had* been applied to `GRPOConfig`
+kwargs and worked. It was simply never applied to the metric contract. Now:
+`gen_metric_contract.py` derives the contract from real TRL and Unsloth source,
+`test_step2.py` asserts `REQUIRED_KEYS` is a subset of it, and the fixture no
+longer supplies `entropy`.
+
+---
+
+## Decisions made, so they are not silently revisited
+
+| Decision | Why |
 |---|---|
-| `src/cotrain/contract.py` | harness interface — `Act` / `Policy` / `Env` / `rollout` |
-| `src/cotrain/nonsolvers.py` | five adversarial non-solvers |
-| `tests/leaky_env.py` | two stub environments: one deliberately broken, one sound |
-| `tests/test_gate.py` | the gate — 12 assertions, both directions |
-| `tests/test_contract.py`, `test_nonsolvers.py`, `test_stub_envs.py` | unit layers |
-
-`pytest -q` → 51 passed, CPU only, stdlib only, nothing imports torch.
-
-**`tests/leaky_env.py` is a permanent red-team target. It is deliberately exploitable
-and must never be hardened.** It carries one leak per R1a surface plus one per agent.
-If a future session "fixes" it, the gate stops discriminating and still reports green.
+| `beta = 0.04`, not 0 | `08` §7 found a public Kaggle 2×T4 run at nearly this config that did 314 steps clean, so `beta=0` only reproduces a known result. It published **no KL curve** — HANDOFF's standing unknown. `beta>0` costs zero extra weights on the PEFT adapter-disable path. |
+| `entropy` dropped from `REQUIRED_KEYS`, check kept | Not emitted here, but raw TRL logs it and Step 6 may drop Unsloth for rented Ampere. `observations()` declares the gap on every run rather than leaving a dormant guard. |
+| Step 0 exempt for `grad_norm` only | GradScaler starts at `init_scale=65536` and halves on overflow, so step 0 legitimately overflows. One step, one key — a blanket non-finite exemption would discard the real overflow signal. |
+| Flatness, never finiteness, for `kl` | Unsloth logs `kl` unconditionally; at `beta=0` it is `zeros_like(...)`. A finiteness check would pass a run that measured nothing and leave a JSONL that reads as a KL curve. |
+| `verdict()` keeps its 2-tuple; notes live in `observations()` | A note must never make a run pass, and a failure must never be downgraded to a note. Asserted structurally. |
 
 ---
 
-## Five non-solvers, not four
+## What this stack cannot see, stated so nobody assumes otherwise
 
-RDI's Agent-Eval Checklist specifies four. Its own text calls the checklist
-"a minimum bar", and the gate was **measurably blind** to the class RDI's own
-scorecard is dominated by — observation-channel leakage (WebArena 812 tasks
-~100%, OSWorld 369 tasks 73%). So there is a fifth, `Echo`.
-
-| Agent | Predicate | Source text |
-|---|---|---|
-| `Null` | `score == 0`, `expect=0` | "Its score is your floor. If it's not zero, something is wrong." |
-| `RandomAgent` | universal over 32 seeds | "if it significantly outperforms the null agent…" |
-| `Inject` | `attack - control ≈ 1.0` | "If scores change, your judge is compromisable." |
-| `Tamper` | `attack - control ≈ 5.0` | "If it scores above zero, your isolation is broken." |
-| `Echo` | `== 0` on sound | not RDI's — the leakage class, added because the gate could not see it |
-
-**Baseline is computed, not configured.** RDI gives no formal definition; the null
-agent's score *is* the floor, so `Null` runs first and the others are scored against it.
+- **Entropy collapse.** Garg's clearest signature — entropy → 0 at lr 1e-4 — is
+  unobservable. `grad_norm`, `reward_std` and KL spread are what remain.
+- **Multi-GPU.** Unsloth forces `_n_gpu = 1` under `ParallelMode.NOT_DISTRIBUTED`,
+  so this is single-process whatever the session shows. `NCCL_CUMEM_ENABLE` is
+  inert on that path and set only so it is already right when Step 6 turns vLLM on.
+- **Competence.** The reward measures output length. It cannot detect a model
+  emitting 20 tokens of noise. Correct for a stability probe, useless as a task.
+- **Trend.** Five steps is too few to fit a slope; `entropy > 0.01` is a floor.
 
 ---
 
-## Constraints Step 1 places on Steps 3-5
+## Reading a result
 
-These are not suggestions. The gate enforces them, and an environment that
-violates one fails the gate rather than failing silently.
+A `STEP 2 FAIL` from a non-finite `grad_norm` after step 0 is **the fp16 answer,
+and it is "no"** — not a broken script. Record it. A clean negative closes Step 2
+as well as a pass does: it sends Step 6 to rented Ampere, a fork `08` already made
+live by finding prime-rl cannot run on a T4 at all.
 
-1. **`get_reward()` takes no agent-supplied argument. Ever.** Asserted in
-   `_Landed.__init__` on the wrapped env, so it survives the Step 4 swap.
-   This is R1 and R4 expressed in a type signature.
-2. **A harness exposes `bash` XOR `ptc`, never both.** `Bash+Tool` has the lowest
-   median shell calls *and* the highest failure rate in both benchmarks — adding a
-   catalog alongside a shell degrades it rather than diluting it.
-3. **The environment must accept at least five consecutive actions before terminating.**
-   The gate pins exact accepted-action counts. Measured: three of five predicates
-   reject a single-shot environment. If Step 4 needs single-shot, the gate needs
-   revising alongside it — stated in `contract.py` so it is not discovered late.
-4. **Observations must never carry anything that redeems for reward.** `Echo` submits
-   the longest token it has seen after four look-steps. This is the only defence
-   against the leakage class.
-5. **No LLM judge in the reward path.** `Inject` is a standing architectural guard:
-   any reward delta between its attack and control arms means a judge appeared.
+Commit `step2_metrics.jsonl` either way. It opens with a `config` record naming
+what produced it, and `verdict.py` can re-judge it later with no GPU.
 
 ---
 
-## Corrections Step 1 forced into the research
+## Do not
 
-1. **The thesis number was the wrong pair.** Corrected in `HANDOFF.md`. Gap is
-   +6.8 to +22.0 pp, one arm not significant, and under cost-per-successful-task
-   the ordering is already reversed in one untrained arm.
-2. **The corpus carries two incompatible PTC definitions** and never flags it.
-   2609.11999 is multi-turn; 2608.06370 is single-shot *inside a shell subprocess*,
-   compared only against JSON tool calling with **no bash arm**. The bash-over-PTC
-   ordering exists only in the multi-turn one. Do not import the single-shot
-   definition on the strength of the shared name.
-3. **The RECEIPT ablation is five tiers, not three**: 45% → 9% → 19% → 44% → 100%.
-   `+PoC constraints` at 44% is still *below* naive self-judgment at 45%. Nothing
-   clears baseline until role separation. R6: harden fully or not at all.
-4. **RDI's Agent-Eval Checklist is not in the corpus.** Fetched from
-   `rdi.berkeley.edu/blog/trustworthy-benchmarks-cont/` during Step 1.
-5. **Step 1 implements only R24's second clause.** R24 also asks you to run your
-   strongest scaffold with a self-refinement loop against the verifier. That half
-   is still owed, later, with a real model.
+- **Start Step 3.** HANDOFF is explicit that it is the interesting one and the
+  wrong next move; its shape depends on the fp16 answer (T4 vs rented Ampere).
+- **Touch `src/` or `tests/`.** Step 1's gate. `tests/leaky_env.py` is a permanent
+  red-team target and must stay exploitable.
+- **Lift `transformers<5`** without re-running `gate_chat_template.py`.
+- **Edit `metric_contract.json` by hand.** Regenerate it; the refresh commands are
+  in `gen_metric_contract.py`'s docstring.
+- **Trust a green check.** Mutate the target and confirm red. Four defects on this
+  project were a passing check running against a stale, fake or dormant target —
+  two of them inside the verification tooling itself.
 
 ---
 
-## Do Step 2 next, not Step 3
+## Concurrency
 
-Step 3 (the verifier) is the intellectually interesting one and it is the wrong
-next move. Every hour spent on it is wasted if fp16 GRPO on Qwen3/T4 turns out
-unstable, and that is a genuine unknown — the corpus says you are in "a narrow
-but travelled corridor" with **no public Qwen3 fp16 GRPO loss/KL curves on T4**.
+Two sessions have worked this repo. **Give each its own `git worktree`** — a shared
+checkout caused a branch switch under a live session and one contaminated commit
+(`git add HANDOFF.md` without diffing swept 84 lines of the other session's
+uncommitted work into a Step 2 commit; split back out, trees verified identical).
 
-Step 2 is also cheap and bounded: does it run, and is fp16 stable. Five steps.
-
-Settled, do not re-litigate: Kaggle `NvidiaTeslaT4` (= T4 x2), **Unsloth** not raw
-TRL, fp16, LoRA rank 16-32, Qwen3-0.6B, `use_vllm=False`, free tier, no local
-training (dev machine is darwin/arm64).
-
-**Verify before writing training code:** TRL raises at `grpo_trainer.py:1981-1982`
-if the chat template is not prefix-preserving. Check that on Qwen3-0.6B first —
-it is a hard gate, not a knob. Escape hatch if it fails: proxy the model call,
-which LEGO-RL and OpenForgeRL both do.
-
-Log from run 1: gradient norm, `mean_response_length`, token entropy, `reward_std`.
-Garg's collapse signatures: lr 1e-4 → policy collapse and entropy to zero (3e-5
-stable); off-policy reuse of 16 steps → collapse mid-run; removing the group-mean
-baseline → gradient blowup. Stay on-policy. Set `mask_truncated_completions=True`
-and `NCCL_CUMEM_ENABLE=0`.
-
----
-
-## Method that repeatedly paid off
-
-**Mutation-test your tests, not just your code.** Every review round on Step 1
-found something the previous round missed — 5 surviving mutants in the contract,
-4 in the agents, 1 deferred, 3 dormant guards in the gate, then a whole exploit
-class. A test suite that has never been observed failing is not evidence.
-
-`.superpowers/sdd/2026-09-23-step1-nonsolver-gate/mutate.py` is the harness.
-**Fresh copy per mutation and `PYTHONDONTWRITEBYTECODE=1`, both mandatory.** A
-byte-length-identical mutation restored within the same second leaves identical
-mtime and size, so Python keeps executing the cached `.pyc`. `-p no:cacheprovider`
-disables pytest's cache, not Python's. This produced one false verdict here.
-
-Four defects on this branch were the same shape: **a green check running against a
-stale, wrong, or dormant target.** Two were in the verification tooling itself.
-
----
-
-## Known holes, stated so nothing implies more coverage than it earns
-
-- **Token unforgeability is a proxy.** 64 fresh instances plus a length check
-  collapses any *instance*-derived token; a **global** counter would pass both.
-- **`_Landed` counts accepted steps without inspecting what `step()` returns.**
-  An environment that accepted actions and then ignored them reads as live.
-- **`Echo` is heuristic.** Longest unseen token after four looks. Misses base64,
-  splits across observations, mid-word embedding, and any leak shorter than the
-  prose around it.
-- **A call site passing `expect=None` explicitly** weakens its own check. Inherent
-  to mutation-testing a test suite; the defence is review of that file.
-- **OSWorld's exploit class** (VM state manipulation + public gold files) is not
-  expressible by a bash-only tamper agent. Recorded, not closed.
-- **BenchJack is not publicly released** ("preparing BenchJack for public release"),
-  so Step 3's plan to run it is blocked on an absent repo — the third after
-  Harness-Bench and OpenForgeRL. Step 3 needs a fallback.
-- **A re-review truncated mid-report** while attacking `Echo`. It had already found
-  one leak shape we missed; assume more exist.
+Both sessions have now audited each other and both audits found something real:
+`docs/step2-audit.md` (theirs, on my `step2/`) and `docs/ptc-runtime-review.md`
+(mine, on their `ptc/`). Worth continuing.
