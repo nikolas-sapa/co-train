@@ -15,16 +15,21 @@ from __future__ import annotations
 import asyncio
 import json
 
+import sys
+from pathlib import Path
+
 import httpx
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 verifiers = pytest.importorskip("verifiers")
 
 from verifiers.v1.clients import EvalClientConfig, ModelContext  # noqa: E402
 from verifiers.v1.task import TaskData  # noqa: E402
 
-from harness import PTCHarness, PTCHarnessConfig  # noqa: E402
-from runtime import Catalog  # noqa: E402
+from ptc.harness import PTCHarness, PTCHarnessConfig  # noqa: E402
+from ptc.runtime import Catalog  # noqa: E402
 
 ENDPOINT = "http://interception.invalid/base"
 SECRET = "s3cret"
@@ -270,3 +275,51 @@ def test_the_replayed_conversation_is_a_valid_tool_exchange(catalog):
     ids = [c["id"] for c in assistant["tool_calls"]]
     assert ids == ["call_1"]
     assert tool["tool_call_id"] in ids
+
+
+# ------------------------------------------------------------ the plugin contract
+
+def test_verifiers_can_load_this_arm_by_id():
+    """The whole point of `ptc/__init__.py`. `--env.agent.harness.id ptc` resolves
+    through `_import_plugin` -> module `ptc` -> the one `Harness` subclass in
+    `__all__`. If this fails, the arm is unreachable from a real run no matter how
+    green the rest of this file is, and the only way to use it would be the fork or
+    the monkeypatch the spike ruled out."""
+    from verifiers.v1.utils.loaders import harness_class, load_harness
+
+    assert harness_class("ptc") is PTCHarness
+    harness = load_harness(PTCHarnessConfig(id="ptc"))
+    assert isinstance(harness, PTCHarness)
+    # Loaded through the plugin path, so nothing supplied a catalog: it must still
+    # be per-instance and empty rather than None or a shared default.
+    assert harness.catalog.names() == set()
+
+
+def test_the_module_exports_exactly_one_harness():
+    """`_plugin_class` rejects a module exporting two `Harness` subclasses. Pin the
+    surface so adding a second arm here fails here rather than at load time."""
+    import ptc
+
+    harnesses = [
+        obj for name in ptc.__all__
+        if isinstance(obj := getattr(ptc, name), type) and issubclass(obj, verifiers.v1.harness.Harness)
+    ]
+    assert harnesses == [PTCHarness]
+
+
+def test_the_runtime_is_importable_without_verifiers():
+    """The reason `PTCHarness` is lazy in `__init__.py`. `runtime.py` is stdlib
+    only and `test_ptc.py` must run on a bare interpreter; an eager harness import
+    in the package __init__ would make `import ptc.runtime` require httpx,
+    pydantic and verifiers. Asserted by inspecting the module's own source rather
+    than by uninstalling verifiers, which a test cannot do."""
+    import ast
+    import pathlib
+
+    source = (pathlib.Path(__file__).parent / "__init__.py").read_text()
+    top_level_imports = [
+        n for n in ast.parse(source).body if isinstance(n, (ast.Import, ast.ImportFrom))
+    ]
+    modules = {n.module for n in top_level_imports if isinstance(n, ast.ImportFrom)}
+    assert "ptc.harness" not in modules, "the harness must not be imported eagerly"
+    assert modules == {"ptc.runtime"}

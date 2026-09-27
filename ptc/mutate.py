@@ -30,7 +30,7 @@ def fresh() -> pathlib.Path:
 def run(d: pathlib.Path):
     return subprocess.run(
         [sys.executable, "-m", "pytest", "ptc/", "-q", "--no-header", "-p", "no:cacheprovider"],
-        cwd=d, capture_output=True, text=True, env={**ENV, "PYTHONPATH": str(d / "ptc")},
+        cwd=d, capture_output=True, text=True, env={**ENV, "PYTHONPATH": str(d)},
     )
 
 

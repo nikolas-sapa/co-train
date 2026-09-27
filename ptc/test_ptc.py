@@ -16,9 +16,11 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent))
+# The repo root, not this directory: `ptc` is a package (the verifiers plugin
+# contract needs it to be), so the runtime is imported through it.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from runtime import SAFE_BUILTINS, Catalog, ProgramRejected, run, validate  # noqa: E402
+from ptc.runtime import SAFE_BUILTINS, Catalog, ProgramRejected, run, validate  # noqa: E402
 
 # ---------------------------------------------------------------- the catalog
 

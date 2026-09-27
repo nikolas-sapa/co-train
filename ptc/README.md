@@ -82,13 +82,31 @@ Two decisions worth naming:
   (`verifiers/v1/interception/server.py:596`), so sending them here would be dead at best
   and a silent divergence between arms at worst. Pinned by a test.
 
+### It is a loadable plugin, not a fork
+
+`--env.<role>.harness.id ptc` is all it takes. `verifiers` resolves a harness id by
+importing that module and taking the single `Harness` subclass in its `__all__`
+(`utils/loaders.py:145` → `_import_plugin` → `_plugin_class`), so a third-party arm needs
+no fork, no entry point, and none of the private-name monkeypatching the spike ruled out
+(`docs/spike-verifiers.md`, "The seam that was demonstrated is NOT the seam to build on").
+`ptc/__init__.py` is the whole contract; a test loads the arm through
+`load_harness(PTCHarnessConfig(id="ptc"))` rather than trusting that reading.
+
+`PTCHarness` is exported **lazily**, via PEP 562's module `__getattr__`, so that
+`runtime.py` stays importable on an interpreter with no `verifiers`: an eager harness
+import in `__init__.py` would make `import ptc.runtime` require httpx, pydantic and
+verifiers to reach a module that uses none of them. `_plugin_class` goes through
+`getattr`, so the contract is unaffected. Both halves are pinned, and the eager-import
+mutation goes red.
+
 ### Running the suites
 
 `ptc/` needs an interpreter with `verifiers` installed; `.venv-tok` does not have it.
 `test_ptc.py` runs anywhere (runtime only, no imports beyond stdlib), and `test_harness.py`
 skips itself when `verifiers` is absent rather than failing.
 
-    <python-with-verifiers> -m pytest ptc/ -q          # 43 tests
+    <python-with-verifiers> -m pytest ptc/ -q          # 46 tests
+    python3 -m pytest ptc/ -q                          # 23 + 1 skipped, no verifiers needed
     <python-with-verifiers> ptc/mutate.py harness.py <<'JSON'
     [["name", "old", "new"], ...]
     JSON
@@ -98,8 +116,8 @@ committed script never points at a path under `~/scratch`.
 
 ### The harness suite is mutation-tested too, and it found two real holes
 
-20 tests. Nineteen mutations, **zero survivors** — but only after two survivors were fixed,
-which is the part worth recording:
+23 tests. Twenty-five mutations, **zero survivors** — but only after two survivors were
+fixed, which is the part worth recording:
 
 | Mutation | Result |
 |---|---|
@@ -119,6 +137,9 @@ which is the part worth recording:
 | `tool` message mislabelled `user` | 2 tests fail |
 | **`tool_call_id` not echoed back** | **SURVIVED** → fixed |
 | **Assistant turn not appended to history** | **SURVIVED** → fixed |
+| `__all__` omits the harness / exports a second one / re-exports nothing | 2 tests fail each |
+| Eager `ptc.harness` import in `__init__.py` | 1 test fails |
+| `__getattr__` never resolves, or resolves to `None` | 2 tests fail each |
 
 Both survivors were the same class of defect: the conversation the harness replays was
 malformed in a way `httpx.MockTransport` accepts and a **real** OpenAI-compatible endpoint
@@ -134,8 +155,9 @@ class-attribute row above is.
 
 ## Status
 
-Runtime, harness and both suites are done and green: **43 tests, 19 harness mutants, 0
-survivors.** The arm is drivable by anything that can play a `verifiers` policy.
+Runtime, harness and suites are done and green: **46 tests, 25 mutants, 0 survivors.**
+The arm loads through the supported plugin path and is drivable by anything that can play
+a `verifiers` policy.
 
 **Not yet run against a model.** The next step is the untrained bash-vs-PTC comparison —
 the premise check that decides whether the project has a thesis.

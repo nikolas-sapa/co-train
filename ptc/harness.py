@@ -28,7 +28,7 @@ from verifiers.v1.runtimes import ProgramResult, Runtime
 from verifiers.v1.task import TaskData
 from verifiers.v1.trace import Trace
 
-from runtime import Catalog, ProgramRejected, run as run_program
+from ptc.runtime import Catalog, ProgramRejected, run as run_program
 
 __all__ = ["PTCHarness"]
 
