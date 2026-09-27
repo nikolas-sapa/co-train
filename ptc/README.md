@@ -58,7 +58,84 @@ and not only on error messages, which a refactor could reword.
 All three measured escapes go red while the catalog path stays green. Written before the
 runtime existed, which is the only ordering under which it counts as evidence.
 
+## The harness — `harness.py`
+
+`PTCHarness` is a `verifiers.v1.harness.Harness`. It runs its loop **in-process**, which
+`Harness.launch`'s own contract permits verbatim: *"a harness may run its loop in-process
+instead of launching a program, as long as every model call goes through `endpoint` +
+`secret`"*. So there is no program to install and `NEEDS_CONTAINER = False`.
+
+The model gets **exactly one tool**, `run_program(code)`. The catalog lives *inside* the
+program, not beside it as sibling tools — that is the whole distinction between PTC and
+plain typed-tool calling, and it is the axis this project measures. A test pins it, because
+an arm that also exposed the catalog as tools would be the bash arm with different names
+and the comparison would measure nothing.
+
+Two decisions worth naming:
+
+- **A rejection is data, not an error.** An escape comes back as a tool message the model
+  can read (`rejected: import is not permitted`) and the loop continues. A crash would make
+  the restriction a bug rather than part of the interface, and a model being trained could
+  never learn the boundary.
+- **`ctx.sampling` is not forwarded.** The interception server applies temperature/top_p/
+  max_tokens as overrides onto whatever body a harness sends
+  (`verifiers/v1/interception/server.py:596`), so sending them here would be dead at best
+  and a silent divergence between arms at worst. Pinned by a test.
+
+### Running the suites
+
+`ptc/` needs an interpreter with `verifiers` installed; `.venv-tok` does not have it.
+`test_ptc.py` runs anywhere (runtime only, no imports beyond stdlib), and `test_harness.py`
+skips itself when `verifiers` is absent rather than failing.
+
+    <python-with-verifiers> -m pytest ptc/ -q          # 43 tests
+    <python-with-verifiers> ptc/mutate.py harness.py <<'JSON'
+    [["name", "old", "new"], ...]
+    JSON
+
+`mutate.py` takes its interpreter from `sys.executable` instead of hardcoding a venv, so a
+committed script never points at a path under `~/scratch`.
+
+### The harness suite is mutation-tested too, and it found two real holes
+
+20 tests. Nineteen mutations, **zero survivors** — but only after two survivors were fixed,
+which is the part worth recording:
+
+| Mutation | Result |
+|---|---|
+| Rejection re-raised instead of returned as data | **6 tests fail** |
+| Program `exec`'d directly, skipping `validate()` | **6 tests fail** |
+| Catalog also exposed as sibling tools | 1 test fails |
+| `ctx.sampling` forwarded in the request body | 1 test fails |
+| `max_turns` unbounded (`while True`) | 1 test fails |
+| `max_turns` off by one | 1 test fails |
+| Catalog back to a class attribute (the real pre-fix shape) | **19 tests fail** |
+| Only the first tool call in a turn is run | **10 tests fail** |
+| System prompt elides the catalog names | 2 tests fail |
+| Task's own system prompt dropped | 1 test fails |
+| Tool exception swallowed as `ok` | 1 test fails |
+| Bearer secret dropped from the request | 1 test fails |
+| Rejection never appended to the message list | 1 test fails |
+| `tool` message mislabelled `user` | 2 tests fail |
+| **`tool_call_id` not echoed back** | **SURVIVED** → fixed |
+| **Assistant turn not appended to history** | **SURVIVED** → fixed |
+
+Both survivors were the same class of defect: the conversation the harness replays was
+malformed in a way `httpx.MockTransport` accepts and a **real** OpenAI-compatible endpoint
+rejects — a `tool` message answering no preceding `tool_calls` is a 400. Every other test
+stayed green, so the arm would have failed only on first contact with a live model.
+`test_the_replayed_conversation_is_a_valid_tool_exchange` now asserts the message sequence
+and the id echo, and kills both.
+
+One equivalent mutant is also recorded, since a table of only-kills invites suspicion:
+setting `PTCHarness.catalog` *alongside* `self.catalog` survives, because the instance
+attribute shadows it and behaviour is unchanged. That mutation is not the bug; the
+class-attribute row above is.
+
 ## Status
 
-The runtime and its suite are done and green. **Not yet wired to a `verifiers` `Harness`** —
-that is the next step, and it is what turns this into a usable second arm.
+Runtime, harness and both suites are done and green: **43 tests, 19 harness mutants, 0
+survivors.** The arm is drivable by anything that can play a `verifiers` policy.
+
+**Not yet run against a model.** The next step is the untrained bash-vs-PTC comparison —
+the premise check that decides whether the project has a thesis.
