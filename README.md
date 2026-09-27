@@ -95,7 +95,7 @@ before trusting green. Both test suites are mutation-tested:
 | Suite | Tests | Mutation testing |
 |---|---|---|
 | Step 1 gate | 51 | Six rounds; each found what the last missed — 5 surviving mutants in the contract, 4 in the agents, 3 dormant guards in the gate, then a whole exploit class. Total mutants run was not recorded. |
-| Step 2 | 54 | 56 mutants, 0 survivors, re-run against the final code state. |
+| Step 2 | 73 | 59 mutants, 0 survivors, re-run against the final code state. |
 
 `step2/mutate.py` is the harness — fresh copy per mutation and `PYTHONDONTWRITEBYTECODE=1`, both
 mandatory. A byte-length-identical mutation restored within the same second leaves identical mtime

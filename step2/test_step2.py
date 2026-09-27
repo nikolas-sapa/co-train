@@ -13,7 +13,16 @@ import math
 import pytest
 
 from gate_chat_template import is_prefix_preserving
-from verdict import ENTROPY_FLOOR, MIN_STEPS, TARGET_WORDS, verdict, word_count_reward
+from verdict import (
+    ENTROPY_FLOOR,
+    GRAD_NORM_WARMUP_STEPS,
+    MIN_STEPS,
+    REQUIRED_KEYS,
+    TARGET_WORDS,
+    observations,
+    verdict,
+    word_count_reward,
+)
 
 transformers = pytest.importorskip("transformers")
 
@@ -21,14 +30,21 @@ transformers = pytest.importorskip("transformers")
 # --------------------------------------------------------------- fixtures
 
 def _log(**over):
+    """One log line shaped like the real stack emits.
+
+    Deliberately carries NO `entropy`. Unsloth hardcodes compute_entropy=False,
+    so a fixture that supplied it — as this one originally did — silently
+    encoded the assumption that produced the fail-every-healthy-run bug, and
+    made every mutant of the entropy logic look adequately tested.
+    """
     row = {
         "loss": 0.01,
         "grad_norm": 0.5,
         "learning_rate": 3e-5,
         "completions/mean_length": 42.0,
-        "entropy": 1.2,
         "reward": 0.4,
         "reward_std": 0.2,
+        "kl": 0.0,
     }
     row.update(over)
     return row
@@ -302,7 +318,9 @@ def test_degenerate_reward_fails():
 
 
 def test_entropy_collapse_fails():
-    logs = _run()
+    """Covers the raw-TRL path, where entropy IS logged. Dormant under Unsloth;
+    `observations()` says so out loud rather than leaving it silently unused."""
+    logs = _run(entropy=1.2)
     logs[4]["entropy"] = ENTROPY_FLOOR / 2
     ok, why = verdict(logs)
     assert not ok
@@ -311,13 +329,13 @@ def test_entropy_collapse_fails():
 
 def test_entropy_exactly_at_the_floor_fails():
     """`> floor`, not `>=`. Pins the boundary so a mutation cannot widen it."""
-    logs = _run()
+    logs = _run(entropy=1.2)
     logs[0]["entropy"] = ENTROPY_FLOOR
     ok, _ = verdict(logs)
     assert not ok
 
 
-@pytest.mark.parametrize("key", ["grad_norm", "completions/mean_length", "entropy", "reward_std"])
+@pytest.mark.parametrize("key", REQUIRED_KEYS)
 def test_each_required_health_signal_is_required(key):
     """HANDOFF.md names four signals to log from run 1. Dropping any one of
     them must fail, or the requirement is decorative."""
@@ -330,10 +348,10 @@ def test_each_required_health_signal_is_required(key):
 
 def test_booleans_are_not_accepted_as_finite_numbers():
     logs = _run()
-    logs[0]["entropy"] = True
+    logs[0]["reward_std"] = True
     ok, why = verdict(logs)
     assert not ok
-    assert any("entropy" in r for r in why)
+    assert any("reward_std" in r for r in why)
 
 
 def test_every_failure_is_reported_not_just_the_first():
@@ -430,6 +448,7 @@ SETTLED = {
     "mask_truncated_completions": True,  # HANDOFF, explicit
     "use_vllm": False,                   # HANDOFF, explicit
     "max_steps": 5,                      # HANDOFF, explicit
+    "beta": 0.04,                        # buys the unpublished KL curve; free on PEFT
 }
 
 
@@ -604,3 +623,174 @@ def test_missing_trl_is_not_an_error(monkeypatch):
         if name == "trl.import_utils" else __import__(name, *a, **k),
     )
     assert poisoned_optional_flags() == []
+
+
+# ---------------------------------------- the metric contract (the missed class)
+# 56 mutants did not catch that REQUIRED_KEYS demanded a metric this stack never
+# emits, because every verdict() test above feeds synthetic log dicts built from
+# the very assumption under test. Mutating the logic cannot falsify the premise.
+# These check REQUIRED_KEYS against source instead — the same pattern already used
+# for GRPOConfig kwargs, which was applied to config but never to metrics.
+
+import json
+
+from gen_metric_contract import available as contract_available
+
+
+@pytest.fixture(scope="module")
+def contract():
+    path = STEP2 / "metric_contract.json"
+    if not path.exists():
+        pytest.skip("metric_contract.json not generated")
+    return json.loads(path.read_text())
+
+
+def test_every_required_key_is_actually_emitted_by_this_stack(contract):
+    """The bug that shipped. `entropy` is logged by TRL but not by Unsloth, so
+    requiring it made verdict() fail every healthy run — a fail-closed defect
+    inside the file written to prevent fail-closed defects."""
+    missing = sorted(set(REQUIRED_KEYS) - contract_available(contract))
+    assert not missing, (
+        f"REQUIRED_KEYS demands {missing}, which the Step 2 stack never logs. "
+        f"A healthy run would report STEP 2 FAIL."
+    )
+
+
+def test_entropy_is_known_dead_and_stays_out_of_required_keys(contract):
+    """Pinned in both directions: entropy must be recorded as dead, and must
+    not creep back into REQUIRED_KEYS. If a future stack does emit it this
+    flips, which is the signal to reconsider — not something to silence."""
+    assert "entropy" in contract["from_trl_dead_under_unsloth"]
+    assert "entropy" not in contract_available(contract)
+    assert "entropy" not in REQUIRED_KEYS
+
+
+def test_the_contract_distinguishes_surviving_from_replaced_trl_metrics(contract):
+    """Guards the generator's central claim. reward_std lives in
+    _generate_and_score_completions (survives); entropy lives in a closure
+    inside _compute_loss (replaced wholesale). A generator that lumped them
+    together would make the test above vacuous."""
+    assert "reward_std" in contract["from_trl_survives"]
+    assert "entropy" in contract["from_trl_dead_under_unsloth"]
+    assert not set(contract["from_trl_survives"]) & set(contract["from_trl_dead_under_unsloth"])
+
+
+def test_contract_is_generated_not_hand_edited(contract):
+    """Provenance. A transcribed list drifts silently; that is the failure this
+    whole file exists to catch."""
+    assert "GENERATED" in contract["_comment"]
+    assert contract["_generated"]
+
+
+# ------------------------------------------- GradScaler warm-up and observations
+
+def test_first_step_inf_grad_norm_does_not_fail_the_run():
+    """fp16 GradScaler starts at init_scale=65536 and halves on overflow, so
+    step 0 legitimately overflows and transformers logs inf. Failing on it
+    would red every correct fp16 run."""
+    logs = _run()
+    logs[0]["grad_norm"] = float("inf")
+    ok, why = verdict(logs)
+    assert ok, why
+
+
+def test_the_excused_step_is_still_reported():
+    """Excused is not hidden. A silently-swallowed inf is indistinguishable
+    from a diverging first step."""
+    logs = _run()
+    logs[0]["grad_norm"] = float("inf")
+    assert any("GradScaler" in n for n in observations(logs))
+
+
+@pytest.mark.parametrize("step", range(GRAD_NORM_WARMUP_STEPS, MIN_STEPS))
+def test_inf_grad_norm_after_warmup_still_fails(step):
+    """The exemption is one step, not a blanket pass for non-finite values."""
+    logs = _run()
+    logs[step]["grad_norm"] = float("inf")
+    ok, why = verdict(logs)
+    assert not ok
+    assert any("grad_norm" in r and "not finite" in r for r in why)
+
+
+def test_warmup_window_is_exactly_one_step():
+    """Pinned against the literal, not the constant. The parametrized test
+    above derives its range from GRAD_NORM_WARMUP_STEPS, so widening the
+    constant widens that test with it and the regression passes unnoticed.
+    Step 1 is the first step that must NOT be excused."""
+    assert GRAD_NORM_WARMUP_STEPS == 1
+    logs = _run()
+    logs[1]["grad_norm"] = float("inf")
+    ok, why = verdict(logs)
+    assert not ok
+    assert any("step 1" in r and "grad_norm" in r for r in why)
+
+
+def test_a_finite_first_step_is_not_reported_as_a_warmup_overflow():
+    """`_warmup_exempt` is reached only after a finiteness check inside
+    verdict(), but observations() calls it directly — so dropping its own
+    finiteness test would label every healthy step 0 a GradScaler overflow."""
+    assert not any("GradScaler" in n for n in observations(_run()))
+
+
+def test_warmup_exemption_does_not_extend_to_other_keys():
+    logs = _run()
+    logs[0]["reward_std"] = float("nan")
+    ok, why = verdict(logs)
+    assert not ok
+    assert any("reward_std" in r for r in why)
+
+
+def test_absent_entropy_is_declared_not_silent():
+    """A guard that never runs must say so. Step 1's recurring defect was a
+    dormant probe reading as coverage."""
+    assert any("entropy was not logged" in n for n in observations(_run()))
+
+
+def test_flat_kl_is_called_out_as_no_measurement():
+    """Unsloth logs kl unconditionally; at beta=0 it is zeros_like(...), so a
+    finiteness check would pass a run that measured no KL and the JSONL would
+    read as a KL curve to whoever opens it next."""
+    assert any("no KL was measured" in n for n in observations(_run(kl=0.0)))
+
+
+def test_varying_kl_is_not_called_out():
+    logs = _run()
+    for i, row in enumerate(logs):
+        row["kl"] = 0.001 * (i + 1)
+    assert not any("kl is the constant" in n for n in observations(logs))
+
+
+def test_observations_never_change_the_verdict():
+    """Structural: a note must not be able to make a run pass or fail."""
+    logs = _run()
+    logs[0]["grad_norm"] = float("inf")
+    before, _ = verdict(logs)
+    observations(logs)
+    after, _ = verdict(logs)
+    assert before is after is True
+
+
+def test_config_header_is_not_counted_as_a_training_step():
+    """smoke.py writes a `config` record as line 1 so the evidence file says
+    what produced it. If that counted as a step, a 4-step run would reach
+    MIN_STEPS and report a false pass."""
+    header = {"config": {"beta": 0.04, "fp16": True, "max_steps": 5}}
+    ok, why = verdict([header] + _run(MIN_STEPS - 1))
+    assert not ok
+    assert any(f"{MIN_STEPS - 1} training steps" in r for r in why)
+
+
+def test_a_full_healthy_run_end_to_end():
+    """The shape the Kaggle run will actually produce: config header, a
+    GradScaler warm-up inf on step 0, entropy absent, KL moving because
+    beta > 0. This must pass, and must say why it excused what it excused."""
+    rows = [{"config": {"beta": 0.04}}] + _run()
+    rows[1]["grad_norm"] = float("inf")
+    for i, row in enumerate(rows[1:]):
+        row["kl"] = 0.001 * (i + 1)
+    ok, why = verdict(rows)
+    assert ok, why
+    notes = observations(rows)
+    assert any("GradScaler" in n for n in notes)
+    assert any("entropy was not logged" in n for n in notes)
+    assert not any("no KL was measured" in n for n in notes)
