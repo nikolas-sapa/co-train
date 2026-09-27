@@ -439,3 +439,24 @@ def test_tool_names_a_program_cannot_call_are_separated_out():
     ok, bad = partition_callable(["facts_lookup", "my-tools_lookup", "ok2", "1bad"])
     assert ok == ["facts_lookup", "ok2"]
     assert bad == ["my-tools_lookup", "1bad"]
+
+
+def test_the_endpoint_is_not_double_prefixed(catalog):
+    """A real interception endpoint already ends in `/v1`. Appending
+    `/v1/chat/completions` to it gives `/v1/v1/chat/completions` and a 404 — which the
+    whole rest of this file missed, because `MockTransport` answers any path. Only
+    running the arm through `compare.py` surfaced it, so both shapes are pinned here."""
+    for endpoint, expected in (
+        ("http://host/base", "http://host/base/v1/chat/completions"),
+        ("http://host/base/v1", "http://host/base/v1/chat/completions"),
+        ("http://host/base/v1/", "http://host/base/v1/chat/completions"),
+    ):
+        policy = Policy(_assistant(None))
+        harness = PTCHarness(PTCHarnessConfig(), catalog=catalog,
+                             transport=policy.transport())
+        ctx = ModelContext(model="m", client=EvalClientConfig())
+        asyncio.run(harness.launch(
+            ctx, trace=None, runtime=None, endpoint=endpoint, secret=SECRET,
+            mcp_urls={}, data=TaskData(prompt="x"),
+        ))
+        assert str(policy.requests[0].url) == expected, endpoint

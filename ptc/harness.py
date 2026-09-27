@@ -218,14 +218,20 @@ class PTCHarness(Harness[PTCHarnessConfig]):
         printed: list[str],
         log: list[str],
     ) -> None:
+        # The interception endpoint already ends in `/v1` in a real run, so appending
+        # `/v1/chat/completions` produced `/v1/v1/chat/completions` and a 404 that no
+        # mock could have caught -- MockTransport answers any path. Found by running
+        # the arm through `compare.py`.
+        base = endpoint.rstrip("/")
+        chat_path = "/chat/completions" if base.endswith("/v1") else "/v1/chat/completions"
         async with httpx.AsyncClient(
             transport=self.transport,
-            base_url=endpoint.rstrip("/"),
+            base_url=base,
             headers={"Authorization": f"Bearer {secret}"},
             timeout=300.0,
         ) as http:
             for _ in range(self.config.max_turns):
-                r = await http.post("/v1/chat/completions", json={
+                r = await http.post(chat_path, json={
                     "model": ctx.model, "messages": messages,
                     "tools": TOOLS, "tool_choice": "auto", "stream": False,
                 })

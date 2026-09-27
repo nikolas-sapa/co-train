@@ -144,7 +144,7 @@ mutation goes red.
 `test_ptc.py` runs anywhere (runtime only, no imports beyond stdlib), and `test_harness.py`
 skips itself when `verifiers` is absent rather than failing.
 
-    <python-with-verifiers> -m pytest ptc/ -q          # 52 tests
+    <python-with-verifiers> -m pytest ptc/ -q          # 53 tests
     python3 -m pytest ptc/ -q                          # 23 + 1 skipped, no verifiers needed
     <python-with-verifiers> ptc/mutate.py harness.py <<'JSON'
     [["name", "old", "new"], ...]
@@ -204,5 +204,29 @@ Runtime, harness and suites are done and green: **52 tests, 31 mutants, 0 surviv
 The arm loads through the supported plugin path, builds its catalog from the task's MCP
 servers, and has been driven end to end against a real `glossary` tool server.
 
-**Not yet run against a model.** The next step is the untrained bash-vs-PTC comparison —
-the premise check that decides whether the project has a thesis.
+### The comparison rig
+
+`ptc/compare.py` runs bash and PTC over the same taskset with the same model.
+
+    python ptc/compare.py canned                                  # free, no model
+    python ptc/compare.py real --model <id> --base-url <url>      # any OpenAI-compatible endpoint
+
+**canned** measures nothing about models. It proves the *rig* can tell the arms apart,
+with a negative control that must score 0.0: a comparison whose no-tool control also
+scores 1.0 is measuring the grader, not the harness. Current result — bash 1.0/0.0,
+PTC 1.0/0.0, both arms reachable, both controls red.
+
+**real** points `EvalClientConfig.base_url` at a provider. That is the seam
+`Harness.launch` names and the one the spike says to build on, rather than the
+`resolve_client` monkeypatch — which rebinds a name inside another module's namespace
+and breaks silently if upstream inlines the call. Canned mode still uses the
+monkeypatch, on purpose: it is scaffolding for a policy that is not a server.
+
+Running it found a defect 52 green tests had not: the interception endpoint already
+ends in `/v1`, so the harness was requesting `/v1/v1/chat/completions` and getting a
+404 on every real rollout. `MockTransport` answers any path, so no mock could have
+caught it. Both endpoint shapes are now pinned by a test.
+
+**Not yet run against a model.** That is the untrained bash-vs-PTC measurement — the
+premise check that decides whether the project has a thesis
+(`docs/pre-registration.md` §6).
