@@ -71,6 +71,45 @@ plain typed-tool calling, and it is the axis this project measures. A test pins 
 an arm that also exposed the catalog as tools would be the bash arm with different names
 and the comparison would measure nothing.
 
+### The catalog comes from the task's MCP servers
+
+`SUPPORTS_MCP = True`. At launch the harness asks the task's MCP servers what they offer
+(`connect_mcp`, the same helper the bundled chat program uses) and turns each tool into an
+ordinary **synchronous** catalog function. Synchronous because that is what the paper's PTC
+exposes and what `runtime.validate` permits — `await` is not in `ALLOWED_NODES`, and adding
+it would change the interface under measurement.
+
+That forces a bridge: MCP is async, the program is not. The program runs in a worker thread
+(`asyncio.to_thread`) and each tool call hops back to the harness's loop via
+`run_coroutine_threadsafe`. Running the program on the loop instead deadlocks on the first
+tool call, so the MCP tests use a short `tool_timeout` — otherwise that mutation reads as a
+hang rather than a failure.
+
+Tool names that are not Python identifiers (a hyphenated server yields `my-tools_lookup`)
+are unreachable to a program that calls tools by name. They are reported in the log rather
+than dropped, because a task whose only tool is unreachable would otherwise read as a model
+failure.
+
+### `print` is the observation channel
+
+A program that calls a tool and does not print tells the model nothing, so the harness
+returns **the program's printed output** as the tool result — not a list of bound names.
+`print` is in `SAFE_BUILTINS` already, but its output would go to the harness process's
+stdout; a catalog entry named `print` shadows the builtin (`run()` execs with the catalog
+as globals) and captures instead. Chosen over `contextlib.redirect_stdout`, which mutates
+`sys.stdout` process-wide while programs run in worker threads: two concurrent rollouts
+would capture each other's output. A program that prints nothing is told so explicitly,
+because a bare `ok` reads as "the tool worked".
+
+### Proof it can score: a real MCP server, not a mock
+
+`test_harness.py` stands up the real `glossary` toolset (`verifiers.v1.mcp.serve`, the
+same path a rollout uses — one subprocess per server) and drives a program that calls
+`facts_lookup` and prints the result. The assertion is that the fact reaches **the model**,
+which is the only reason the arm can earn `glossary`'s reward: that reward is 1.0 only if
+the looked-up fact appears in the final reply. The negative control — a program that
+answers without calling the tool — is asserted not to contain it.
+
 Two decisions worth naming:
 
 - **A rejection is data, not an error.** An escape comes back as a tool message the model
@@ -105,7 +144,7 @@ mutation goes red.
 `test_ptc.py` runs anywhere (runtime only, no imports beyond stdlib), and `test_harness.py`
 skips itself when `verifiers` is absent rather than failing.
 
-    <python-with-verifiers> -m pytest ptc/ -q          # 46 tests
+    <python-with-verifiers> -m pytest ptc/ -q          # 52 tests
     python3 -m pytest ptc/ -q                          # 23 + 1 skipped, no verifiers needed
     <python-with-verifiers> ptc/mutate.py harness.py <<'JSON'
     [["name", "old", "new"], ...]
@@ -116,7 +155,7 @@ committed script never points at a path under `~/scratch`.
 
 ### The harness suite is mutation-tested too, and it found two real holes
 
-23 tests. Twenty-five mutations, **zero survivors** — but only after two survivors were
+29 tests. Thirty-one mutations, **zero survivors** — but only after two survivors were
 fixed, which is the part worth recording:
 
 | Mutation | Result |
@@ -140,6 +179,12 @@ fixed, which is the part worth recording:
 | `__all__` omits the harness / exports a second one / re-exports nothing | 2 tests fail each |
 | Eager `ptc.harness` import in `__init__.py` | 1 test fails |
 | `__getattr__` never resolves, or resolves to `None` | 2 tests fail each |
+| `print` not shadowed, so output goes to the real stdout | 3 tests fail |
+| Captured output never cleared between programs | 1 test fails |
+| Program run on the event loop instead of a thread (deadlock) | 1 test fails |
+| MCP servers never consulted | 1 test fails |
+| Non-identifier tool names kept in the catalog | 1 test fails |
+| Silent program reported as a plain `ok` | 1 test fails |
 
 Both survivors were the same class of defect: the conversation the harness replays was
 malformed in a way `httpx.MockTransport` accepts and a **real** OpenAI-compatible endpoint
@@ -155,9 +200,9 @@ class-attribute row above is.
 
 ## Status
 
-Runtime, harness and suites are done and green: **46 tests, 25 mutants, 0 survivors.**
-The arm loads through the supported plugin path and is drivable by anything that can play
-a `verifiers` policy.
+Runtime, harness and suites are done and green: **52 tests, 31 mutants, 0 survivors.**
+The arm loads through the supported plugin path, builds its catalog from the task's MCP
+servers, and has been driven end to end against a real `glossary` tool server.
 
 **Not yet run against a model.** The next step is the untrained bash-vs-PTC comparison —
 the premise check that decides whether the project has a thesis.

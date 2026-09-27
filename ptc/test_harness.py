@@ -323,3 +323,119 @@ def test_the_runtime_is_importable_without_verifiers():
     modules = {n.module for n in top_level_imports if isinstance(n, ast.ImportFrom)}
     assert "ptc.harness" not in modules, "the harness must not be imported eagerly"
     assert modules == {"ptc.runtime"}
+
+
+# ------------------------------------------------------- the MCP-derived catalog
+
+def _served_glossary():
+    """A real `glossary` MCP server, launched the way a real rollout launches one.
+
+    Not a mock. The three things worth testing here — that discovery yields callable
+    catalog entries, that a synchronous program can call an async tool without
+    deadlocking the loop it is bridged to, and that the tool's return value reaches
+    the model — are all properties of the real client/server pair, and a stub would
+    assert only that the stub behaves as written.
+    """
+    import verifiers.v1 as vf
+    from verifiers.v1.mcp import serve
+
+    from glossary.servers.facts import GlossaryToolset
+
+    return serve(GlossaryToolset(vf.ToolsetConfig()))
+
+
+async def _run_with_mcp(policy: Policy, url: str, **kw):
+    """Awaited, not `asyncio.run`: the caller is already inside the loop that serves
+    the MCP server, and the harness bridges its tool calls back to that same loop."""
+    # tool_timeout is deliberately short. It is the only thing that makes the
+    # sync/async bridge falsifiable: running the program on the event loop instead of
+    # in a thread deadlocks, and at the 600s default the mutation would look like a
+    # hang rather than a failure.
+    harness = PTCHarness(PTCHarnessConfig(tool_timeout=10.0), transport=policy.transport())
+    ctx = ModelContext(model="test-model", client=EvalClientConfig())
+    data = TaskData(prompt=kw.get("prompt", "look it up"))
+    return await (harness.launch(
+        ctx, trace=None, runtime=None, endpoint=ENDPOINT, secret=SECRET,
+        mcp_urls={"facts": url}, data=data,
+    ))
+
+
+def test_an_mcp_tool_becomes_a_catalog_function_a_program_can_call():
+    """End to end against a live MCP server: discovery, the sync/async bridge, and
+    the observation channel. If this passes, the arm can score on `glossary`; the
+    whole comparison rests on it."""
+    from glossary.servers.facts import FACTS
+
+    entity, fact = next(iter(FACTS.items()))
+    program = f"print(facts_lookup(name={entity!r}))"
+
+    async def go():
+        async with _served_glossary() as url:
+            policy = Policy(_assistant(program), _assistant(None))
+            return await _run_with_mcp(policy, url), policy
+
+    result, policy = asyncio.run(go())
+    # The fact came back through the program's printed output...
+    assert fact in result.stdout
+    # ...and reached the model, which is the only reason it can answer.
+    tool_message = [m for m in policy.bodies[1]["messages"] if m.get("role") == "tool"][0]
+    assert fact in tool_message["content"]
+    # The catalog was advertised by name, discovered rather than configured.
+    assert "facts_lookup" in policy.bodies[0]["messages"][0]["content"]
+
+
+def test_a_program_that_never_calls_the_tool_learns_nothing():
+    """The negative control `glossary` is chosen for: its reward is 1.0 only if the
+    tool was actually used. An arm that could answer without calling would make the
+    environment unable to discriminate between harnesses, which is the whole reason
+    it was picked over gsm8k."""
+    async def go():
+        async with _served_glossary() as url:
+            policy = Policy(_assistant("print('a famous person')"), _assistant(None))
+            return await _run_with_mcp(policy, url), policy
+
+    result, policy = asyncio.run(go())
+    from glossary.servers.facts import FACTS
+
+    assert next(iter(FACTS.values())) not in result.stdout
+
+
+def test_print_is_the_observation_channel(catalog):
+    """Without capture, `print` writes to the harness process's stdout where the
+    model cannot see it, and a program that called a tool would return `ok` with the
+    result thrown away."""
+    policy = Policy(_assistant("print(double(21))"), _assistant(None))
+    result = _run(policy, catalog)
+    assert "42" in result.stdout
+    tool_message = [m for m in policy.bodies[1]["messages"] if m.get("role") == "tool"][0]
+    assert tool_message["content"] == "42"
+
+
+def test_a_silent_program_says_so_rather_than_claiming_success(catalog, calls):
+    """`ok` alone would read as "the tool worked" to a model that printed nothing."""
+    policy = Policy(_assistant("note('quiet')"), _assistant(None))
+    result = _run(policy, catalog)
+    assert calls == ["quiet"]
+    assert "printed nothing" in result.stdout
+
+
+def test_captured_output_does_not_leak_between_programs(catalog):
+    """Two programs in one rollout. The second must not inherit the first's output,
+    or a model that printed once would keep being told it printed."""
+    policy = Policy(_assistant("print('first')"), _assistant("print('second')"),
+                    _assistant(None))
+    _run(policy, catalog)
+    tool_messages = [m["content"] for b in policy.bodies for m in b["messages"]
+                     if m.get("role") == "tool"]
+    assert tool_messages[-1] == "second"
+
+
+def test_tool_names_a_program_cannot_call_are_separated_out():
+    """`facts_lookup` is callable; a hyphenated server name yields `my-tools_lookup`,
+    which no program can name. Unit-tested rather than served, because making a real
+    server advertise a malformed name means shipping a broken toolset to test with."""
+    from ptc.harness import partition_callable
+
+    ok, bad = partition_callable(["facts_lookup", "my-tools_lookup", "ok2", "1bad"])
+    assert ok == ["facts_lookup", "ok2"]
+    assert bad == ["my-tools_lookup", "1bad"]
