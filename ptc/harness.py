@@ -32,7 +32,7 @@ from verifiers.v1.trace import Trace
 
 from verifiers.v1.harnesses.utils.mcp import call_mcp, connect_mcp
 
-from ptc.runtime import Catalog, ProgramRejected, run as run_program
+from ptc.runtime import TIMEOUT as runtime_timeout, Catalog, ProgramRejected, run as run_program
 
 __all__ = ["PTCHarness"]
 
@@ -134,6 +134,11 @@ def _bridge(name, servers, dispatch, loop, timeout):
 class PTCHarnessConfig(HarnessConfig):
     max_turns: int = Field(8, gt=0)
     """Programs submitted before the loop gives up."""
+    program_timeout: float = Field(runtime_timeout, gt=0)
+    """Wall-clock seconds one program may run. Exceeding it is a rejection the model
+    reads, not a hang: an episode that never completes never scores zero either, which
+    makes a hang the cheapest accidental reward hack once Step 6 rewards the model
+    (`docs/ptc-runtime-review.md`)."""
 
 
 class PTCHarness(Harness[PTCHarnessConfig]):
@@ -257,7 +262,7 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                         # Off the event loop: the program is synchronous and its tool
                         # calls bridge back to this loop, so running it here would
                         # deadlock the moment a program called a tool.
-                        await asyncio.to_thread(run_program, code, catalog)
+                        await asyncio.to_thread(run_program, code, catalog, self.config.program_timeout)
                         content = "\n".join(printed) or "ok (the program printed nothing)"
                     except ProgramRejected as e:
                         content = f"rejected: {e}"

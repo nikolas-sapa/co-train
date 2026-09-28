@@ -211,3 +211,112 @@ def test_rejected_program_never_reaches_the_catalog():
     with pytest.raises(ProgramRejected):
         run("write_answer('first')\nimport os", catalog())
     assert WROTE == [], "validation must precede execution, not interleave with it"
+
+
+# ---------------------------------------------------------- resource bounds
+#
+# From `docs/ptc-runtime-review.md`: 28 escape attempts, 0 escapes, but 4 resource
+# attacks all validated and then hung. A hang is worse than a crash once the model is
+# being rewarded (Step 6) -- an episode that never completes never scores zero either,
+# which makes it the cheapest accidental reward hack available. Each of the four is
+# pinned below, plus the legitimate programs the bounds must not break.
+
+import time  # noqa: E402
+
+from ptc.runtime import MAX_DIGITS, MAX_ELEMENTS, TIMEOUT  # noqa: E402
+
+
+def test_an_unbounded_loop_is_stopped_not_hung():
+    started = time.monotonic()
+    with pytest.raises(ProgramRejected) as excinfo:
+        run("while True:\n    pass", Catalog(), timeout=0.4)
+    assert time.monotonic() - started < 3.0
+    assert "budget" in str(excinfo.value)
+
+
+def test_nested_loops_are_stopped_too():
+    """Bounded by their own trip counts, so no static analysis can see the cost --
+    only wall-clock can."""
+    started = time.monotonic()
+    with pytest.raises(ProgramRejected):
+        run("for i in range(10**6):\n    for j in range(10**4):\n        pass",
+            Catalog(), timeout=0.4)
+    assert time.monotonic() - started < 3.0
+
+
+def test_an_integer_bomb_is_refused_before_it_runs():
+    """`10 ** 10 ** 8` is ONE opcode. A line tracer never regains control inside it,
+    so the wall-clock budget cannot help and the bound has to be static."""
+    started = time.monotonic()
+    with pytest.raises(ProgramRejected) as excinfo:
+        run("write_answer(10 ** 10 ** 8)", catalog())
+    assert time.monotonic() - started < 1.0, "the limit must not compute the value"
+    assert "digits" in str(excinfo.value)
+
+
+def test_a_sequence_bomb_is_refused_before_it_runs():
+    started = time.monotonic()
+    with pytest.raises(ProgramRejected) as excinfo:
+        run("write_answer(len([0] * (10 ** 9)))", catalog())
+    assert time.monotonic() - started < 1.0
+    assert "element limit" in str(excinfo.value)
+
+
+def test_the_bomb_check_runs_at_validation_so_nothing_executes():
+    """A part-valid program must not half-run. `record` is called first in source
+    order; if the guard ran during execution the catalog would already be dirty."""
+    WROTE.clear()
+    with pytest.raises(ProgramRejected):
+        run("write_answer('first')\nwrite_answer(10 ** 10 ** 8)", catalog())
+    assert WROTE == []
+
+
+@pytest.mark.parametrize("program", [
+    "write_answer(2 ** 64)",
+    "write_answer(len([0] * 1000))",
+    "total = 0\nfor i in range(2000):\n    total = total + i\nwrite_answer(total)",
+    "write_answer(sum([i * i for i in range(500)]))",
+])
+def test_the_bounds_do_not_break_ordinary_programs(program):
+    """The restriction is the interface, so a bound that refuses real work would be a
+    different and weaker arm. Every one of these is the kind of arithmetic a catalog
+    program legitimately does."""
+    WROTE.clear()
+    run(program, catalog())
+    assert len(WROTE) == 1
+
+
+def test_a_forbidden_node_is_reported_as_such_not_as_an_arithmetic_limit():
+    """Ordering. The magnitude check runs last, so a program that is both illegal and
+    huge names the escape it attempted -- the message is what the model learns from."""
+    with pytest.raises(ProgramRejected) as excinfo:
+        run("import os\nx = 10 ** 10 ** 8", Catalog())
+    assert "Import" in str(excinfo.value)
+
+
+def test_the_limits_are_named_constants_not_buried_numbers():
+    assert TIMEOUT > 0 and MAX_DIGITS > 0 and MAX_ELEMENTS > 0
+
+
+def test_an_existing_tracer_is_restored_not_stomped():
+    """pytest, coverage and debuggers install tracers. Clearing one instead of
+    restoring it would silently break whatever is watching the run -- including the
+    coverage numbers this project reports."""
+    marker = lambda *a: marker  # noqa: E731
+    previous = sys.gettrace()
+    sys.settrace(marker)
+    try:
+        run("x = 1", Catalog())
+        assert sys.gettrace() is marker
+    finally:
+        sys.settrace(previous)
+
+
+def test_the_tracer_is_restored_even_when_the_program_raises():
+    previous = sys.gettrace()
+    try:
+        with pytest.raises(ZeroDivisionError):
+            run("x = 1 / 0", Catalog())
+        assert sys.gettrace() is previous
+    finally:
+        sys.settrace(previous)

@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
-"""Mutation harness for `ptc/`. Run with the interpreter that has `verifiers`:
+"""Mutation harness for this repo's packages. Run with the interpreter that has
+`verifiers`, naming the target file relative to the repo root:
 
-    ~/scratch/verifiers-spike/.venv/bin/python ptc/mutate.py harness.py <<'JSON'
+    ~/scratch/verifiers-spike/.venv/bin/python ptc/mutate.py ptc/harness.py <<'JSON'
     [["name", "old text", "new text"], ...]
     JSON
+
+    ~/scratch/verifiers-spike/.venv/bin/python ptc/mutate.py ledger/taskset.py < muts.json
+
+The package is the first path segment; only that package is copied and only its tests
+run. Parameterised rather than copied a third time -- `step2/mutate.py` already exists
+as a sibling because step2 is another session's, and two copies is the limit.
 
 Same discipline as `step2/mutate.py`, and deliberately a sibling rather than an
 import: `step2/` is owned by another session and this one does not edit it.
@@ -17,27 +24,49 @@ Python would keep executing the cached .pyc.
 """
 import json, os, pathlib, shutil, subprocess, sys, tempfile
 
-DIR = pathlib.Path(__file__).resolve().parent
+REPO = pathlib.Path(__file__).resolve().parents[1]
 ENV = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
 
 
-def fresh() -> pathlib.Path:
-    d = pathlib.Path(tempfile.mkdtemp(prefix="mutptc."))
-    shutil.copytree(DIR, d / "ptc", ignore=shutil.ignore_patterns("__pycache__"))
+def fresh(pkg: str) -> pathlib.Path:
+    d = pathlib.Path(tempfile.mkdtemp(prefix=f"mut.{pkg}."))
+    shutil.copytree(REPO / pkg, d / pkg, ignore=shutil.ignore_patterns("__pycache__"))
     return d
 
 
-def run(d: pathlib.Path):
-    return subprocess.run(
-        [sys.executable, "-m", "pytest", "ptc/", "-q", "--no-header", "-p", "no:cacheprovider"],
-        cwd=d, capture_output=True, text=True, env={**ENV, "PYTHONPATH": str(d)},
-    )
+SUITE_TIMEOUT = 300.0
+"""Seconds one mutated suite may take before it is killed and counted as dead.
+
+Required, not defensive. Mutating away an execution bound (`ptc/runtime.py`'s deadline
+tracer) makes the suite's own `while True` test run forever, so an untimed harness
+waits on the exact defect it was built to detect. A hung suite is a killed mutant --
+it certainly did not pass -- but it has to be *recorded* as one rather than waited on.
+"""
+
+
+def run(d: pathlib.Path, pkg: str):
+    try:
+        return subprocess.run(
+            [sys.executable, "-m", "pytest", f"{pkg}/", "-q", "--no-header",
+             "-p", "no:cacheprovider"],
+            cwd=d, capture_output=True, text=True, env={**ENV, "PYTHONPATH": str(d)},
+            timeout=SUITE_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(
+            args=[], returncode=124,
+            stdout=f"HUNG: suite exceeded {SUITE_TIMEOUT}s\nFAILED (hung)::timeout",
+            stderr="",
+        )
 
 
 def main() -> int:
     target = sys.argv[1]
+    if "/" not in target:
+        sys.exit(f"name the target relative to the repo root, e.g. ptc/{target}")
+    pkg, _, filename = target.partition("/")
     muts = json.load(sys.stdin)
-    base = run(fresh())
+    base = run(fresh(pkg), pkg)
     if base.returncode:
         print("FRESH BASELINE NOT GREEN:\n" + base.stdout[-2000:])
         return 2
@@ -46,15 +75,15 @@ def main() -> int:
     print("-" * 82)
     survivors = []
     for name, old, new in muts:
-        d = fresh()
-        f = d / "ptc" / target
+        d = fresh(pkg)
+        f = d / pkg / filename
         s = f.read_text()
         if s.count(old) != 1:
             print(f"{name:46} | ANCHOR x{s.count(old)} (not unique)")
             survivors.append(name + " [unverified]")
             continue
         f.write_text(s.replace(old, new, 1))
-        r = run(d)
+        r = run(d, pkg)
         if r.returncode == 0:
             survivors.append(name)
         killed = [l.split("::")[-1].split()[0] for l in r.stdout.splitlines() if l.startswith("FAILED")]

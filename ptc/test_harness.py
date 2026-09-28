@@ -460,3 +460,31 @@ def test_the_endpoint_is_not_double_prefixed(catalog):
             mcp_urls={}, data=TaskData(prompt="x"),
         ))
         assert str(policy.requests[0].url) == expected, endpoint
+
+
+def test_a_hanging_program_comes_back_as_a_rejection_the_model_can_read(catalog, calls):
+    """The reward-hacking case from `docs/ptc-runtime-review.md`. A program that never
+    returns must not stall the episode: the model is told it blew its budget, the loop
+    survives, and it can still act legally afterwards. An episode that never completes
+    never scores zero, so a hang would be the cheapest reward hack available."""
+    policy = Policy(_assistant("while True:\n    pass"),
+                    _assistant("note('after')"), _assistant(None))
+    harness = PTCHarness(PTCHarnessConfig(program_timeout=0.4), catalog=catalog,
+                         transport=policy.transport())
+    ctx = ModelContext(model="m", client=EvalClientConfig())
+    result = asyncio.run(harness.launch(
+        ctx, trace=None, runtime=None, endpoint=ENDPOINT, secret=SECRET,
+        mcp_urls={}, data=TaskData(prompt="go"),
+    ))
+    assert "rejected:" in result.stdout and "budget" in result.stdout
+    assert calls == ["after"], "the loop must survive the timeout"
+    tool_messages = [m for b in policy.bodies for m in b["messages"]
+                     if m.get("role") == "tool"]
+    assert "budget" in tool_messages[0]["content"]
+
+
+def test_the_program_timeout_is_configurable_and_defaults_to_the_runtime_value():
+    from ptc.runtime import TIMEOUT
+
+    assert PTCHarnessConfig().program_timeout == TIMEOUT
+    assert PTCHarnessConfig(program_timeout=1.5).program_timeout == 1.5

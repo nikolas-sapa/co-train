@@ -53,6 +53,43 @@ Under the combined mutation the dunder walk **executes and reaches 270 live subc
 That is why the escape tests assert on outcomes (`run()` raises, catalog never reached)
 and not only on error messages, which a refactor could reword.
 
+## Resource bounds — the review's one finding, patched
+
+An independent review (`docs/ptc-runtime-review.md`) threw **28 escape attempts, 0
+escapes**, and found the real gap elsewhere: **4 resource attacks, 4 unbounded.** Each
+validated cleanly and then never returned.
+
+That matters more than it sounds. Once Step 6 rewards the model, **a hang is the
+cheapest accidental reward hack available** — an episode that never completes never
+scores zero either. A crash is honest; a hang is a slow leak in the reward signal.
+
+Two mechanisms, because one cannot cover both shapes:
+
+| Attack | Caught by | Why not the other one |
+|---|---|---|
+| `while True: pass` | Wall-clock tracer (`TIMEOUT`, 5s) | Trip count is a runtime property; no static bound can see it |
+| nested `range` loops | Wall-clock tracer | Same |
+| `10 ** 10 ** 8` | Static bound (`MAX_DIGITS`) | It is **one opcode** — a line tracer never regains control inside it |
+| `[0] * 10 ** 9` | Static bound (`MAX_ELEMENTS`) | Same |
+
+Both surface as `ProgramRejected`, which is the point: the harness hands a rejection
+back as a tool message, so a model that wrote an unbounded loop is *told so* and can
+retry. The limit is checked **before** the exponentiation, never after — computing the
+value in order to measure it is the same hang moved into the validator, and a test
+asserts the rejection takes under a second.
+
+Ordering is deliberate: the magnitude check runs **last**, so a program that is both
+illegal and huge reports the escape it attempted rather than an arithmetic limit it
+also happens to break. The tracer is **restored**, not cleared, because pytest and
+coverage install tracers of their own.
+
+**The residual hole, stated rather than hidden.** A *computed* bomb — `n = 10 ** 8`
+then `10 ** n` — still gets through, because bounding that needs abstract
+interpretation of the whole program. The real fix is the OS: a child process under
+`RLIMIT_AS` and `RLIMIT_CPU` bounds every shape at once. That is the same piece of work
+as the container-and-seccomp backstop `runtime.py`'s docstring already requires before
+Step 6, not a second one.
+
 ## Acceptance criterion for any future PTC runtime
 
 All three measured escapes go red while the catalog path stays green. Written before the
