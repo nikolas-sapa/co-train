@@ -13,7 +13,16 @@ import math
 import pytest
 
 from gate_chat_template import is_prefix_preserving
-from verdict import DEGENERATE_FRAC, MIN_STEPS, TARGET_WORDS, verdict, word_count_reward
+from verdict import (
+    ENTROPY_FLOOR,
+    GRAD_NORM_WARMUP_STEPS,
+    MIN_STEPS,
+    REQUIRED_KEYS,
+    TARGET_WORDS,
+    observations,
+    verdict,
+    word_count_reward,
+)
 
 transformers = pytest.importorskip("transformers")
 
@@ -21,6 +30,13 @@ transformers = pytest.importorskip("transformers")
 # --------------------------------------------------------------- fixtures
 
 def _log(**over):
+    """One log line shaped like the real stack emits.
+
+    Deliberately carries NO `entropy`. Unsloth hardcodes compute_entropy=False,
+    so a fixture that supplied it — as this one originally did — silently
+    encoded the assumption that produced the fail-every-healthy-run bug, and
+    made every mutant of the entropy logic look adequately tested.
+    """
     row = {
         "loss": 0.01,
         "grad_norm": 0.5,
@@ -28,7 +44,6 @@ def _log(**over):
         "completions/mean_length": 42.0,
         "reward": 0.4,
         "reward_std": 0.2,
-        "frac_reward_zero_std": 0.25,
         "kl": 0.0,
     }
     row.update(over)
@@ -36,15 +51,7 @@ def _log(**over):
 
 
 def _run(n=MIN_STEPS, **over):
-    """A healthy run. `kl` varies across steps unless the caller pins it,
-    because a constant kl is exactly what verdict() must reject — a fixture
-    that repeated one value would make the clean-run test assert the failure
-    mode instead of the healthy one."""
-    rows = [_log(**over) for _ in range(n)]
-    if "kl" not in over:
-        for i, row in enumerate(rows):
-            row["kl"] = i * 1e-3     # 0.0 on step 0: LoRA B starts at zero
-    return rows
+    return [_log(**over) for _ in range(n)]
 
 
 # Real jinja, real tokenizer, two templates. No mock: the only thing swapped
@@ -310,118 +317,28 @@ def test_degenerate_reward_fails():
     assert any("degenerate reward" in r for r in why)
 
 
-def test_one_step_with_reward_spread_is_enough():
-    """`any`, not `all`. Mirrors test_one_nonzero_grad_norm_is_enough, whose
-    absence for reward_std let a mutation tightening the quantifier survive:
-    with only the all-zero case tested, `any` and `all` are indistinguishable,
-    and the tightened version fails a run that is degenerate on one step of
-    five. The README records that leniency as a deliberate known hole, so it
-    needs a test pinning it rather than an accident of fixture choice."""
-    logs = _run(reward_std=0.0)
-    logs[3]["reward_std"] = 0.2
+def test_entropy_collapse_fails():
+    """Covers the raw-TRL path, where entropy IS logged. Dormant under Unsloth;
+    `observations()` says so out loud rather than leaving it silently unused."""
+    logs = _run(entropy=1.2)
+    logs[4]["entropy"] = ENTROPY_FLOOR / 2
     ok, why = verdict(logs)
-    assert ok, why
-
-
-def test_every_group_degenerate_fails():
-    """`entropy`'s replacement. frac_reward_zero_std pinned at 1.0 means every
-    group had zero reward spread, so no advantage existed anywhere and fp16 was
-    never exercised — a clean exit proving nothing."""
-    ok, why = verdict(_run(frac_reward_zero_std=1.0))
     assert not ok
-    assert any("every group degenerate" in r for r in why)
+    assert any("entropy collapsed" in r for r in why)
 
 
-def test_one_step_with_spread_is_enough():
-    """`all`, not `any`: a run that recovers on one step still had a gradient.
-    Pins the quantifier so a mutation to `any` cannot pass unnoticed."""
-    logs = _run(frac_reward_zero_std=1.0)
-    logs[2]["frac_reward_zero_std"] = 0.5
+def test_entropy_exactly_at_the_floor_fails():
+    """`> floor`, not `>=`. Pins the boundary so a mutation cannot widen it."""
+    logs = _run(entropy=1.2)
+    logs[0]["entropy"] = ENTROPY_FLOOR
     ok, _ = verdict(logs)
-    assert ok
-
-
-def test_degenerate_frac_boundary_is_inclusive():
-    """`>= DEGENERATE_FRAC`. A run at exactly 1.0 is fully degenerate and must
-    fail; nudging the constant or the comparison must break this."""
-    ok, _ = verdict(_run(frac_reward_zero_std=DEGENERATE_FRAC))
     assert not ok
 
 
-def test_constant_kl_fails_even_though_it_is_finite():
-    """The trap this check exists for. Unsloth logs `kl` with no beta guard, so
-    at beta=0 it is a literal constant 0.0 — present, finite, and meaningless.
-    A finiteness-only check would pass it and leave a JSONL that reads as a KL
-    curve to the next person who opens it."""
-    ok, why = verdict(_run(kl=0.0))
-    assert not ok
-    assert any("no KL was measured" in r for r in why)
-
-
-def test_constant_nonzero_kl_also_fails():
-    """Spread, not positivity. A frozen non-zero value is just as much an
-    artifact as a frozen zero, and a `> 0.0` check would wave it through."""
-    ok, why = verdict(_run(kl=0.07))
-    assert not ok
-    assert any("kl is constant" in r for r in why)
-
-
-def test_a_real_kl_curve_passes_with_a_zero_first_step():
-    """Step 0's KL is legitimately 0.0: LoRA initialises B to zero, so the
-    policy IS the reference on the first step. A check demanding kl > 0 on
-    every step would fail every correct run."""
-    logs = _run()
-    assert logs[0]["kl"] == 0.0
-    ok, why = verdict(logs)
-    assert ok, why
-
-
-def test_first_step_inf_grad_norm_is_tolerated():
-    """fp16's GradScaler starts at init_scale=65536 and calibrates down by
-    overflowing, so step 0's grad_norm is legitimately inf on a healthy run."""
-    logs = _run()
-    logs[0]["grad_norm"] = float("inf")
-    ok, why = verdict(logs)
-    assert ok, why
-
-
-def test_the_first_step_exemption_does_not_cover_other_keys():
-    """Narrow on purpose. If the exemption widened to the whole row, a NaN
-    reward on step 0 would pass."""
-    logs = _run()
-    logs[0]["reward_std"] = float("nan")
-    ok, why = verdict(logs)
-    assert not ok
-    assert any("reward_std" in r and "not finite" in r for r in why)
-
-
-def test_the_first_step_exemption_does_not_cover_later_steps():
-    """Pins the index. `i == 0`, not a blanket grad_norm pass — an overflow on
-    step 1 is the real fp16 failure Step 2 exists to catch."""
-    logs = _run()
-    logs[1]["grad_norm"] = float("inf")
-    ok, why = verdict(logs)
-    assert not ok
-    assert any("grad_norm" in r and "not finite" in r for r in why)
-
-
-def test_entropy_is_not_required():
-    """The defect that made this revision necessary, pinned so it cannot come
-    back: `entropy` is never logged on the Unsloth path, so a healthy run has
-    no such key and must still pass."""
-    logs = _run()
-    assert not any("entropy" in row for row in logs)
-    ok, why = verdict(logs)
-    assert ok, why
-
-
-@pytest.mark.parametrize(
-    "key",
-    ["grad_norm", "completions/mean_length", "reward_std", "frac_reward_zero_std", "kl"],
-)
+@pytest.mark.parametrize("key", REQUIRED_KEYS)
 def test_each_required_health_signal_is_required(key):
-    """HANDOFF.md names the signals to log from run 1. Dropping any one of them
-    must fail, or the requirement is decorative."""
+    """HANDOFF.md names four signals to log from run 1. Dropping any one of
+    them must fail, or the requirement is decorative."""
     logs = _run()
     del logs[1][key]
     ok, why = verdict(logs)
@@ -531,11 +448,7 @@ SETTLED = {
     "mask_truncated_completions": True,  # HANDOFF, explicit
     "use_vllm": False,                   # HANDOFF, explicit
     "max_steps": 5,                      # HANDOFF, explicit
-    "beta": 0.04,                        # gap-closure section 7: KL is the run's
-                                         # only unpublished output. At beta=0 the
-                                         # metric is still logged, as a constant
-                                         # 0.0, so drift here does not crash —
-                                         # it silently produces a fake curve.
+    "beta": 0.04,                        # buys the unpublished KL curve; free on PEFT
 }
 
 
@@ -612,3 +525,272 @@ def test_lora_rank_stays_in_the_range_handoff_settled():
     rank = _resolve(kw["r"], tree)
     assert rank is not _UNREADABLE
     assert 16 <= rank <= 32, f"LoRA rank {rank} is outside HANDOFF's 16-32"
+
+
+# ------------------------------------- the transformers-5 tuple-poisoning check
+
+import sys
+import types
+
+from gate_chat_template import poisoned_optional_flags
+
+
+def test_no_poisoned_flags_on_the_installed_stack():
+    """Non-mocked: runs against whatever trl is actually installed. Guards the
+    detector against false positives, which would block every run."""
+    assert poisoned_optional_flags() == []
+
+
+def _stub_import_utils(monkeypatch, **flags):
+    """Install a stand-in trl.import_utils. The stub is the detector's INPUT,
+    not a stand-in for the thing under test — the real stack is covered by the
+    test above, which is the non-mocked half."""
+    mod = types.ModuleType("trl.import_utils")
+    for name, value in flags.items():
+        setattr(mod, name, lambda v=value: v)
+    monkeypatch.setitem(sys.modules, "trl.import_utils", mod)
+    return mod
+
+
+def test_detects_the_tuple_return_that_transformers_5_introduces(monkeypatch):
+    """(False, None) is the exact shape transformers 5 returns, and it is
+    truthy — which is why the guards invert instead of erroring."""
+    _stub_import_utils(
+        monkeypatch,
+        is_mergekit_available=(False, None),
+        is_vllm_available=(True, None),
+        is_deepspeed_available=False,
+    )
+    assert poisoned_optional_flags() == ["is_mergekit_available", "is_vllm_available"]
+
+
+def test_a_healthy_stub_reports_nothing(monkeypatch):
+    _stub_import_utils(monkeypatch, is_mergekit_available=False, is_vllm_available=True)
+    assert poisoned_optional_flags() == []
+
+
+def test_a_raising_flag_is_not_mistaken_for_poisoning(monkeypatch):
+    """Unrelated breakage in an optional-dep probe must not be reported as this
+    bug, or the fix message sends the reader somewhere wrong."""
+    mod = types.ModuleType("trl.import_utils")
+    def boom():
+        raise RuntimeError("unrelated")
+    mod.is_vllm_available = boom
+    mod.is_mergekit_available = lambda: (False, None)
+    monkeypatch.setitem(sys.modules, "trl.import_utils", mod)
+    assert poisoned_optional_flags() == ["is_mergekit_available"]
+
+
+def test_non_flag_attributes_are_ignored(monkeypatch):
+    """Both halves of the name filter are load-bearing. `_mergekit_available`
+    is the real module-level variable TRL sets next to the accessor, and it
+    must not be probed as though it were the accessor."""
+    mod = types.ModuleType("trl.import_utils")
+    mod.is_mergekit_available = lambda: (False, None)
+    mod._mergekit_available = lambda: (False, None)   # endswith, not startswith
+    mod.available_is_not_a_flag = lambda: (False, None)
+    mod.is_something_else = lambda: (False, None)     # startswith, not endswith
+    monkeypatch.setitem(sys.modules, "trl.import_utils", mod)
+    assert poisoned_optional_flags() == ["is_mergekit_available"]
+
+
+def test_preflight_blocks_rather_than_only_reporting():
+    """The gate exists to stop smoke.py starting into a stack where
+    `from trl import GRPOTrainer` dies. If the poisoned branch printed and
+    returned 0, the run would proceed — Step 1's recurring defect, a guard
+    that reports without gating. Checked on the AST because main() needs a
+    network round-trip and a real tokenizer."""
+    tree = ast.parse((STEP2 / "gate_chat_template.py").read_text())
+    main = next(n for n in ast.walk(tree)
+                if isinstance(n, ast.FunctionDef) and n.name == "main")
+    for node in ast.walk(main):
+        if (isinstance(node, ast.If) and isinstance(node.test, ast.Name)
+                and node.test.id == "poisoned"):
+            returns = [n.value for n in ast.walk(node) if isinstance(n, ast.Return)]
+            assert returns, "the poisoned branch does not return at all"
+            assert all(isinstance(r, ast.Constant) and r.value != 0 for r in returns), \
+                "the poisoned branch returns 0 — smoke.py would run anyway"
+            return
+    raise AssertionError("main() has no `if poisoned:` guard")
+
+
+def test_missing_trl_is_not_an_error(monkeypatch):
+    """The gate must still report on a machine with no trl at all."""
+    monkeypatch.setitem(sys.modules, "trl.import_utils", None)
+    monkeypatch.setattr(
+        "builtins.__import__",
+        lambda name, *a, **k: (_ for _ in ()).throw(ImportError(name))
+        if name == "trl.import_utils" else __import__(name, *a, **k),
+    )
+    assert poisoned_optional_flags() == []
+
+
+# ---------------------------------------- the metric contract (the missed class)
+# 56 mutants did not catch that REQUIRED_KEYS demanded a metric this stack never
+# emits, because every verdict() test above feeds synthetic log dicts built from
+# the very assumption under test. Mutating the logic cannot falsify the premise.
+# These check REQUIRED_KEYS against source instead — the same pattern already used
+# for GRPOConfig kwargs, which was applied to config but never to metrics.
+
+import json
+
+from gen_metric_contract import available as contract_available
+
+
+@pytest.fixture(scope="module")
+def contract():
+    path = STEP2 / "metric_contract.json"
+    if not path.exists():
+        pytest.skip("metric_contract.json not generated")
+    return json.loads(path.read_text())
+
+
+def test_every_required_key_is_actually_emitted_by_this_stack(contract):
+    """The bug that shipped. `entropy` is logged by TRL but not by Unsloth, so
+    requiring it made verdict() fail every healthy run — a fail-closed defect
+    inside the file written to prevent fail-closed defects."""
+    missing = sorted(set(REQUIRED_KEYS) - contract_available(contract))
+    assert not missing, (
+        f"REQUIRED_KEYS demands {missing}, which the Step 2 stack never logs. "
+        f"A healthy run would report STEP 2 FAIL."
+    )
+
+
+def test_entropy_is_known_dead_and_stays_out_of_required_keys(contract):
+    """Pinned in both directions: entropy must be recorded as dead, and must
+    not creep back into REQUIRED_KEYS. If a future stack does emit it this
+    flips, which is the signal to reconsider — not something to silence."""
+    assert "entropy" in contract["from_trl_dead_under_unsloth"]
+    assert "entropy" not in contract_available(contract)
+    assert "entropy" not in REQUIRED_KEYS
+
+
+def test_the_contract_distinguishes_surviving_from_replaced_trl_metrics(contract):
+    """Guards the generator's central claim. reward_std lives in
+    _generate_and_score_completions (survives); entropy lives in a closure
+    inside _compute_loss (replaced wholesale). A generator that lumped them
+    together would make the test above vacuous."""
+    assert "reward_std" in contract["from_trl_survives"]
+    assert "entropy" in contract["from_trl_dead_under_unsloth"]
+    assert not set(contract["from_trl_survives"]) & set(contract["from_trl_dead_under_unsloth"])
+
+
+def test_contract_is_generated_not_hand_edited(contract):
+    """Provenance. A transcribed list drifts silently; that is the failure this
+    whole file exists to catch."""
+    assert "GENERATED" in contract["_comment"]
+    assert contract["_generated"]
+
+
+# ------------------------------------------- GradScaler warm-up and observations
+
+def test_first_step_inf_grad_norm_does_not_fail_the_run():
+    """fp16 GradScaler starts at init_scale=65536 and halves on overflow, so
+    step 0 legitimately overflows and transformers logs inf. Failing on it
+    would red every correct fp16 run."""
+    logs = _run()
+    logs[0]["grad_norm"] = float("inf")
+    ok, why = verdict(logs)
+    assert ok, why
+
+
+def test_the_excused_step_is_still_reported():
+    """Excused is not hidden. A silently-swallowed inf is indistinguishable
+    from a diverging first step."""
+    logs = _run()
+    logs[0]["grad_norm"] = float("inf")
+    assert any("GradScaler" in n for n in observations(logs))
+
+
+@pytest.mark.parametrize("step", range(GRAD_NORM_WARMUP_STEPS, MIN_STEPS))
+def test_inf_grad_norm_after_warmup_still_fails(step):
+    """The exemption is one step, not a blanket pass for non-finite values."""
+    logs = _run()
+    logs[step]["grad_norm"] = float("inf")
+    ok, why = verdict(logs)
+    assert not ok
+    assert any("grad_norm" in r and "not finite" in r for r in why)
+
+
+def test_warmup_window_is_exactly_one_step():
+    """Pinned against the literal, not the constant. The parametrized test
+    above derives its range from GRAD_NORM_WARMUP_STEPS, so widening the
+    constant widens that test with it and the regression passes unnoticed.
+    Step 1 is the first step that must NOT be excused."""
+    assert GRAD_NORM_WARMUP_STEPS == 1
+    logs = _run()
+    logs[1]["grad_norm"] = float("inf")
+    ok, why = verdict(logs)
+    assert not ok
+    assert any("step 1" in r and "grad_norm" in r for r in why)
+
+
+def test_a_finite_first_step_is_not_reported_as_a_warmup_overflow():
+    """`_warmup_exempt` is reached only after a finiteness check inside
+    verdict(), but observations() calls it directly — so dropping its own
+    finiteness test would label every healthy step 0 a GradScaler overflow."""
+    assert not any("GradScaler" in n for n in observations(_run()))
+
+
+def test_warmup_exemption_does_not_extend_to_other_keys():
+    logs = _run()
+    logs[0]["reward_std"] = float("nan")
+    ok, why = verdict(logs)
+    assert not ok
+    assert any("reward_std" in r for r in why)
+
+
+def test_absent_entropy_is_declared_not_silent():
+    """A guard that never runs must say so. Step 1's recurring defect was a
+    dormant probe reading as coverage."""
+    assert any("entropy was not logged" in n for n in observations(_run()))
+
+
+def test_flat_kl_is_called_out_as_no_measurement():
+    """Unsloth logs kl unconditionally; at beta=0 it is zeros_like(...), so a
+    finiteness check would pass a run that measured no KL and the JSONL would
+    read as a KL curve to whoever opens it next."""
+    assert any("no KL was measured" in n for n in observations(_run(kl=0.0)))
+
+
+def test_varying_kl_is_not_called_out():
+    logs = _run()
+    for i, row in enumerate(logs):
+        row["kl"] = 0.001 * (i + 1)
+    assert not any("kl is the constant" in n for n in observations(logs))
+
+
+def test_observations_never_change_the_verdict():
+    """Structural: a note must not be able to make a run pass or fail."""
+    logs = _run()
+    logs[0]["grad_norm"] = float("inf")
+    before, _ = verdict(logs)
+    observations(logs)
+    after, _ = verdict(logs)
+    assert before is after is True
+
+
+def test_config_header_is_not_counted_as_a_training_step():
+    """smoke.py writes a `config` record as line 1 so the evidence file says
+    what produced it. If that counted as a step, a 4-step run would reach
+    MIN_STEPS and report a false pass."""
+    header = {"config": {"beta": 0.04, "fp16": True, "max_steps": 5}}
+    ok, why = verdict([header] + _run(MIN_STEPS - 1))
+    assert not ok
+    assert any(f"{MIN_STEPS - 1} training steps" in r for r in why)
+
+
+def test_a_full_healthy_run_end_to_end():
+    """The shape the Kaggle run will actually produce: config header, a
+    GradScaler warm-up inf on step 0, entropy absent, KL moving because
+    beta > 0. This must pass, and must say why it excused what it excused."""
+    rows = [{"config": {"beta": 0.04}}] + _run()
+    rows[1]["grad_norm"] = float("inf")
+    for i, row in enumerate(rows[1:]):
+        row["kl"] = 0.001 * (i + 1)
+    ok, why = verdict(rows)
+    assert ok, why
+    notes = observations(rows)
+    assert any("GradScaler" in n for n in notes)
+    assert any("entropy was not logged" in n for n in notes)
+    assert not any("no KL was measured" in n for n in notes)

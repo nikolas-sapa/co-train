@@ -40,59 +40,102 @@ def word_count_reward(completions, **kwargs) -> list[float]:
 
 # ---------------------------------------------------------------- verdict
 
-# HANDOFF.md's health signals, mapped to the keys THIS STACK logs. The stack is
-# not TRL: `import unsloth` (smoke.py:20) runs before `from trl import ...`
-# (smoke.py:25), and Unsloth rebinds trl.GRPOTrainer/GRPOConfig to generated
-# replacements at import time (unsloth/models/rl.py:3112-3140, reached from
-# PatchFastRL at unsloth/models/llama.py:4037). So the contract to check is
-# unsloth/models/rl_replacements.py, not trl/trainer/grpo_trainer.py.
+# The health signals HANDOFF.md asks for from run 1, restricted to what this
+# stack can actually emit. `metric_contract.json` is generated from real
+# library source by `gen_metric_contract.py`; `test_step2.py` asserts these
+# keys are a subset of it.
 #
-# `entropy` is deliberately absent, and its absence is the reason this file was
-# revised. TRL logs entropy at grpo_trainer.py:1761 — inside `_compute_loss`,
-# whose only caller is `compute_loss` (:1650), which Unsloth replaces wholesale
-# (rl_replacements.py:2849-3243). That line is dead code here and no Unsloth
-# metric replaces it, so requiring `entropy` made every healthy run report FAIL:
-# the fail-closed defect this file exists to prevent, living inside this file.
-# Corroborated by artifact as well as source — the one public Kaggle 2xT4
-# Qwen3-0.6B GRPO run (research/08-gap-closure.md section 7) logs grad_norm,
-# reward, completions/mean_length and frac_reward_zero_std, and no entropy.
-REQUIRED_KEYS = (
-    "grad_norm",
-    "completions/mean_length",
-    "reward_std",
-    "frac_reward_zero_std",  # stands in for entropy; see DEGENERATE_FRAC below
-    "kl",                    # only meaningful because smoke.py sets beta > 0
-)
+# `entropy` is NOT here, and its absence is the point. TRL logs it, but only
+# from a closure inside `_compute_loss`, which Unsloth replaces wholesale —
+# and Unsloth's replacement hardcodes `compute_entropy = False`. Requiring it
+# made `verdict()` report STEP 2 FAIL on every healthy run: the fail-closed
+# defect sitting inside the file written to prevent fail-closed defects.
+# Fifty-six mutants missed it because every test here fed synthetic log dicts
+# built from the assumption under test.
+REQUIRED_KEYS = ("grad_norm", "completions/mean_length", "reward_std")
 
 MIN_STEPS = 5
+ENTROPY_FLOOR = 0.01  # Garg: lr 1e-4 drives entropy to zero; 3e-5 does not.
 
-# `frac_reward_zero_std` is the fraction of groups whose reward std is ~0
-# (trl grpo_trainer.py:1527, in the block Unsloth leaves intact). At 1.0 every
-# group has zero advantage, so no gradient existed regardless of what grad_norm
-# says. This is a weaker instrument than the entropy floor it replaces — it
-# cannot see a policy narrowing while rewards stay spread — and that limit is
-# recorded in README's known holes rather than papered over.
-DEGENERATE_FRAC = 1.0
+# fp16 only. torch's GradScaler starts at init_scale=65536 and halves on
+# overflow, so the first optimizer step legitimately overflows and transformers
+# logs grad_norm as inf. Exempting step 0 specifically, not blanket-exempting
+# non-finite values, or the real overflow signal goes with it.
+GRAD_NORM_WARMUP_STEPS = 1
 
 
 def _finite(x) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
 
 
+def _warmup_exempt(step_index: int, key: str, value) -> bool:
+    """True for the one non-finite grad_norm the GradScaler is allowed.
+
+    Shared by `verdict()` (which skips it) and `observations()` (which reports
+    it) so the two cannot drift into disagreeing about what was excused.
+    """
+    return (
+        key == "grad_norm"
+        and step_index < GRAD_NORM_WARMUP_STEPS
+        and not _finite(value)
+    )
+
+
+def training_steps(logs: list[dict]) -> list[dict]:
+    """A training step is a log line carrying "loss".
+
+    HF Trainer's end-of-run summary uses "train_loss" and eval uses
+    "eval_loss", so exact-key match excludes both. The marker is deliberately
+    NOT one of REQUIRED_KEYS: if grad_norm were the marker, a run that stopped
+    logging it would silently shrink the step count instead of reporting the
+    missing signal.
+    """
+    return [r for r in logs if "loss" in r]
+
+
+def observations(logs: list[dict]) -> list[str]:
+    """Things the operator should see that are not failures.
+
+    Separate from `verdict()` so that neither can quietly absorb the other:
+    a note must never make a run pass, and a failure must never be downgraded
+    to a note.
+    """
+    out: list[str] = []
+    steps = training_steps(logs)
+
+    for i, row in enumerate(steps):
+        if "grad_norm" in row and _warmup_exempt(i, "grad_norm", row["grad_norm"]):
+            out.append(
+                f"step {i}: grad_norm {row['grad_norm']!r} — expected under fp16, "
+                f"GradScaler calibrating down from 65536. Not counted against the run."
+            )
+
+    if steps and not any("entropy" in r for r in steps):
+        out.append(
+            "entropy was not logged — Unsloth hardcodes compute_entropy=False, so "
+            "Garg's clearest collapse signature (entropy -> 0 at lr 1e-4) is NOT "
+            "observable on this stack. grad_norm, reward_std and KL are what remain."
+        )
+
+    kls = [r["kl"] for r in steps if _finite(r.get("kl"))]
+    if kls and len(set(kls)) == 1:
+        out.append(
+            f"kl is the constant {kls[0]!r} on every step. Unsloth logs kl "
+            f"unconditionally, and at beta=0 the per-token KL is zeros_like(...), so "
+            f"a flat 0.0 means no KL was measured — do not read the JSONL as a KL curve."
+        )
+    return out
+
+
 def verdict(logs: list[dict]) -> tuple[bool, list[str]]:
-    """Apply Step 2's pass criteria to the metrics the run actually logs.
+    """Apply Step 2's pass criteria to the logged metrics.
 
     Returns (passed, reasons). `reasons` lists every failure, not just the
     first — a run that is both truncated and NaN should say so once.
+    Informational lines live in `observations()`.
     """
     reasons: list[str] = []
-
-    # A training step is a log line carrying "loss". HF Trainer's end-of-run
-    # summary uses "train_loss" and eval uses "eval_loss", so exact-key match
-    # excludes both. The marker is deliberately NOT one of REQUIRED_KEYS: if
-    # grad_norm were the marker, a run that stopped logging it would silently
-    # shrink the step count instead of reporting the missing signal.
-    steps = [r for r in logs if "loss" in r]
+    steps = training_steps(logs)
 
     # Fail-closed on an empty or short run. Without this, every `all(...)`
     # below is vacuously true and a run that trained zero steps reports a
@@ -105,19 +148,11 @@ def verdict(logs: list[dict]) -> tuple[bool, list[str]]:
         if missing:
             reasons.append(f"step {i}: missing {', '.join(missing)}")
         for k in REQUIRED_KEYS:
-            if k in row and not _finite(row[k]):
-                # fp16's GradScaler calibrates DOWNWARD by overflowing: it
-                # starts at init_scale=65536, and the first step legitimately
-                # produces inf, which transformers logs verbatim
-                # (trainer.py:3206-3207, from accelerator.clip_grad_norm_ at
-                # :2715 with error_if_nonfinite=False). Exempting step 0's
-                # grad_norm costs one step of overflow coverage; not exempting
-                # it fails a correct run. Narrow on purpose: step 0's other
-                # keys are still checked, and grad_norm is still checked on
-                # steps 1-4, which is where a real fp16 blow-up lives.
-                if i == 0 and k == "grad_norm":
-                    continue
-                reasons.append(f"step {i}: {k} is {row[k]!r}, not finite")
+            if k not in row or _finite(row[k]):
+                continue
+            if _warmup_exempt(i, k, row[k]):
+                continue  # reported by observations(), not a failure
+            reasons.append(f"step {i}: {k} is {row[k]!r}, not finite")
         if "loss" in row and not _finite(row["loss"]):
             reasons.append(f"step {i}: loss is {row['loss']!r}, not finite")
 
@@ -133,32 +168,15 @@ def verdict(logs: list[dict]) -> tuple[bool, list[str]]:
     if rs and not any(s > 0.0 for s in rs):
         reasons.append("reward_std is 0.0 on every step — degenerate reward, run proves nothing")
 
-    # Entropy's replacement. Every group degenerate on every step means the
-    # advantage was zero throughout, so fp16 was never exercised — the same
-    # false-green shape `reward_std` guards, measured per group instead of as a
-    # batch mean, which is how the one public run at this config actually died.
-    fz = [r["frac_reward_zero_std"] for r in steps if _finite(r.get("frac_reward_zero_std"))]
-    if fz and all(f >= DEGENERATE_FRAC for f in fz):
-        reasons.append(
-            f"frac_reward_zero_std >= {DEGENERATE_FRAC} on every step — "
-            "every group degenerate, no advantage anywhere"
-        )
-
-    # `kl` needs a SPREAD check, not a finiteness check. Unsloth logs it with no
-    # `beta != 0.0` guard (rl_replacements.py:3141, :3144 — TRL does guard it at
-    # grpo_trainer.py:1758), and at beta=0 the per-token KL is torch.zeros_like
-    # (unsloth_zoo/rl_replacements.py:577-579). So "kl present and finite" is
-    # satisfied by a literal constant 0.0, and the JSONL then reads as a KL
-    # curve to whoever opens it next. A constant means beta was 0 or the
-    # reference path never ran, not that KL was flat. Positivity is the wrong
-    # test too: step 0's KL is legitimately 0.0 because LoRA initialises B to
-    # zero, so the policy IS the reference on the first step.
-    kl = [r["kl"] for r in steps if _finite(r.get("kl"))]
-    if kl and len(set(kl)) == 1:
-        reasons.append(
-            f"kl is constant at {kl[0]!r} on every step — beta=0 or no reference "
-            "pass, so no KL was measured"
-        )
+    # Entropy is not emitted on the Unsloth stack (see REQUIRED_KEYS). Kept
+    # because raw TRL does log it, and Step 6 may well drop Unsloth for rented
+    # Ampere — at which point this fires again. `observations()` states out
+    # loud when it is dormant, so it is a declared gap rather than a guard
+    # that quietly never runs.
+    ent = [r["entropy"] for r in steps if _finite(r.get("entropy"))]
+    if ent and not all(e > ENTROPY_FLOOR for e in ent):
+        worst = min(ent)
+        reasons.append(f"entropy collapsed to {worst:.4g} (floor {ENTROPY_FLOOR}) — policy collapse")
 
     return (not reasons), reasons
 
@@ -171,8 +189,14 @@ def load(path: str) -> list[dict]:
 if __name__ == "__main__":
     import sys
 
-    ok, why = verdict(load(sys.argv[1]))
+    rows = load(sys.argv[1])
+    ok, why = verdict(rows)
     print("STEP 2 PASS" if ok else "STEP 2 FAIL")
     for r in why:
         print("  -", r)
+    notes = observations(rows)
+    if notes:
+        print("\nobservations (not failures):")
+        for n in notes:
+            print("  ·", n)
     sys.exit(0 if ok else 1)

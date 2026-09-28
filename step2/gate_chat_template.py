@@ -76,7 +76,44 @@ def is_prefix_preserving(tok) -> bool:
     return ids2[: len(ids1)] == ids1
 
 
+def poisoned_optional_flags() -> list[str]:
+    """TRL flags whose `is_X_available()` does not return a bool.
+
+    TRL 0.24 declares `transformers>=4.56.1` with **no upper bound**, and
+    transformers 5.x changed `_is_package_available` to return
+    `tuple[bool, str]`. TRL calls it without `return_version=True` and stores
+    the raw result, so every optional-dependency flag becomes `(False, None)`
+    — a non-empty tuple, therefore truthy. Every `if is_X_available():` guard
+    in TRL then fires against a missing package. The first one the GRPO import
+    path reaches is mergekit, so `from trl import GRPOTrainer` dies with a
+    bare `ModuleNotFoundError: No module named 'mergekit'` that names neither
+    transformers nor the real cause.
+
+    Measured 2026-09-26: 11 of 12 flags inverted on trl 0.24.0 +
+    transformers 5.5.0; zero on trl 0.24.0 + transformers 4.57.6.
+
+    Worth a preflight rather than a comment because the failure lands after
+    the Kaggle queue and the model download, and burns a session slot.
+    """
+    try:
+        import trl.import_utils as iu
+    except ImportError:
+        return []
+    bad = []
+    for name in dir(iu):
+        if not (name.startswith("is_") and name.endswith("_available")):
+            continue
+        try:
+            value = getattr(iu, name)()
+        except Exception:
+            continue  # unrelated breakage; not this bug
+        if not isinstance(value, bool):
+            bad.append(name)
+    return bad  # dir() is documented to return a sorted list; no re-sort needed
+
+
 def main() -> int:
+    import transformers
     from transformers import AutoTokenizer
 
     try:
@@ -89,6 +126,21 @@ def main() -> int:
     tok = AutoTokenizer.from_pretrained(MODEL)
     print(f"model            {MODEL}")
     print(f"trl              {trl_version or 'not installed'}")
+    print(f"transformers     {transformers.__version__}")
+
+    poisoned = poisoned_optional_flags()
+    if poisoned:
+        print(
+            f"\nFAIL — {len(poisoned)} TRL optional-dependency flags return a tuple, not a\n"
+            f"bool, so every `if is_X_available():` guard is truthy and fires against a\n"
+            f"missing package. `from trl import GRPOTrainer` will die on mergekit.\n"
+            f"  poisoned: {', '.join(poisoned)}\n"
+            f"  cause:    trl {trl_version} pins transformers>=4.56.1 with no upper bound;\n"
+            f"            transformers {transformers.__version__} returns tuple[bool, str].\n"
+            f"  fix:      pip install 'transformers<5'   (4.57.6 verified)"
+        )
+        return 1
+    print("optional flags   bool (not poisoned by the transformers 5 tuple change)")
 
     try:
         from trl.chat_template_utils import get_training_chat_template

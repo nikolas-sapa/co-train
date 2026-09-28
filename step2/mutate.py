@@ -18,7 +18,7 @@ identical mtime AND size, so Python keeps executing the cached .pyc.
 import json, os, pathlib, shutil, subprocess, sys, tempfile
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
-PY = str(REPO / ".venv-tok" / "bin" / "python")
+PY = str(REPO.parents[2] / ".venv-tok" / "bin" / "python")
 ENV = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_DISABLE_PROGRESS_BARS": "1"}
 
 

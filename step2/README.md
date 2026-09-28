@@ -13,7 +13,9 @@ python step2/smoke.py                 # Kaggle only; writes step2_metrics.jsonl
 python step2/verdict.py step2_metrics.jsonl   # re-check a saved run
 ```
 
-Kaggle: accelerator `NvidiaTeslaT4` (= T4 x2). `pip install unsloth`. Copy
+Kaggle: accelerator `NvidiaTeslaT4` (= T4 x2).
+**`pip install unsloth "transformers<5"`** — the pin is load-bearing, see the
+next section. Copy
 `step2/` to `/kaggle/working`, `cd` there, run. Output lands in
 `/kaggle/working`, which persists; notebook scrollback does not, and the
 20-30 min idle timeout can take the kernel before you read it.
@@ -61,6 +63,39 @@ proper hardware":
 
 Deciding this is Step 5's, not Step 2's. Recorded so it is not discovered late.
 
+## The dependency trap, found before spending a Kaggle slot
+
+`pip install unsloth` on Kaggle resolves `trl==0.24.0` — Unsloth's ceiling, so
+`gc24.py` is validating against the right version. It also resolves
+**`transformers==5.5.0`**, because TRL 0.24 declares `transformers>=4.56.1`
+with no upper bound. That pair does not work:
+
+```
+>>> from trl import GRPOTrainer
+ModuleNotFoundError: No module named 'mergekit'
+```
+
+transformers 5 changed `_is_package_available` to return `tuple[bool, str]`.
+TRL 0.24 calls it without `return_version=True` and stores the raw result, so
+every optional-dependency flag becomes `(False, None)` — a non-empty tuple,
+therefore truthy. Every `if is_X_available():` guard in TRL then fires against
+a package that is not installed:
+
+```python
+_mergekit_available = _is_package_available("mergekit")   # (False, None)
+if is_mergekit_available():                               # truthy -> passes
+    from mergekit.config import MergeConfiguration        # ModuleNotFoundError
+```
+
+Measured: **11 of 12 flags inverted** on trl 0.24.0 + transformers 5.5.0, zero
+on trl 0.24.0 + transformers 4.57.6. The error names neither transformers nor
+the real cause, and it lands *after* the Kaggle queue and the model download.
+
+**Install `transformers<5`.** Verified: 4.57.6 resolves with trl 0.24.0 intact,
+un-poisons every flag, imports `GRPOTrainer`, and accepts every `GRPOConfig`
+kwarg `smoke.py` passes. `gate_chat_template.py` now checks this and exits 1
+with the fix, so the run cannot start into it.
+
 ## Why a continuous reward, not a task
 
 GRPO's advantage is the within-group deviation from the group mean. A reward
@@ -79,16 +114,58 @@ The task is a length proxy, deliberately. Step 4 brings a real reward.
 | # | Criterion | Why |
 |---|---|---|
 | 1 | ≥ 5 logged training steps | a short or empty run must fail, not pass vacuously |
-| 2 | `grad_norm` finite on every step | fp16 overflow surfaces as inf/nan |
+| 2 | `grad_norm` finite on every step **after step 0** | fp16 overflow surfaces as inf/nan |
 | 3 | `grad_norm > 0` on ≥ 1 step | all-zero means every gradient underflowed |
 | 4 | `reward_std > 0` on ≥ 1 step | otherwise no gradient existed to test |
-| 5 | `entropy > 0.01` on every step | Garg's policy-collapse signature |
-| 6 | `loss` finite where logged | — |
-| 7 | all four HANDOFF signals present | `grad_norm`, `completions/mean_length`, `entropy`, `reward_std` |
+| 5 | `loss` finite where logged | — |
+| 6 | `grad_norm`, `completions/mean_length`, `reward_std` present on every step | the signals this stack can actually emit |
+| 7 | `entropy > 0.01` where logged | Garg's collapse signature — **dormant here**, see below |
 
 Criterion 1 is the load-bearing one. Without it every other check is
 vacuously true on an empty log and a run that trained zero steps reports a
 pass.
+
+**Criterion 2 exempts step 0 deliberately.** torch's `GradScaler` starts at
+`init_scale=65536` and halves on overflow, so the first optimizer step
+legitimately overflows and transformers logs `grad_norm` as `inf`. Failing on
+it would red every correct fp16 run. The exemption is one step and one key —
+`observations()` reports the excused value rather than swallowing it, because
+a silently-absorbed `inf` is indistinguishable from a diverging first step.
+
+### Entropy is not measurable on this stack
+
+`REQUIRED_KEYS` does **not** include `entropy`, and that absence is the
+correction, not an oversight. TRL logs entropy — but only from a closure
+inside `_compute_loss`, which Unsloth replaces wholesale, and Unsloth's
+replacement hardcodes `compute_entropy = False`. Requiring it made `verdict()`
+report `STEP 2 FAIL` on every healthy run: a fail-closed defect inside the
+file written to prevent fail-closed defects.
+
+Consequence, stated rather than papered over: **Garg's clearest collapse
+signature — entropy going to zero at lr 1e-4 — cannot be observed here.** What
+remains is `grad_norm`, `reward_std` and the KL spread. `observations()` prints
+this on every run so the gap is declared rather than silent. The check itself
+is kept, because raw TRL does log entropy and Step 6 may well drop Unsloth for
+rented Ampere.
+
+### Why `beta = 0.04`
+
+`research/08-gap-closure.md` §7 found a public Kaggle 2×T4 run at almost
+exactly this config — fp16, no vLLM, dense Qwen3-0.6B — that completed 314
+steps with zero non-finite values. "Does it run, is fp16 stable" is therefore
+already answered affirmatively by someone else's committed log, and at
+`beta=0` this run would only reproduce it. That run published **no KL curve**,
+which is precisely the standing unknown in `HANDOFF.md`.
+
+`beta > 0` costs zero extra weights: for a PEFT model TRL sets
+`ref_model=None` and uses the adapter-disable path, so there is no second copy
+of the model, only an extra forward pass.
+
+The trap it opens is handled. Unsloth logs `kl` **unconditionally**, and at
+`beta=0` the per-token KL is `zeros_like(...)` — so a *finiteness* check would
+pass a run that measured nothing at all, and the JSONL would read as a KL
+curve to whoever opened it next. `observations()` checks **flatness** instead
+and says so explicitly when every step reports the same value.
 
 ## Settled constraints, pinned as tests
 
@@ -121,11 +198,11 @@ collapse rather than an error, which is worse than a crash. The tests read
 stable. That is Step 2's actual question and it is still open. 47 green tests
 here say the *verdict* is trustworthy, not that the run passed.
 
-`pytest step2/ -q` → 47 passed. Root `pytest -q` → Step 1's 51, untouched.
+`pytest step2/ -q` → 73 passed. Root `pytest -q` → Step 1's 51, untouched.
 
 ## Mutation testing
 
-46 mutants, zero survivors — 19 on `verdict.py`, 13 on `gate_chat_template.py`,
+59 mutants, zero survivors — 22 on `verdict.py`, 23 on `gate_chat_template.py`,
 14 on `smoke.py`'s config, all re-run against the final code state rather than
 carried over from the round that first killed them. Harness:
 `step2/mutate.py` — fresh copy per mutation, `PYTHONDONTWRITEBYTECODE=1`,
@@ -142,7 +219,18 @@ reported. What survived longest, in order:
    `except` branch passed. Now both answers go through that path.
 3. **`except TypeError` widened to `except Exception`.** Swallows a genuine
    template bug and retries it into a confident verdict. Pinned.
-4. **`grad_norm` used as both the step marker and a required key** — deleting
+4. **A metric the stack never emits, required as a pass criterion.** Found by
+   the research session's audit (`docs/step2-audit.md`), **not** by mutation —
+   every `verdict()` test fed synthetic log dicts carrying the assumption under
+   test, so mutating the logic could never falsify the premise. `GRPOConfig`
+   kwargs were validated against vendored source; the metric contract was not.
+   Now generated from library source by `gen_metric_contract.py` and asserted
+   in `test_step2.py`, and the fixture no longer supplies `entropy`.
+5. **A preflight that reported without gating.** The `transformers<5` check
+   printed its diagnosis and the run continued — nothing asserted it *blocked*.
+   Same shape as the dormant guards Step 1 kept finding, caught by mutating
+   `if poisoned:` to `if False:`.
+6. **`grad_norm` used as both the step marker and a required key** — deleting
    it shrank the step count instead of reporting a missing signal. The marker
    is now `loss`, which is not one of the required keys.
 
@@ -150,7 +238,13 @@ reported. What survived longest, in order:
 
 - **`gc24.py` is a vendored snapshot.** If Unsloth lifts its TRL ceiling, the
   kwarg test validates against a version no longer installed and still passes.
-  The refresh command is in that file's header.
+  The refresh command is in that file's header. The resolve on 2026-09-26 did
+  pick `trl==0.24.0`, so it is currently the right snapshot.
+- **The `transformers<5` pin is a ceiling, not a fix.** TRL's unbounded
+  `transformers>=4.56.1` is still there; a future TRL that handles the tuple
+  return will want the pin lifted, and nothing here notices that.
+- **`poisoned_optional_flags()` only catches the tuple shape.** A different
+  transformers change that breaks TRL some other way passes it silently.
 - **The reward measures length, not competence.** It cannot detect a model
   that emits 20 tokens of noise. Correct for a stability probe, useless as a
   task signal.
