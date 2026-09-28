@@ -13,7 +13,7 @@ import math
 import pytest
 
 from gate_chat_template import is_prefix_preserving
-from verdict import ENTROPY_FLOOR, MIN_STEPS, TARGET_WORDS, verdict, word_count_reward
+from verdict import DEGENERATE_FRAC, MIN_STEPS, TARGET_WORDS, verdict, word_count_reward
 
 transformers = pytest.importorskip("transformers")
 
@@ -26,16 +26,25 @@ def _log(**over):
         "grad_norm": 0.5,
         "learning_rate": 3e-5,
         "completions/mean_length": 42.0,
-        "entropy": 1.2,
         "reward": 0.4,
         "reward_std": 0.2,
+        "frac_reward_zero_std": 0.25,
+        "kl": 0.0,
     }
     row.update(over)
     return row
 
 
 def _run(n=MIN_STEPS, **over):
-    return [_log(**over) for _ in range(n)]
+    """A healthy run. `kl` varies across steps unless the caller pins it,
+    because a constant kl is exactly what verdict() must reject — a fixture
+    that repeated one value would make the clean-run test assert the failure
+    mode instead of the healthy one."""
+    rows = [_log(**over) for _ in range(n)]
+    if "kl" not in over:
+        for i, row in enumerate(rows):
+            row["kl"] = i * 1e-3     # 0.0 on step 0: LoRA B starts at zero
+    return rows
 
 
 # Real jinja, real tokenizer, two templates. No mock: the only thing swapped
@@ -301,26 +310,118 @@ def test_degenerate_reward_fails():
     assert any("degenerate reward" in r for r in why)
 
 
-def test_entropy_collapse_fails():
+def test_one_step_with_reward_spread_is_enough():
+    """`any`, not `all`. Mirrors test_one_nonzero_grad_norm_is_enough, whose
+    absence for reward_std let a mutation tightening the quantifier survive:
+    with only the all-zero case tested, `any` and `all` are indistinguishable,
+    and the tightened version fails a run that is degenerate on one step of
+    five. The README records that leniency as a deliberate known hole, so it
+    needs a test pinning it rather than an accident of fixture choice."""
+    logs = _run(reward_std=0.0)
+    logs[3]["reward_std"] = 0.2
+    ok, why = verdict(logs)
+    assert ok, why
+
+
+def test_every_group_degenerate_fails():
+    """`entropy`'s replacement. frac_reward_zero_std pinned at 1.0 means every
+    group had zero reward spread, so no advantage existed anywhere and fp16 was
+    never exercised — a clean exit proving nothing."""
+    ok, why = verdict(_run(frac_reward_zero_std=1.0))
+    assert not ok
+    assert any("every group degenerate" in r for r in why)
+
+
+def test_one_step_with_spread_is_enough():
+    """`all`, not `any`: a run that recovers on one step still had a gradient.
+    Pins the quantifier so a mutation to `any` cannot pass unnoticed."""
+    logs = _run(frac_reward_zero_std=1.0)
+    logs[2]["frac_reward_zero_std"] = 0.5
+    ok, _ = verdict(logs)
+    assert ok
+
+
+def test_degenerate_frac_boundary_is_inclusive():
+    """`>= DEGENERATE_FRAC`. A run at exactly 1.0 is fully degenerate and must
+    fail; nudging the constant or the comparison must break this."""
+    ok, _ = verdict(_run(frac_reward_zero_std=DEGENERATE_FRAC))
+    assert not ok
+
+
+def test_constant_kl_fails_even_though_it_is_finite():
+    """The trap this check exists for. Unsloth logs `kl` with no beta guard, so
+    at beta=0 it is a literal constant 0.0 — present, finite, and meaningless.
+    A finiteness-only check would pass it and leave a JSONL that reads as a KL
+    curve to the next person who opens it."""
+    ok, why = verdict(_run(kl=0.0))
+    assert not ok
+    assert any("no KL was measured" in r for r in why)
+
+
+def test_constant_nonzero_kl_also_fails():
+    """Spread, not positivity. A frozen non-zero value is just as much an
+    artifact as a frozen zero, and a `> 0.0` check would wave it through."""
+    ok, why = verdict(_run(kl=0.07))
+    assert not ok
+    assert any("kl is constant" in r for r in why)
+
+
+def test_a_real_kl_curve_passes_with_a_zero_first_step():
+    """Step 0's KL is legitimately 0.0: LoRA initialises B to zero, so the
+    policy IS the reference on the first step. A check demanding kl > 0 on
+    every step would fail every correct run."""
     logs = _run()
-    logs[4]["entropy"] = ENTROPY_FLOOR / 2
+    assert logs[0]["kl"] == 0.0
+    ok, why = verdict(logs)
+    assert ok, why
+
+
+def test_first_step_inf_grad_norm_is_tolerated():
+    """fp16's GradScaler starts at init_scale=65536 and calibrates down by
+    overflowing, so step 0's grad_norm is legitimately inf on a healthy run."""
+    logs = _run()
+    logs[0]["grad_norm"] = float("inf")
+    ok, why = verdict(logs)
+    assert ok, why
+
+
+def test_the_first_step_exemption_does_not_cover_other_keys():
+    """Narrow on purpose. If the exemption widened to the whole row, a NaN
+    reward on step 0 would pass."""
+    logs = _run()
+    logs[0]["reward_std"] = float("nan")
     ok, why = verdict(logs)
     assert not ok
-    assert any("entropy collapsed" in r for r in why)
+    assert any("reward_std" in r and "not finite" in r for r in why)
 
 
-def test_entropy_exactly_at_the_floor_fails():
-    """`> floor`, not `>=`. Pins the boundary so a mutation cannot widen it."""
+def test_the_first_step_exemption_does_not_cover_later_steps():
+    """Pins the index. `i == 0`, not a blanket grad_norm pass — an overflow on
+    step 1 is the real fp16 failure Step 2 exists to catch."""
     logs = _run()
-    logs[0]["entropy"] = ENTROPY_FLOOR
-    ok, _ = verdict(logs)
+    logs[1]["grad_norm"] = float("inf")
+    ok, why = verdict(logs)
     assert not ok
+    assert any("grad_norm" in r and "not finite" in r for r in why)
 
 
-@pytest.mark.parametrize("key", ["grad_norm", "completions/mean_length", "entropy", "reward_std"])
+def test_entropy_is_not_required():
+    """The defect that made this revision necessary, pinned so it cannot come
+    back: `entropy` is never logged on the Unsloth path, so a healthy run has
+    no such key and must still pass."""
+    logs = _run()
+    assert not any("entropy" in row for row in logs)
+    ok, why = verdict(logs)
+    assert ok, why
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["grad_norm", "completions/mean_length", "reward_std", "frac_reward_zero_std", "kl"],
+)
 def test_each_required_health_signal_is_required(key):
-    """HANDOFF.md names four signals to log from run 1. Dropping any one of
-    them must fail, or the requirement is decorative."""
+    """HANDOFF.md names the signals to log from run 1. Dropping any one of them
+    must fail, or the requirement is decorative."""
     logs = _run()
     del logs[1][key]
     ok, why = verdict(logs)
@@ -330,10 +431,10 @@ def test_each_required_health_signal_is_required(key):
 
 def test_booleans_are_not_accepted_as_finite_numbers():
     logs = _run()
-    logs[0]["entropy"] = True
+    logs[0]["reward_std"] = True
     ok, why = verdict(logs)
     assert not ok
-    assert any("entropy" in r for r in why)
+    assert any("reward_std" in r for r in why)
 
 
 def test_every_failure_is_reported_not_just_the_first():
@@ -430,6 +531,11 @@ SETTLED = {
     "mask_truncated_completions": True,  # HANDOFF, explicit
     "use_vllm": False,                   # HANDOFF, explicit
     "max_steps": 5,                      # HANDOFF, explicit
+    "beta": 0.04,                        # gap-closure section 7: KL is the run's
+                                         # only unpublished output. At beta=0 the
+                                         # metric is still logged, as a constant
+                                         # 0.0, so drift here does not crash —
+                                         # it silently produces a fake curve.
 }
 
 

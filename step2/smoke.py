@@ -67,7 +67,10 @@ def build_dataset(tok) -> Dataset:
         )
         for s in SUBJECTS
     ]
-    # max_steps * per_device_batch, with slack so the sampler never wraps short.
+    # RepeatSampler takes `generation_batch_size // num_generations` UNIQUE
+    # prompts per optimizer step and repeats each one num_generations times
+    # (trl grpo_trainer.py:685-692) — that is 1 prompt per step here, not
+    # per_device_batch. So max_steps needs 5 prompts; 128 is 25x slack.
     return Dataset.from_dict({"prompt": prompts * 8})
 
 
@@ -91,7 +94,13 @@ class JsonlLogger(TrainerCallback):
 def main() -> int:
     assert torch.cuda.is_available(), "no CUDA — this runs on Kaggle, not the dev machine"
     cap = torch.cuda.get_device_capability()
-    print(f"gpu   {torch.cuda.get_device_name(0)}  sm_{cap[0]}{cap[1]}  x{torch.cuda.device_count()}")
+    # device_count() is what the session exposes, not what trains. Unsloth's
+    # generated trainer forces args._n_gpu = 1 whenever parallel_mode is
+    # NOT_DISTRIBUTED (unsloth/models/rl.py:531-534), which a plain
+    # `python smoke.py` always is — so this trains on ONE T4 and the
+    # NCCL_CUMEM_ENABLE above is inert until Step 6 launches distributed.
+    print(f"gpu   {torch.cuda.get_device_name(0)}  sm_{cap[0]}{cap[1]}  "
+          f"x{torch.cuda.device_count()} visible, 1 training (Unsloth pins _n_gpu=1)")
     # T4 is sm_75; bf16 needs 8.0. Asserted rather than branched on: a silent
     # fall-through to bf16 on better hardware would not be the Step 2 run.
     assert cap[0] < 8, f"expected a pre-Ampere GPU for the fp16 question, got sm_{cap[0]}{cap[1]}"
@@ -121,6 +130,15 @@ def main() -> int:
         per_device_train_batch_size=NUM_GENERATIONS,
         gradient_accumulation_steps=1,
         num_iterations=1,          # on-policy. Garg: 16-step reuse collapses mid-run
+        # The only measurement this run can contribute that nobody has
+        # published. gap-closure section 7: a public Kaggle 2xT4 Qwen3-0.6B fp16
+        # GRPO run already shows 314 clean steps at this exact config, so
+        # "does fp16 run" is settled — but it ran beta=0, so `loss` was
+        # identically 0 and no KL curve exists. Costs no extra weights: the
+        # model is PEFT, so TRL sets ref_model = None and reverts via
+        # disable_adapter() (grpo_trainer.py:430-433, :1456-1466) rather than
+        # loading a second 0.6B. One extra forward pass per step.
+        beta=0.04,
         max_prompt_length=256,
         max_completion_length=128,
         mask_truncated_completions=True,
