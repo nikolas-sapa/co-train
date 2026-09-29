@@ -294,10 +294,39 @@ servers, and has been driven end to end against a real `glossary` tool server.
     python ptc/compare.py canned                                  # free, no model
     python ptc/compare.py real --model <id> --base-url <url>      # any OpenAI-compatible endpoint
 
-**canned** measures nothing about models. It proves the *rig* can tell the arms apart,
-with a negative control that must score 0.0: a comparison whose no-tool control also
-scores 1.0 is measuring the grader, not the harness. Current result — bash 1.0/0.0,
-PTC 1.0/0.0, both arms reachable, both controls red.
+**canned** measures nothing about models. It proves the *rig* can tell the arms apart.
+Four checks, each able to fail:
+
+1. **the control scores exactly 0.0** — nothing is answerable without the tool, which is
+   the anti-cheat property both tasksets were chosen for;
+2. **the tool arms score above zero** — the catalog is reachable at all;
+3. **the two arms score identically** — the same scripted intent through two channels
+   must land in the same place, so a gap here is the *rig* favouring an arm rather than
+   a finding about arms;
+4. **nothing truncated** — see the turn budget below.
+
+Not "both arms reach 1.0". The canned policy solves only the one-call tier on purpose —
+a scripted policy that solved the aggregation tier would be measuring the script — so on
+the full `ledger` suite it scores 4/14 by design, and demanding 1.0 made the rig report
+FAIL on a healthy run. That is the same fail-closed defect this project already found
+once inside `step2/verdict.py`, reintroduced in a different file.
+
+### The turn budget must not bind, or it *is* the independent variable
+
+`max_turns` was 4. `ledger`'s aggregation tier needs 40 tool calls: the PTC arm spends
+**one program** on that, the bash arm spends **~42 turns**. So bash was capped at turn 4
+and scored 0.0 across the whole tier — the tier built specifically to be where PTC could
+win. `session.py:98` stops with `stop_condition="max_turns"`, and that 0.0 is
+indistinguishable from incapacity, so the rig would have manufactured a clean-looking
+PTC victory on 6 of 14 tasks out of a number chosen by the author.
+
+The budget is now 80 and a flag. Any rollout stopped by a framework limit — turns, input
+tokens, output tokens, failed compaction — is counted and announced rather than averaged
+into a mean:
+
+    *** A BUDGET LIMIT BOUND: bash 6. Those rollouts scored 0.0 for running out of
+        turns or tokens, not for failing the task. The score comparison is INVALID
+        until the budget is raised.
 
 **real** points `EvalClientConfig.base_url` at a provider. That is the seam
 `Harness.launch` names and the one the spike says to build on, rather than the

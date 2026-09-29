@@ -135,7 +135,8 @@ def _canned_policy(arm: str, use_tool: bool, taskset: str):
 
 def _config(arm: str, args, tag: str) -> dict:
     agent = {"harness": {"id": arm}, "runtime": {"type": "subprocess"},
-             "max_turns": 4, "timeout": {"rollout": 300, "scoring": 60}}
+             "max_turns": args.max_turns,
+             "timeout": {"rollout": args.rollout_timeout, "scoring": 60}}
     if arm == "bash":
         # The bash arm's own extras are off: this compares action channels, not the
         # count of affordances one arm happens to ship with.
@@ -194,6 +195,16 @@ async def main() -> int:
     # Cache reads live outside `prompt_tokens` and are usually discounted. Without this
     # they are charged at the full input rate and the cost is flagged as an upper bound.
     parser.add_argument("--price-cached", type=float, default=None)
+    # THE TURN BUDGET MUST NOT BIND ON EITHER ARM, or it becomes the independent
+    # variable. `ledger`'s aggregation tier needs 40 `ledger_get` calls: the PTC arm
+    # spends ONE program on that, the bash arm spends ~42 turns. The old default of 4
+    # therefore handed PTC the whole tier by construction — and it is the tier built to
+    # be where PTC could win, so the rig would have manufactured its own result.
+    # `session.py:98` counts sampled (assistant) nodes and stops with
+    # stop_condition="max_turns", which scores 0.0 for a budget reason indistinguishable
+    # from incapacity. Any rollout that hits it is reported loudly, not averaged in.
+    parser.add_argument("--max-turns", type=int, default=80)
+    parser.add_argument("--rollout-timeout", type=int, default=900)
     args = parser.parse_args()
 
     if args.mode == "real" and not args.base_url:
@@ -208,14 +219,44 @@ async def main() -> int:
     print(render(results))
 
     if args.mode == "canned":
-        # The rig is only trustworthy if the control goes red. A green control means
-        # the grader is scoring something other than tool use, and every number above
-        # it is then describing the wrong experiment.
-        scored = {r.arm: r.score_mean for r in results if "control" not in r.arm}
-        controls = {r.arm: r.score_mean for r in results if "control" in r.arm}
-        ok = (scored and all(v == 1.0 for v in scored.values())
-              and all(v == 0.0 for v in controls.values()))
-        print(f"\nRIG {'PASS' if ok else 'FAIL'} — tool arms reach 1.0, controls fall to 0.0")
+        # What the canned check can and cannot establish.
+        #
+        # It CANNOT be "both arms reach 1.0". The canned policy is written to solve only
+        # the one-call tier, because a scripted policy that solved the aggregation tier
+        # would be measuring the script. On the full `ledger` suite it therefore scores
+        # 4/14 by design, and demanding 1.0 made the rig report FAIL on a healthy run —
+        # the same fail-closed defect this project already found once inside
+        # `step2/verdict.py`.
+        #
+        # What it CAN establish, and each of these can genuinely fail:
+        #   1. the control scores exactly 0.0 — nothing is answerable without the tool,
+        #      which is the anti-cheat property the taskset was chosen for;
+        #   2. the tool arms score above zero — the catalog is reachable at all;
+        #   3. the two arms score IDENTICALLY — the same intent through two channels
+        #      must land in the same place, so any gap here is the RIG favouring an arm
+        #      rather than a finding about arms;
+        #   4. nothing truncated — a budget limit invalidates the comparison.
+        tool = {r.arm: r for r in results if "control" not in r.arm}
+        controls = {r.arm: r for r in results if "control" in r.arm}
+        scores = {name: r.score_mean for name, r in tool.items()}
+        checks = {
+            "controls score 0.0": bool(controls) and all(
+                r.score_mean == 0.0 for r in controls.values()),
+            "tool arms score above zero": bool(scores) and all(
+                (v or 0) > 0 for v in scores.values()),
+            "arms agree": len(set(scores.values())) == 1,
+            "nothing truncated": all(
+                r.n_truncated == 0 for r in results),
+        }
+        print()
+        for name, passed in checks.items():
+            print(f"  [{'ok' if passed else 'FAIL'}] {name}")
+        if not checks["arms agree"]:
+            print(f"  arms disagree under an identical scripted policy: {scores} — "
+                  "that is a rig defect, not a result")
+        ok = all(checks.values())
+        print(f"\nRIG {'PASS' if ok else 'FAIL'} — "
+              f"tool arms {sorted(set(scores.values()))}, controls 0.0")
         return 0 if ok else 1
 
     print("\nRead these against the signed predictions in docs/pre-registration.md §4 "

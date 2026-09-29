@@ -35,13 +35,13 @@ def _usage(prompt=0, completion=0, cached=None, reasoning=None, cost=None):
 
 
 def _trace(reward=1.0, nodes=(), completed=True, stop="complete", usage=None,
-           new_input=0):
+           new_input=0, truncated=False):
     """`usage` is the BILLED figure (`Trace.usage`); `new_input` is the deduplicated
     `Trace.num_input_tokens`. They are deliberately separate arguments because
     conflating them is the bug these tests exist to prevent."""
     return NS(reward=reward, nodes=[NS(message=m) for m in nodes],
               is_completed=completed, stop_condition=stop, usage=usage,
-              num_input_tokens=new_input)
+              num_input_tokens=new_input, is_truncated=truncated)
 
 
 def _record(traces, errors=()):
@@ -321,3 +321,46 @@ def test_usage_is_summed_across_traces_and_records():
                      _record([_trace(usage=_usage(700, 70))])], "ptc", "l")
     assert out.prompt_tokens == 1000
     assert out.completion_tokens == 100
+
+
+# --------------------------------------- the budget must not be the independent variable
+
+def test_a_truncated_rollout_is_counted_and_flagged_loudly():
+    """The confound that nearly rigged this experiment.
+
+    `ledger`'s aggregation tier needs 40 tool calls. The PTC arm spends ONE program on
+    that; the bash arm spends ~42 turns. With the old `max_turns: 4` the bash arm was
+    capped at turn 4 and scored 0.0 across the whole tier — the tier specifically built
+    to be where PTC could win. The rig would have manufactured its own result, and the
+    number would have looked like a finding.
+
+    `session.py:98` stops with `stop_condition="max_turns"` and the task scores 0.0 for
+    a budget reason indistinguishable from incapacity. So truncation is counted and
+    announced, never averaged silently into the score.
+    """
+    capped = NS(reward=0.0, nodes=[], is_completed=True, stop_condition="max_turns",
+                is_truncated=True, usage=None, num_input_tokens=0)
+    out = summarize([_record([capped, _trace(1.0)])], "bash", "ledger")
+    assert out.n_truncated == 1
+    table = render([out])
+    assert "A BUDGET LIMIT BOUND" in table
+    assert "INVALID" in table
+    assert "TRUNCATED (budget)" in table
+
+
+@pytest.mark.parametrize("stop", ["max_turns", "max_input_tokens", "max_output_tokens",
+                                  "compaction_failed"])
+def test_every_framework_limit_counts_as_truncation(stop):
+    """`Trace.is_truncated` covers all of them, and each one produces the same false
+    zero. Pinned so a new limit is not quietly excluded."""
+    t = NS(reward=0.0, nodes=[], is_completed=True, stop_condition=stop,
+           is_truncated=True, usage=None, num_input_tokens=0)
+    assert summarize([_record([t])], "bash", "l").n_truncated == 1
+
+
+def test_an_ordinary_zero_is_not_reported_as_truncation():
+    """A model that answered and got it wrong is a real measurement. Conflating that
+    with a budget cap would discard the actual failures."""
+    out = summarize([_record([_trace(0.0)])], "ptc", "ledger")
+    assert out.n_truncated == 0
+    assert "A BUDGET LIMIT BOUND" not in render([out])

@@ -95,6 +95,11 @@ class ArmResult:
 
     # Co-primary 2 — stability
     n_completed: int = 0
+    n_truncated: int = 0
+    """Rollouts stopped by a framework limit (turns, tokens, compaction) rather than by
+    the model finishing. These are NOT capability measurements: the task scores 0.0 for
+    a budget reason indistinguishable from incapacity, so any non-zero count invalidates
+    the affected tasks and is reported loudly rather than averaged into the score."""
     stop_conditions: dict[str, int] = field(default_factory=dict)
     error_types: dict[str, int] = field(default_factory=dict)
 
@@ -178,6 +183,8 @@ def summarize(records: list[Any], arm: str, taskset: str,
                 result.n_completed += 1
             stop = getattr(trace, "stop_condition", None) or "unset"
             result.stop_conditions[stop] = result.stop_conditions.get(stop, 0) + 1
+            if getattr(trace, "is_truncated", False):
+                result.n_truncated += 1
 
             for node in getattr(trace, "nodes", None) or []:
                 message = getattr(node, "message", None)
@@ -245,7 +252,8 @@ def render(results: list[ArmResult]) -> str:
     rows = [
         ("tasks", "n_tasks"), ("score (primary)", "score_mean"),
         ("score 95% CI", "score_ci"), ("solved", "n_solved"),
-        ("completed", "n_completed"), ("stop conditions", "stop_conditions"),
+        ("completed", "n_completed"), ("TRUNCATED (budget)", "n_truncated"),
+        ("stop conditions", "stop_conditions"),
         ("errors", "error_types"), ("prompt tokens (billed)", "prompt_tokens"),
         ("cached tokens", "cached_tokens"),
         ("completion tokens", "completion_tokens"),
@@ -263,6 +271,13 @@ def render(results: list[ArmResult]) -> str:
                      "".join(cell(getattr(r, attr)).rjust(22) for r in results))
     notes = ["* new input tokens is the DEDUPLICATED count (training-relevant). "
              "Cost uses billed prompt tokens above it."]
+    truncated = {r.arm: r.n_truncated for r in results if r.n_truncated}
+    if truncated:
+        notes.insert(0, "*** A BUDGET LIMIT BOUND: " + ", ".join(
+            f"{arm} {n}" for arm, n in truncated.items()) +
+            ". Those rollouts scored 0.0 for running out of turns or tokens, not for "
+            "failing the task. The score comparison is INVALID until the budget is "
+            "raised — the limit, not the arm, is what was measured.")
     if not all(r.usage_reported for r in results):
         notes.append("usage was not reported by at least one arm — cost is UNKNOWN, "
                      "not zero.")
