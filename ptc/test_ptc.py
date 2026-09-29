@@ -221,9 +221,51 @@ def test_rejected_program_never_reaches_the_catalog():
 # which makes it the cheapest accidental reward hack available. Each of the four is
 # pinned below, plus the legitimate programs the bounds must not break.
 
+import threading  # noqa: E402
 import time  # noqa: E402
 
 from ptc.runtime import MAX_DIGITS, MAX_ELEMENTS, TIMEOUT  # noqa: E402
+
+
+def _rejected_within(program: str, cat: Catalog, limit: float = 3.0) -> ProgramRejected:
+    """Assert `run(program)` REFUSES, and refuses promptly, without hanging on failure.
+
+    The obvious form of this test measures elapsed time after `run()` returns:
+
+        started = time.monotonic()
+        with pytest.raises(ProgramRejected): run(program, cat)
+        assert time.monotonic() - started < 1.0
+
+    That assertion can never fire. If the guard under test is gone, `run()` does not
+    return at all and the suite hangs instead of failing -- which is exactly what
+    happened: four mutants of `_check_magnitude` were killed only by the mutation
+    harness's 300s suite timeout, so the report said "timeout" rather than naming the
+    test, and each took five minutes to say it.
+
+    A daemon thread bounds it instead. If the guard is missing the thread is still
+    computing when the join expires, and the test FAILS by name in seconds. The thread
+    is left spinning -- it cannot be killed -- but it is a daemon, so it dies with the
+    process rather than becoming one of the 98%-CPU orphans this project has already
+    had to clean up once.
+    """
+    box: dict[str, BaseException | None] = {"error": None}
+
+    def attempt() -> None:
+        try:
+            run(program, cat)
+        except BaseException as error:  # noqa: BLE001 - reported to the caller below
+            box["error"] = error
+
+    worker = threading.Thread(target=attempt, daemon=True)
+    worker.start()
+    worker.join(limit)
+    assert not worker.is_alive(), (
+        f"still running after {limit}s: the program was not refused before execution, "
+        "so the guard is gone"
+    )
+    error = box["error"]
+    assert isinstance(error, ProgramRejected), f"expected ProgramRejected, got {error!r}"
+    return error
 
 
 def test_an_unbounded_loop_is_stopped_not_hung():
@@ -246,28 +288,21 @@ def test_nested_loops_are_stopped_too():
 
 def test_an_integer_bomb_is_refused_before_it_runs():
     """`10 ** 10 ** 8` is ONE opcode. A line tracer never regains control inside it,
-    so the wall-clock budget cannot help and the bound has to be static."""
-    started = time.monotonic()
-    with pytest.raises(ProgramRejected) as excinfo:
-        run("write_answer(10 ** 10 ** 8)", catalog())
-    assert time.monotonic() - started < 1.0, "the limit must not compute the value"
-    assert "digits" in str(excinfo.value)
+    so the wall-clock budget cannot help and the bound has to be static. Bounded by
+    `_rejected_within`, so a missing bound fails by name instead of hanging."""
+    assert "digits" in str(_rejected_within("write_answer(10 ** 10 ** 8)", catalog()))
 
 
 def test_a_sequence_bomb_is_refused_before_it_runs():
-    started = time.monotonic()
-    with pytest.raises(ProgramRejected) as excinfo:
-        run("write_answer(len([0] * (10 ** 9)))", catalog())
-    assert time.monotonic() - started < 1.0
-    assert "element limit" in str(excinfo.value)
+    assert "element limit" in str(
+        _rejected_within("write_answer(len([0] * (10 ** 9)))", catalog()))
 
 
 def test_the_bomb_check_runs_at_validation_so_nothing_executes():
     """A part-valid program must not half-run. `record` is called first in source
     order; if the guard ran during execution the catalog would already be dirty."""
     WROTE.clear()
-    with pytest.raises(ProgramRejected):
-        run("write_answer('first')\nwrite_answer(10 ** 10 ** 8)", catalog())
+    _rejected_within("write_answer('first')\nwrite_answer(10 ** 10 ** 8)", catalog())
     assert WROTE == []
 
 
@@ -288,10 +323,9 @@ def test_the_bounds_do_not_break_ordinary_programs(program):
 
 def test_a_forbidden_node_is_reported_as_such_not_as_an_arithmetic_limit():
     """Ordering. The magnitude check runs last, so a program that is both illegal and
-    huge names the escape it attempted -- the message is what the model learns from."""
-    with pytest.raises(ProgramRejected) as excinfo:
-        run("import os\nx = 10 ** 10 ** 8", Catalog())
-    assert "Import" in str(excinfo.value)
+    huge names the escape it attempted -- the message is what the model learns from.
+    Bounded too: if the allowlist stopped running first, this would compute the bomb."""
+    assert "Import" in str(_rejected_within("import os\nx = 10 ** 10 ** 8", Catalog()))
 
 
 def test_the_limits_are_named_constants_not_buried_numbers():

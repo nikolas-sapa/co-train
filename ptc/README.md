@@ -83,6 +83,37 @@ illegal and huge reports the escape it attempted rather than an arithmetic limit
 also happens to break. The tracer is **restored**, not cleared, because pytest and
 coverage install tracers of their own.
 
+### The bounds are mutation-tested, and the first pass was a bad kill
+
+Every guard above goes red when removed — but the first run killed four of them only
+by the mutation harness's **300-second suite timeout**, reporting `timeout` instead of
+naming a test. That is a bad kill, and the cause was in the tests:
+
+    started = time.monotonic()
+    with pytest.raises(ProgramRejected): run("record(10 ** 10 ** 8)", catalog())
+    assert time.monotonic() - started < 1.0      # unreachable
+
+If the guard is gone, `run()` never returns, so the timing assertion never runs. A test
+that can only fail by hanging costs five minutes to say nothing useful. `_rejected_within`
+now bounds each one with a daemon thread and a join, so a missing guard fails **by name
+in seconds**. The thread is left spinning because it cannot be killed, but it is a daemon
+and dies with the process — not another 98%-CPU orphan.
+
+| Mutation | Result |
+|---|---|
+| Deadline never expires | suite hangs → killed |
+| Magnitude check removed | `test_an_integer_bomb_is_refused_before_it_runs` |
+| `Pow` limit computes the value before measuring it | same test — measuring by computing is the same hang, relocated |
+| Element limit dropped | `test_a_sequence_bomb_is_refused_before_it_runs` |
+| Magnitude check moved before the node allowlist | `test_a_forbidden_node_is_reported_as_such…` |
+| Tracer cleared instead of restored | `test_an_existing_tracer_is_restored_not_stomped` |
+
+The mutation harness needed two fixes of its own to run this honestly, both for the same
+class of bug the review found in the runtime: it now kills a suite that overruns, and it
+kills the whole **process tree**, because `pkill` on the parent once left four `pytest`
+children spinning at 98% CPU — one of them 511 CPU-minutes in. A harness that enforces
+an execution bound must obey one.
+
 **The residual hole, stated rather than hidden.** A *computed* bomb — `n = 10 ** 8`
 then `10 ** n` — still gets through, because bounding that needs abstract
 interpretation of the whole program. The real fix is the OS: a child process under

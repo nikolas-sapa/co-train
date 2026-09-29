@@ -22,7 +22,7 @@ Fresh copy per mutation + PYTHONDONTWRITEBYTECODE=1: a byte-length-identical
 mutation restored within the same second leaves identical mtime AND size, so
 Python would keep executing the cached .pyc.
 """
-import json, os, pathlib, shutil, subprocess, sys, tempfile
+import json, os, pathlib, shutil, signal, subprocess, sys, tempfile
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 ENV = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
@@ -45,19 +45,50 @@ it certainly did not pass -- but it has to be *recorded* as one rather than wait
 
 
 def run(d: pathlib.Path, pkg: str):
+    """Run one mutated suite, killing the whole process TREE if it overruns.
+
+    `subprocess.run(timeout=...)` kills the direct child only, and killing this script
+    kills neither. Both gaps were real: interrupting a batch that had mutated away
+    `ptc/runtime.py`'s deadline tracer left the suite's own `while True` test spinning,
+    and four orphans were later found at 98% CPU, one of them 511 CPU-minutes in. A
+    mutation harness for an execution bound must not be the thing that runs forever.
+
+    So the child gets its own session and the whole group is signalled.
+    """
+    argv = [sys.executable, "-m", "pytest", f"{pkg}/", "-q", "--no-header",
+            "-p", "no:cacheprovider"]
+    process = subprocess.Popen(
+        argv, cwd=d, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        env={**ENV, "PYTHONPATH": str(d)},
+        start_new_session=True,      # its own process group, so killpg reaches pytest's children
+    )
     try:
-        return subprocess.run(
-            [sys.executable, "-m", "pytest", f"{pkg}/", "-q", "--no-header",
-             "-p", "no:cacheprovider"],
-            cwd=d, capture_output=True, text=True, env={**ENV, "PYTHONPATH": str(d)},
-            timeout=SUITE_TIMEOUT,
-        )
+        stdout, stderr = process.communicate(timeout=SUITE_TIMEOUT)
+        return subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
     except subprocess.TimeoutExpired:
+        _terminate_tree(process)
         return subprocess.CompletedProcess(
-            args=[], returncode=124,
-            stdout=f"HUNG: suite exceeded {SUITE_TIMEOUT}s\nFAILED (hung)::timeout",
-            stderr="",
-        )
+            argv, 124,
+            f"HUNG: suite exceeded {SUITE_TIMEOUT}s\nFAILED (hung)::timeout", "")
+    except BaseException:
+        # Ctrl-C included: leaving a runaway child behind is how the orphans happened.
+        _terminate_tree(process)
+        raise
+
+
+def _terminate_tree(process: subprocess.Popen) -> None:
+    """SIGTERM the group, then SIGKILL what ignores it. A spinning `while True` under a
+    mutated-away tracer does ignore it."""
+    for signum in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(os.getpgid(process.pid), signum)
+        except (ProcessLookupError, PermissionError):
+            return
+        try:
+            process.wait(timeout=10)
+            return
+        except subprocess.TimeoutExpired:
+            continue
 
 
 def main() -> int:
@@ -70,7 +101,7 @@ def main() -> int:
     if base.returncode:
         print("FRESH BASELINE NOT GREEN:\n" + base.stdout[-2000:])
         return 2
-    print("baseline:", base.stdout.strip().splitlines()[-1], "\n")
+    print("baseline:", base.stdout.strip().splitlines()[-1], "\n", flush=True)
     print(f"{'mutation':46} | verdict")
     print("-" * 82)
     survivors = []
@@ -79,7 +110,7 @@ def main() -> int:
         f = d / pkg / filename
         s = f.read_text()
         if s.count(old) != 1:
-            print(f"{name:46} | ANCHOR x{s.count(old)} (not unique)")
+            print(f"{name:46} | ANCHOR x{s.count(old)} (not unique)", flush=True)
             survivors.append(name + " [unverified]")
             continue
         f.write_text(s.replace(old, new, 1))
