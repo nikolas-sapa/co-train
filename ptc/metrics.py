@@ -76,12 +76,22 @@ class ArmResult:
     score_ci: tuple[float, float] | None = None
     n_solved: int = 0
 
-    # Co-primary 1 — cost
-    input_tokens: int = 0
-    output_tokens: int = 0
+    # Co-primary 1 — cost. Billed tokens, NOT the deduplicated count: a provider
+    # charges the whole prompt on every call, and `Trace.num_input_tokens` reports
+    # only each call's increment over the previous one. See `summarize`.
+    prompt_tokens: int = 0
+    cached_tokens: int = 0
+    completion_tokens: int = 0
+    reasoning_tokens: int = 0
+    new_input_tokens: int = 0
+    """The deduplicated count (`Trace.num_input_tokens`). Reported because it is the
+    training-relevant number, and kept apart from the billed figure above so the two
+    can never be confused again."""
     usage_reported: bool = False
     cost_total: float | None = None
     cost_per_solved: float | None = None
+    cost_from_provider: bool = False
+    cost_is_upper_bound: bool = False
 
     # Co-primary 2 — stability
     n_completed: int = 0
@@ -107,27 +117,58 @@ def _is_failure(content: Any) -> bool:
 
 
 def summarize(records: list[Any], arm: str, taskset: str,
-              price_in: float = 0.0, price_out: float = 0.0) -> ArmResult:
+              price_in: float = 0.0, price_out: float = 0.0,
+              price_cached: float | None = None) -> ArmResult:
     """Fold a run's records into the pre-registered outcome set.
 
-    `price_in`/`price_out` are dollars per million tokens and must be supplied by the
-    caller. Absent them, cost is reported as unknown rather than as zero -- a run whose
-    provider reported no usage would otherwise print `$0.00`, which reads as "free"
-    instead of "not measured". That false green is the exact shape this project keeps
-    finding, so it is refused here.
+    **Cost is computed from BILLED tokens, which is not the obvious field.**
+    `Trace.num_input_tokens` is `max(0, call.input_tokens - previous_total)` summed over
+    calls (`trace.py:min_new_input_tokens`) -- the *new* tokens per call, deduplicated
+    across branches. That is the training-relevant number and it is not what anyone
+    charges: a provider bills the entire prompt on every call, and a multi-turn rollout
+    re-sends the whole conversation each time.
+
+    Using it would have biased the cost co-primary **directionally**. The bash arm
+    takes one tool call per turn where the PTC arm submits one program, so bash makes
+    more calls and re-sends more prompt. The deduplicated count hides exactly that
+    difference, understating the higher-turn arm -- and cost is precisely the axis where
+    pre-reg §1 records untrained PTC already *beating* bash. The wrong field would have
+    muddied the one co-primary PTC wins on.
+
+    `Trace.usage` (`Usage.aggregate`) sums provider-reported usage per call, which is
+    the billed figure. Two further traps in that model: `prompt_tokens` **excludes**
+    cache reads, which live in `cached_input_tokens` and are usually billed at a
+    discount, and `reasoning_tokens` are already a subset of `completion_tokens` and
+    must not be added again.
+
+    Prices are dollars per million tokens and must be supplied. Absent them, cost is
+    reported as unknown rather than as zero -- a run whose provider reported no usage
+    would otherwise print `$0.00`, which reads as "free" instead of "not measured".
+    A provider-reported `cost` is preferred over any arithmetic here.
     """
     result = ArmResult(arm=arm, taskset=taskset)
     scores: list[float] = []
 
+    provider_cost = 0.0
+    provider_cost_seen = False
+
     for record in records:
-        result.input_tokens += getattr(record, "num_input_tokens", 0) or 0
-        result.output_tokens += getattr(record, "num_output_tokens", 0) or 0
         for error in getattr(record, "errors", None) or []:
             name = getattr(error, "type", None) or "unknown"
             result.error_types[name] = result.error_types.get(name, 0) + 1
 
         for trace in getattr(record, "traces", None) or []:
             result.n_tasks += 1
+            result.new_input_tokens += getattr(trace, "num_input_tokens", 0) or 0
+            usage = getattr(trace, "usage", None)
+            if usage is not None:
+                result.prompt_tokens += getattr(usage, "prompt_tokens", 0) or 0
+                result.completion_tokens += getattr(usage, "completion_tokens", 0) or 0
+                result.cached_tokens += getattr(usage, "cached_input_tokens", None) or 0
+                result.reasoning_tokens += getattr(usage, "reasoning_tokens", None) or 0
+                if getattr(usage, "cost", None) is not None:
+                    provider_cost += usage.cost
+                    provider_cost_seen = True
             reward = getattr(trace, "reward", None)
             if reward is not None:
                 scores.append(float(reward))
@@ -163,12 +204,24 @@ def summarize(records: list[Any], arm: str, taskset: str,
 
     # Usage is only believable if the provider actually reported some. A canned policy
     # reports zero, and so does a provider that omits the usage block.
-    result.usage_reported = (result.input_tokens + result.output_tokens) > 0
-    if result.usage_reported and (price_in or price_out):
-        result.cost_total = (result.input_tokens / 1e6) * price_in + (
-            result.output_tokens / 1e6) * price_out
-        if result.n_solved:
-            result.cost_per_solved = result.cost_total / result.n_solved
+    result.usage_reported = (result.prompt_tokens + result.completion_tokens
+                             + result.cached_tokens) > 0
+
+    if provider_cost_seen:
+        # The provider's own number beats any arithmetic here: it already knows its
+        # cache discounts, tiers and rounding.
+        result.cost_total = provider_cost
+        result.cost_from_provider = True
+    elif result.usage_reported and (price_in or price_out):
+        cached_rate = price_in if price_cached is None else price_cached
+        result.cost_is_upper_bound = result.cached_tokens > 0 and price_cached is None
+        result.cost_total = (
+            (result.prompt_tokens / 1e6) * price_in
+            + (result.cached_tokens / 1e6) * cached_rate
+            + (result.completion_tokens / 1e6) * price_out
+        )
+    if result.cost_total is not None and result.n_solved:
+        result.cost_per_solved = result.cost_total / result.n_solved
 
     return result
 
@@ -193,8 +246,11 @@ def render(results: list[ArmResult]) -> str:
         ("tasks", "n_tasks"), ("score (primary)", "score_mean"),
         ("score 95% CI", "score_ci"), ("solved", "n_solved"),
         ("completed", "n_completed"), ("stop conditions", "stop_conditions"),
-        ("errors", "error_types"), ("input tokens", "input_tokens"),
-        ("output tokens", "output_tokens"), ("cost total", "cost_total"),
+        ("errors", "error_types"), ("prompt tokens (billed)", "prompt_tokens"),
+        ("cached tokens", "cached_tokens"),
+        ("completion tokens", "completion_tokens"),
+        ("reasoning tokens", "reasoning_tokens"),
+        ("new input tokens*", "new_input_tokens"), ("cost total", "cost_total"),
         ("cost / solved", "cost_per_solved"), ("tool calls", "tool_calls"),
         ("tool failures", "tool_failures"), ("tool success rate", "tool_success_rate"),
         ("shell-call share", "shell_call_share"), ("assistant turns", "turns"),
@@ -205,8 +261,16 @@ def render(results: list[ArmResult]) -> str:
     for label, attr in rows:
         lines.append(label.ljust(width) +
                      "".join(cell(getattr(r, attr)).rjust(22) for r in results))
+    notes = ["* new input tokens is the DEDUPLICATED count (training-relevant). "
+             "Cost uses billed prompt tokens above it."]
     if not all(r.usage_reported for r in results):
-        lines.append("")
-        lines.append("NOTE: usage was not reported by at least one arm — cost is "
-                     "UNKNOWN, not zero.")
+        notes.append("usage was not reported by at least one arm — cost is UNKNOWN, "
+                     "not zero.")
+    if any(r.cost_is_upper_bound for r in results):
+        notes.append("cached tokens were billed at the full input rate — cost is an "
+                     "UPPER BOUND. Pass --price-cached for the real figure.")
+    if any(r.cost_from_provider for r in results):
+        notes.append("cost is provider-reported, not computed from prices.")
+    lines.append("")
+    lines.extend(f"NOTE: {n}" for n in notes)
     return "\n".join(lines)

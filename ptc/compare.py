@@ -171,7 +171,8 @@ async def _run_arm(arm: str, args, use_tool: bool):
 
     records = await run_eval(EvalConfig.model_validate(_config(arm, args, tag)))
     label = arm if use_tool else f"{arm} (control)"
-    return summarize(records, label, args.taskset, args.price_in, args.price_out)
+    return summarize(records, label, args.taskset, args.price_in, args.price_out,
+                     args.price_cached)
 
 
 async def main() -> int:
@@ -190,6 +191,9 @@ async def main() -> int:
     # error being avoided. Absent a price, cost prints as unknown.
     parser.add_argument("--price-in", type=float, default=0.0)
     parser.add_argument("--price-out", type=float, default=0.0)
+    # Cache reads live outside `prompt_tokens` and are usually discounted. Without this
+    # they are charged at the full input rate and the cost is flagged as an upper bound.
+    parser.add_argument("--price-cached", type=float, default=None)
     args = parser.parse_args()
 
     if args.mode == "real" and not args.base_url:

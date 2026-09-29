@@ -29,14 +29,23 @@ def _msg(role, content=None, tool_calls=None):
     return NS(role=role, content=content, tool_calls=tool_calls or [])
 
 
-def _trace(reward=1.0, nodes=(), completed=True, stop="complete"):
+def _usage(prompt=0, completion=0, cached=None, reasoning=None, cost=None):
+    return NS(prompt_tokens=prompt, completion_tokens=completion,
+              cached_input_tokens=cached, reasoning_tokens=reasoning, cost=cost)
+
+
+def _trace(reward=1.0, nodes=(), completed=True, stop="complete", usage=None,
+           new_input=0):
+    """`usage` is the BILLED figure (`Trace.usage`); `new_input` is the deduplicated
+    `Trace.num_input_tokens`. They are deliberately separate arguments because
+    conflating them is the bug these tests exist to prevent."""
     return NS(reward=reward, nodes=[NS(message=m) for m in nodes],
-              is_completed=completed, stop_condition=stop)
+              is_completed=completed, stop_condition=stop, usage=usage,
+              num_input_tokens=new_input)
 
 
-def _record(traces, tin=0, tout=0, errors=()):
-    return NS(traces=list(traces), num_input_tokens=tin, num_output_tokens=tout,
-              errors=list(errors))
+def _record(traces, errors=()):
+    return NS(traces=list(traces), errors=list(errors))
 
 
 def _conversation(tool_name="ledger_get", result="ok"):
@@ -91,7 +100,7 @@ def test_a_degenerate_sample_gives_a_degenerate_interval():
 def test_cost_is_unknown_rather_than_zero_when_usage_is_missing():
     """The false green this project keeps finding. A canned policy reports no usage;
     printing `$0.00` would read as "free" instead of "not measured"."""
-    out = summarize([_record([_trace()], tin=0, tout=0)], "ptc", "ledger",
+    out = summarize([_record([_trace(usage=None)])], "ptc", "ledger",
                     price_in=1.0, price_out=2.0)
     assert out.usage_reported is False
     assert out.cost_total is None
@@ -101,7 +110,7 @@ def test_cost_is_unknown_rather_than_zero_when_usage_is_missing():
 def test_cost_is_unknown_when_no_price_is_supplied():
     """§2: token count is NOT a cost proxy (-38.4% tokens, +6.8% cost, r=0.15). With no
     price there is no cost, and inventing one from tokens is the cited mistake."""
-    out = summarize([_record([_trace()], tin=1000, tout=500)], "ptc", "ledger")
+    out = summarize([_record([_trace(usage=_usage(1000, 500))])], "ptc", "ledger")
     assert out.usage_reported is True
     assert out.cost_total is None
 
@@ -109,14 +118,15 @@ def test_cost_is_unknown_when_no_price_is_supplied():
 def test_cost_per_solved_task_not_per_task():
     """The co-primary is cost per *successful* task: an arm that fails cheaply is not
     cheap."""
-    out = summarize([_record([_trace(1.0), _trace(0.0)], tin=2_000_000, tout=1_000_000)],
+    out = summarize([_record([_trace(1.0, usage=_usage(2_000_000, 1_000_000)),
+                              _trace(0.0, usage=_usage(0, 0))])],
                     "ptc", "ledger", price_in=3.0, price_out=15.0)
     assert out.cost_total == pytest.approx(2 * 3.0 + 1 * 15.0)
     assert out.cost_per_solved == pytest.approx(21.0 / 1)
 
 
 def test_no_division_by_zero_when_nothing_was_solved():
-    out = summarize([_record([_trace(0.0)], tin=1000, tout=1000)], "ptc", "ledger",
+    out = summarize([_record([_trace(0.0, usage=_usage(1000, 1000))])], "ptc", "ledger",
                     price_in=1.0, price_out=1.0)
     assert out.cost_total is not None
     assert out.cost_per_solved is None
@@ -231,3 +241,83 @@ def test_the_table_does_not_declare_a_winner():
 def test_rendering_survives_an_empty_run():
     assert render([]) == "(no results)"
     assert isinstance(ArmResult(arm="a", taskset="b").as_dict(), dict)
+
+
+# ------------------------------------- billed vs deduplicated tokens (the big one)
+
+def test_cost_uses_billed_prompt_tokens_not_the_deduplicated_count():
+    """The bug this section exists for, caught by reading verifiers' source rather
+    than by spending money on a run.
+
+    `Trace.num_input_tokens` is `max(0, call.input_tokens - previous_total)` summed
+    over calls — the NEW tokens per call. Nobody bills that. A provider charges the
+    whole prompt on every call, so a four-turn rollout pays for the conversation four
+    times. Here the billed figure is 10x the deduplicated one, and cost must follow the
+    billed figure.
+
+    It biased the co-primary directionally, which is why it matters: the bash arm makes
+    more calls than the PTC arm (one tool call per turn vs one program), so it re-sends
+    more prompt, and the deduplicated count hides precisely that. Cost is the axis
+    pre-reg §1 records untrained PTC already winning on.
+    """
+    out = summarize([_record([_trace(usage=_usage(prompt=1_000_000, completion=0),
+                                     new_input=100_000)])],
+                    "bash", "ledger", price_in=1.0, price_out=1.0)
+    assert out.prompt_tokens == 1_000_000
+    assert out.new_input_tokens == 100_000
+    assert out.cost_total == pytest.approx(1.0), "cost must follow the billed tokens"
+
+
+def test_the_deduplicated_count_is_still_reported_separately():
+    """It is the training-relevant number and worth having — just never as cost."""
+    out = summarize([_record([_trace(usage=_usage(500, 100), new_input=42)])], "p", "l")
+    assert out.new_input_tokens == 42
+    table = render([out])
+    assert "new input tokens*" in table
+    assert "DEDUPLICATED" in table
+
+
+def test_a_provider_reported_cost_beats_our_arithmetic():
+    """The provider already knows its own cache discounts, tiers and rounding."""
+    out = summarize([_record([_trace(usage=_usage(1_000_000, 1_000_000, cost=0.07))])],
+                    "ptc", "l", price_in=999.0, price_out=999.0)
+    assert out.cost_total == pytest.approx(0.07)
+    assert out.cost_from_provider is True
+    assert "provider-reported" in render([out])
+
+
+def test_cached_tokens_are_counted_and_flagged_as_an_upper_bound():
+    """`Usage.prompt_tokens` EXCLUDES cache reads (types.py), so ignoring
+    `cached_input_tokens` would undercount the prompt entirely. Cache reads are usually
+    discounted, so charging them at the full input rate overstates — which is declared
+    rather than hidden."""
+    out = summarize([_record([_trace(usage=_usage(prompt=1_000_000, completion=0,
+                                                 cached=1_000_000))])],
+                    "ptc", "l", price_in=1.0, price_out=1.0)
+    assert out.cached_tokens == 1_000_000
+    assert out.cost_total == pytest.approx(2.0)
+    assert out.cost_is_upper_bound is True
+    assert "UPPER BOUND" in render([out])
+
+
+def test_a_cache_price_removes_the_upper_bound_caveat():
+    out = summarize([_record([_trace(usage=_usage(1_000_000, 0, cached=1_000_000))])],
+                    "ptc", "l", price_in=1.0, price_out=1.0, price_cached=0.1)
+    assert out.cost_total == pytest.approx(1.1)
+    assert out.cost_is_upper_bound is False
+
+
+def test_reasoning_tokens_are_reported_but_not_billed_twice():
+    """types.py: reasoning tokens are a SUBSET of completion tokens. Adding them to the
+    cost again would inflate every reasoning model's bill."""
+    out = summarize([_record([_trace(usage=_usage(0, 1_000_000, reasoning=600_000))])],
+                    "ptc", "l", price_in=1.0, price_out=1.0)
+    assert out.reasoning_tokens == 600_000
+    assert out.cost_total == pytest.approx(1.0)
+
+
+def test_usage_is_summed_across_traces_and_records():
+    out = summarize([_record([_trace(usage=_usage(100, 10)), _trace(usage=_usage(200, 20))]),
+                     _record([_trace(usage=_usage(700, 70))])], "ptc", "l")
+    assert out.prompt_tokens == 1000
+    assert out.completion_tokens == 100
