@@ -94,10 +94,25 @@ naming a test. That is a bad kill, and the cause was in the tests:
     assert time.monotonic() - started < 1.0      # unreachable
 
 If the guard is gone, `run()` never returns, so the timing assertion never runs. A test
-that can only fail by hanging costs five minutes to say nothing useful. `_rejected_within`
-now bounds each one with a daemon thread and a join, so a missing guard fails **by name
-in seconds**. The thread is left spinning because it cannot be killed, but it is a daemon
-and dies with the process — not another 98%-CPU orphan.
+that can only fail by hanging costs five minutes to say nothing useful.
+
+**The second attempt was also wrong, and it looked right.** A daemon thread with
+`join(limit)` cannot bound this either: `10 ** 10 ** 8` is a single C-level opcode that
+never releases the GIL, so the main thread never gets to run its own `join` timeout and
+the whole process stalls. Measured, not reasoned about — a probe printed *nothing at all*
+in 25 seconds. That is the same single-opcode property that made a line tracer useless
+one layer up, and it caught me twice.
+
+`_rejected_within` runs the program in a **child interpreter**. It has its own GIL and the
+parent's wait is enforced by the OS rather than by Python scheduling, so a missing guard
+fails by name in seconds regardless of what the program does.
+
+That relocation created a vacuous test, which is worth recording because it is the
+failure mode this project keeps hitting: `test_the_bomb_check_runs_at_validation` asserted
+`WROTE == []`, but with the program in a child process the parent's list is empty
+*whatever happens*. It now asserts on a call count the child reports back, and the fix was
+verified by a faithful mutant — validating and executing statement by statement, so the
+first statement genuinely runs — which turns the assertion red with `CALLS:1`.
 
 | Mutation | Result |
 |---|---|

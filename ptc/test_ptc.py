@@ -221,51 +221,70 @@ def test_rejected_program_never_reaches_the_catalog():
 # which makes it the cheapest accidental reward hack available. Each of the four is
 # pinned below, plus the legitimate programs the bounds must not break.
 
-import threading  # noqa: E402
+import subprocess  # noqa: E402
+import textwrap  # noqa: E402
 import time  # noqa: E402
+
+REPO = str(Path(__file__).resolve().parents[1])  # noqa: E402
 
 from ptc.runtime import MAX_DIGITS, MAX_ELEMENTS, TIMEOUT  # noqa: E402
 
 
-def _rejected_within(program: str, cat: Catalog, limit: float = 3.0) -> ProgramRejected:
-    """Assert `run(program)` REFUSES, and refuses promptly, without hanging on failure.
+def _rejected_within(program: str, limit: float = 20.0) -> str:
+    """Assert `run(program)` REFUSES, and refuses promptly, in a CHILD INTERPRETER.
 
-    The obvious form of this test measures elapsed time after `run()` returns:
+    Three attempts, and the first two were wrong in instructive ways.
 
-        started = time.monotonic()
-        with pytest.raises(ProgramRejected): run(program, cat)
-        assert time.monotonic() - started < 1.0
+    **1. Measure elapsed time after the call.** Unreachable: if the guard under test is
+    gone, `run()` never returns, so the assertion never executes. The suite hangs and
+    the mutation report says `timeout` instead of naming a test.
 
-    That assertion can never fire. If the guard under test is gone, `run()` does not
-    return at all and the suite hangs instead of failing -- which is exactly what
-    happened: four mutants of `_check_magnitude` were killed only by the mutation
-    harness's 300s suite timeout, so the report said "timeout" rather than naming the
-    test, and each took five minutes to say it.
+    **2. A daemon thread with `join(limit)`.** Also unreachable, and this one looked
+    right. `10 ** 10 ** 8` is a single C-level opcode that never releases the GIL, so
+    the main thread cannot run to reach its own `join` timeout -- the whole process
+    stalls. Verified rather than reasoned about: a probe printed nothing at all in 25s.
+    That is the same single-opcode property that made a line tracer useless here, one
+    layer up.
 
-    A daemon thread bounds it instead. If the guard is missing the thread is still
-    computing when the join expires, and the test FAILS by name in seconds. The thread
-    is left spinning -- it cannot be killed -- but it is a daemon, so it dies with the
-    process rather than becoming one of the 98%-CPU orphans this project has already
-    had to clean up once.
+    **3. A child process.** It has its own GIL, and the parent's wait is enforced by the
+    OS rather than by Python scheduling, so it works regardless of what the program
+    does. `subprocess.run`'s timeout kills the child; there are no grandchildren to
+    strand.
+
+    The catalog is rebuilt inside the child because functions do not cross a process
+    boundary. `write_answer` is the only name these programs need.
     """
-    box: dict[str, BaseException | None] = {"error": None}
-
-    def attempt() -> None:
+    child = textwrap.dedent(f"""
+        import sys
+        sys.path.insert(0, {REPO!r})
+        from ptc.runtime import Catalog, ProgramRejected, run
+        reached = []
+        catalog = Catalog(tools={{"write_answer": reached.append}})
         try:
-            run(program, cat)
-        except BaseException as error:  # noqa: BLE001 - reported to the caller below
-            box["error"] = error
-
-    worker = threading.Thread(target=attempt, daemon=True)
-    worker.start()
-    worker.join(limit)
-    assert not worker.is_alive(), (
-        f"still running after {limit}s: the program was not refused before execution, "
-        "so the guard is gone"
-    )
-    error = box["error"]
-    assert isinstance(error, ProgramRejected), f"expected ProgramRejected, got {error!r}"
-    return error
+            run({program!r}, catalog)
+            outcome = "RAN"
+        except ProgramRejected as error:
+            outcome = "REJECTED:" + str(error)
+        except BaseException as error:
+            outcome = "RAISED:" + type(error).__name__ + ":" + str(error)
+        # Reported from inside the child: the parent cannot see its catalog, so a test
+        # asserting "the tool was never reached" has to be told, not assume.
+        print("CALLS:" + str(len(reached)))
+        print(outcome)
+    """)
+    try:
+        done = subprocess.run([sys.executable, "-c", child], capture_output=True,
+                              text=True, timeout=limit)
+    except subprocess.TimeoutExpired:
+        raise AssertionError(
+            f"still running after {limit}s: the program was not refused before "
+            "execution, so the guard is gone"
+        ) from None
+    lines = (done.stdout or "").strip().splitlines()
+    assert len(lines) == 2, f"unexpected child output: {done.stdout!r} {done.stderr[-300:]!r}"
+    calls, out = lines
+    assert out.startswith("REJECTED:"), f"expected a rejection, got {out!r}"
+    return f"{out} {calls}"
 
 
 def test_an_unbounded_loop_is_stopped_not_hung():
@@ -290,20 +309,21 @@ def test_an_integer_bomb_is_refused_before_it_runs():
     """`10 ** 10 ** 8` is ONE opcode. A line tracer never regains control inside it,
     so the wall-clock budget cannot help and the bound has to be static. Bounded by
     `_rejected_within`, so a missing bound fails by name instead of hanging."""
-    assert "digits" in str(_rejected_within("write_answer(10 ** 10 ** 8)", catalog()))
+    assert "digits" in str(_rejected_within("write_answer(10 ** 10 ** 8)"))
 
 
 def test_a_sequence_bomb_is_refused_before_it_runs():
     assert "element limit" in str(
-        _rejected_within("write_answer(len([0] * (10 ** 9)))", catalog()))
+        _rejected_within("write_answer(len([0] * (10 ** 9)))"))
 
 
 def test_the_bomb_check_runs_at_validation_so_nothing_executes():
     """A part-valid program must not half-run. `record` is called first in source
     order; if the guard ran during execution the catalog would already be dirty."""
-    WROTE.clear()
-    _rejected_within("write_answer('first')\nwrite_answer(10 ** 10 ** 8)", catalog())
-    assert WROTE == []
+    # The child reports its own catalog's call count; `WROTE` here belongs to the
+    # parent and would be empty either way, which would make this test vacuous.
+    assert "CALLS:0" in _rejected_within(
+        "write_answer('first')\nwrite_answer(10 ** 10 ** 8)")
 
 
 @pytest.mark.parametrize("program", [
@@ -325,7 +345,7 @@ def test_a_forbidden_node_is_reported_as_such_not_as_an_arithmetic_limit():
     """Ordering. The magnitude check runs last, so a program that is both illegal and
     huge names the escape it attempted -- the message is what the model learns from.
     Bounded too: if the allowlist stopped running first, this would compute the bomb."""
-    assert "Import" in str(_rejected_within("import os\nx = 10 ** 10 ** 8", Catalog()))
+    assert "Import" in str(_rejected_within("import os\nx = 10 ** 10 ** 8"))
 
 
 def test_the_limits_are_named_constants_not_buried_numbers():
