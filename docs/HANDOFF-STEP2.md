@@ -1,27 +1,54 @@
 # HANDOFF — Step 2
 
 **Read `HANDOFF.md` first for the project, then `step2/README.md` for the detail.**
-Status 2026-09-27: **the gate is resolved, the run is written and its verdict is
-trustworthy. Nothing has touched a GPU.** That is the only thing left.
+Status 2026-09-30: **DONE. `STEP 2 PASS` — fp16 GRPO is stable on Kaggle T4.**
+Result and full analysis in `step2/results/`.
+
+---
+
+## The answer
+
+Five steps, Qwen3-0.6B, fp16, LoRA r=32, `beta=0.04`, `use_vllm=False`, 298 s.
+
+| Step | `grad_norm` | `reward_std` | `kl` |
+|---:|---:|---:|---:|
+| 1 | 1.837 | 0.0707 | 1.34e-05 |
+| 2 | 2.433 | 0.2248 | 2.16e-05 |
+| 3 | 2.011 | 0.1581 | 2.61e-03 |
+| 4 | 2.063 | 0.0354 | 1.33e-03 |
+| 5 | 1.716 | 0.1132 | 2.49e-02 |
+
+`grad_norm` finite and positive throughout — fp16 neither overflowed nor
+underflowed. `reward_std` > 0 every step, so a real gradient existed and the
+pass is not vacuous. `kl` rises across three orders of magnitude: **the curve
+nobody has published**, and the reason `beta=0.04` was chosen over 0.
+
+**Consequence: the T4 path works, so rented Ampere is not required for Step 3.**
+`08` had shown prime-rl cannot train on a T4 at all, so the two paths were
+disjoint; this keeps the free one open.
+
+Re-check with no GPU: `python step2/verdict.py step2/results/step2_metrics.jsonl`
+
+Caveats, all in `step2/results/README.md`: not a learning run, reward hacking
+visible by step 4 (the reward *is* length), entropy unobservable on this stack,
+single-GPU, five steps is not a trend. And the committed JSONL is
+**reconstructed from notebook stdout** — Kaggle wiped `/kaggle/working` before
+it could be downloaded.
 
 ---
 
 ## The one thing to do next
 
-```bash
-tar -czf step2-bundle.tar.gz -C step2 \
-    verdict.py gate_chat_template.py smoke.py metric_contract.json
-```
+**Step 3 — the verifier.** It was correctly deferred until fp16 was answered;
+it now is. Read `HANDOFF.md`'s Step 3 entry and `research/08-gap-closure.md` §4c
+before starting: BenchJack shipped and is a *repository auditor*, not an
+adversarial rollout, so the runtime half needs `trustworthy-env`.
 
-Upload as a **private** Kaggle Dataset named `cotrain-step2`, then follow
-`step2/KAGGLE.md` — five paste-ready cells. Accelerator **GPU T4 x2**, Internet **On**.
+Note the other session moved further while this ran — `ptc/` now holds a
+restricted runtime and a comparison rig, and `docs/spike-verifiers.md` argues
+the PTC arm should come before the verifier. Reconcile the two orderings before
+committing to either.
 
-`pip install unsloth "transformers<5"`. **The pin is load-bearing**, not hygiene —
-see below. Cell 3 is a ~20 s preflight that fails fast rather than after the
-model download.
-
-Everything checkable without a GPU is checked: 73 tests, 59 mutants, 0 survivors.
-Nothing says the run passed.
 
 ---
 

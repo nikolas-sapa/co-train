@@ -62,15 +62,28 @@ This is the cheapest high-value work in the whole plan and it is the concrete fo
 inverts the usual order deliberately: **you cannot write the verifier correctly until you have
 something trying to break it.**
 
-### Step 2 — 🔶 PARTIAL (2026-09-25). Prove the loop on free hardware
+### Step 2 — ✅ DONE (2026-09-30). Prove the loop on free hardware
 Kaggle, accelerator `NvidiaTeslaT4` (= T4 x2), **Unsloth** (not raw TRL — see Hard Constraints),
 fp16, LoRA rank 16-32, Qwen3-0.6B, `use_vllm=False`, 5 steps. Goal is only: does it run and is
 fp16 stable.
 
-`step2/` — gate check, run script, pass criteria, 47 tests, 46 mutants / 0 survivors.
-**The hard gate is resolved and the run is written. Nothing has touched a GPU yet**, so
-"does it run, is fp16 stable" is still open. Read `step2/README.md`; its Verification
-Status section separates what was executed from what was not.
+**`STEP 2 PASS`. fp16 GRPO is stable on T4.** 5 steps, 298 s, `grad_norm` finite and
+positive throughout (1.72–2.43), `reward_std` > 0 every step so the gradient was real,
+`kl` rising 1.3e-05 → 2.5e-02 — **the KL curve nobody had published**, which is why
+`beta` was set to 0.04 rather than 0. Full analysis, caveats and stack in
+`step2/results/`. Re-checkable with no GPU:
+`python step2/verdict.py step2/results/step2_metrics.jsonl`.
+
+**Consequence: the free path holds.** Rented Ampere is not required for Step 3 — and
+per `08`, prime-rl could not have used a T4 anyway, so the two paths were disjoint.
+
+Caveats, stated: not a learning run (the reward is output length, and reward hacking is
+visible by step 4); entropy is unobservable because Unsloth hardcodes
+`compute_entropy=False`; single-GPU; five steps is not a trend. The committed JSONL is
+**reconstructed from notebook stdout** — Kaggle wiped `/kaggle/working` before it could
+be downloaded.
+
+`step2/` — gate check, run script, pass criteria, 73 tests, 59 mutants / 0 survivors.
 
 ### Step 3 — Verifier before environment
 Snapshot-restored verification instance · constrained replay · verdict bound to a fresh

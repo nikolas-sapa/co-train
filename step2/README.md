@@ -194,9 +194,11 @@ collapse rather than an error, which is worse than a crash. The tests read
 - `enable_thinking=False` pre-closes the think block, and its absence changes
   the prompt — so the flag is doing work, not decorating
 
-**Not verified — needs the GPU:** that the loop runs, and that fp16 is
-stable. That is Step 2's actual question and it is still open. 47 green tests
-here say the *verdict* is trustworthy, not that the run passed.
+**Verified on Kaggle T4, 2026-09-30: `STEP 2 PASS`.** The loop runs and fp16 is
+stable — `grad_norm` finite and positive across all five steps, `reward_std` > 0
+throughout, `kl` rising across three orders of magnitude. Result, caveats and
+stack in `step2/results/`. The GradScaler warm-up exemption went unused: there
+was no step-0 `inf`, so that branch is still untested against a real overflow.
 
 `pytest step2/ -q` → 73 passed. Root `pytest -q` → Step 1's 51, untouched.
 

@@ -24,17 +24,21 @@ reversed** in one untrained arm — so the metric is chosen before the run, not 
 | Step | State | Where |
 |---|---|---|
 | **1 — adversarial non-solvers + the gate** | ✅ done, 51 tests | `src/cotrain/`, `tests/` |
-| **2 — prove the loop on free hardware** | 🔶 gate resolved, run written, **no GPU yet** | `step2/` |
+| **2 — prove the loop on free hardware** | ✅ done — **`STEP 2 PASS`, fp16 stable on T4** | `step2/`, result in `step2/results/` |
 | 3 — verifier before environment | not started | — |
 | 4 — environment + escalation channel | not started | — |
 | 5 — two harnesses, measure untrained first | not started | — |
 | 6 — co-train, then cross-harness eval | not started | — |
 
-Step 2's only open question is **does it run, and is fp16 stable on a T4.** Everything checkable
-without a GPU is checked; the run itself needs Kaggle. See `step2/KAGGLE.md`.
+Step 2 is answered: **fp16 GRPO is stable on a Kaggle T4.** 5 steps, `grad_norm` finite and
+positive throughout, `reward_std` > 0 every step, `kl` rising across three orders of magnitude —
+a curve no public run had. Numbers, caveats and stack in `step2/results/`; re-checkable with no
+GPU via `python step2/verdict.py step2/results/step2_metrics.jsonl`.
 
-> **Step 3 is deliberately not started.** It is the intellectually interesting one and the wrong
-> next move — every hour spent on it is wasted if fp16 GRPO on Qwen3/T4 turns out unstable.
+> **Step 3 is now unblocked.** It was deliberately deferred because every hour spent on it would
+> have been wasted if fp16 GRPO on Qwen3/T4 turned out unstable. It did not, and **the free path
+> holds — rented Ampere is not required.** Note the other session argues in `docs/spike-verifiers.md`
+> that the PTC arm should come before the verifier; reconcile the two orderings first.
 
 ---
 
