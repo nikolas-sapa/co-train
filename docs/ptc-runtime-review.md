@@ -1,4 +1,40 @@
 # PTC runtime review — findings for the `ptc/` owner
+
+**RESOLVED 2026-09-30. The finding was fixed and the fix was re-verified.** The
+same 32-program corpus was re-run against `ptc/runtime.py` at `origin/main`
+(`8d04326`):
+
+| Class | Attempts | Before | After |
+|---|---|---|---|
+| Sandbox escape | 28 | 0 escapes | **0 escapes** |
+| Legitimate still usable | 6 | 6 ran | **6 ran** |
+| Resource bounds | 4 | **4 unbounded** | **0 unbounded** |
+
+All four now refuse, and the fix is better than what this review proposed:
+
+```
+infinite while    REJECTED: program exceeded its 5.0s budget
+nested loop burn  REJECTED: program exceeded its 5.0s budget
+int pow bomb      REJECTED: 10 ** 100000000 would be about 100000001 digits
+list memory bomb  REJECTED: a sequence repeated 1,000,000,000 times
+```
+
+The review suggested `signal.setitimer` and noted it could not catch a single
+non-yielding C-level operation such as `10 ** 10 ** 8`. The owner instead used a
+`sys.settrace` deadline for loops **plus static rejection of oversized `Pow` and
+sequence-repeat before execution**, which closes exactly the hole the review
+said a timer would leave open — and it returns a `ProgramRejected` the model can
+learn from rather than killing the process. `RLIMIT_AS`/`RLIMIT_CPU` in a child
+process backs it.
+
+Nothing in the original review below still requires action. Kept as the record
+of what was tested and how, since the corpus is the acceptance suite for any
+future change to the runtime.
+
+---
+
+## Original review — 2026-09-26
+
 2026-09-27. Written by the Step 2 session. **`ptc/` is not mine and I have not edited
 it.** `runtime.py` was copied read-only to `/tmp/ptc-review/` and attacked there.
 
