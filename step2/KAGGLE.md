@@ -56,8 +56,28 @@ rest by hand.
 ## Cell 2 — install, with the pin that matters
 
 ```python
-!pip install -q unsloth "transformers<5"
+!pip install --no-cache-dir --timeout 60 --retries 5 -q unsloth "transformers<5"
 ```
+
+**Do NOT restart the kernel afterwards.** Kaggle's "Restart session" resets the
+container to the base image and silently discards the install: pip reports
+`Successfully installed`, then after the restart the module is simply absent.
+This cost a full re-install on the 2026-09-30 run.
+
+Instead run every cell below with `!`, so each gets a fresh subprocess that sees
+the new packages. The notebook kernel keeps the image's stale `transformers
+5.0.0` in memory, which is harmless because nothing that matters runs in-kernel.
+Verify with a subprocess, not an import:
+
+```python
+!python -c "import transformers, trl; print(transformers.__version__, trl.__version__); from trl import GRPOTrainer; print('OK')"
+```
+
+`--timeout 60 --retries 5` bounds each socket wait. Without it pip hung twice
+with **CPU at 0.00%** and no output — a dead socket, not slow work. Judge by the
+session resource panel, not the output: CPU moving means progress, `0.00%` for
+two minutes means dead, interrupt and re-run. Downloads are cached, so a re-run
+resumes quickly.
 
 `transformers<5` is **load-bearing, not hygiene.** Unsloth pins
 `trl<=0.24.0`; TRL 0.24 declares `transformers>=4.56.1` with no upper bound;
@@ -68,7 +88,7 @@ package. `from trl import GRPOTrainer` then dies on `mergekit`, naming neither
 transformers nor the cause. Verified: 11 of 12 flags inverted on 5.5.0, zero
 on 4.57.6.
 
-Restart the kernel if pip replaced anything already imported.
+Do not restart — see above.
 
 ## Cell 3 — preflight. Costs ~20 s, saves a session.
 
@@ -96,7 +116,11 @@ poisoned-flag condition.
 
 Five GRPO steps, Qwen3-0.6B, fp16, LoRA r=32, `use_vllm=False`, on-policy.
 Writes `step2_metrics.jsonl` and prints `STEP 2 PASS` / `STEP 2 FAIL` with
-reasons. `/kaggle/working` persists; the scrollback does not.
+reasons. **Download the JSONL the moment the run ends** — `/kaggle/working` did
+NOT survive the 2026-09-30 run. The session reset after `smoke.py` finished and
+wiped the directory before the file could be fetched, so the committed result in
+`step2/results/` had to be reconstructed from notebook stdout. Do not assume
+`/kaggle/working` persists.
 
 ## Cell 5 — re-check and keep the evidence
 
