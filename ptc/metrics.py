@@ -271,6 +271,18 @@ def render(results: list[ArmResult]) -> str:
                      "".join(cell(getattr(r, attr)).rjust(22) for r in results))
     notes = ["* new input tokens is the DEDUPLICATED count (training-relevant). "
              "Cost uses billed prompt tokens above it."]
+    # An errored rollout is NOT a zero score -- nothing ran. An unreachable endpoint, a
+    # rejected key or a provider fault lands here as a table of zeros that reads exactly
+    # like a model that solved nothing, which is the shape this project keeps getting
+    # bitten by: a clean-looking result measured against a target that was never there.
+    errored = {r.arm: r.stop_conditions.get("error", 0) for r in results
+               if r.stop_conditions.get("error")}
+    if errored:
+        notes.insert(0, "*** ROLLOUTS ERRORED: " + ", ".join(
+            f"{arm} {n}" for arm, n in errored.items()) +
+            ". Those rollouts scored 0.0 because nothing ran, not because the arm "
+            "failed the task. Every number in this table is meaningless until the run "
+            "completes — check the endpoint, the key and the provider first.")
     truncated = {r.arm: r.n_truncated for r in results if r.n_truncated}
     if truncated:
         notes.insert(0, "*** A BUDGET LIMIT BOUND: " + ", ".join(

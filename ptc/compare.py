@@ -176,6 +176,30 @@ async def _run_arm(arm: str, args, use_tool: bool):
                      args.price_cached)
 
 
+def _arm_plan(mode: str, arms: str) -> list[tuple[str, bool]]:
+    """Which rollout sets to run, in table order.
+
+    **The no-tool control exists only in canned mode.** `_config` never receives
+    `use_tool`: the harness, its tools, the turn budget and every other field are
+    identical for a tool arm and its control, so in real mode a control rollout is
+    its tool arm with a different label and a second invoice. Worse than the waste,
+    it would print a `(control)` column scoring like the tool arm, which reads as
+    parametric leakage or a broken grader when it is neither.
+
+    `verifiers` offers nothing to build a real control from on the bash arm: `bash`
+    is unconditional in `BashHarnessConfig` (only `edit` and `search` are toggles)
+    and `disabled_tools` is honoured by seven bundled harnesses, of which `bash` is
+    not one -- setting it there is silently ignored. Canned mode establishes that
+    the grader requires tool use, on both tasksets, for free.
+    """
+    plan = []
+    for arm in arms.split(","):
+        plan.append((arm, True))
+        if mode == "canned":
+            plan.append((arm, False))
+    return plan
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("canned", "real"))
@@ -210,10 +234,14 @@ async def main() -> int:
     if args.mode == "real" and not args.base_url:
         parser.error("real mode needs --base-url (the OpenAI-compatible endpoint)")
 
+    if args.mode == "real":
+        print("No control arm in real mode: `_config` ignores `use_tool`, so a control "
+              "would be its tool arm relabelled -- double the bill, and a column that "
+              "reads as leakage. Canned mode carries the grader's tool-dependence.")
+
     results = []
-    for arm in args.arms.split(","):
-        for use_tool in (True, False):
-            results.append(await _run_arm(arm, args, use_tool))
+    for arm, use_tool in _arm_plan(args.mode, args.arms):
+        results.append(await _run_arm(arm, args, use_tool))
 
     print()
     print(render(results))
@@ -258,6 +286,15 @@ async def main() -> int:
         print(f"\nRIG {'PASS' if ok else 'FAIL'} — "
               f"tool arms {sorted(set(scores.values()))}, controls 0.0")
         return 0 if ok else 1
+
+    # A run where nothing reached the provider must not exit 0. `real` mode is the paid
+    # path, so the failure to catch here is a wrong key or a dead endpoint producing a
+    # full table of zeros that a reader takes for a finding.
+    errored = sum(r.stop_conditions.get("error", 0) for r in results)
+    if errored:
+        print(f"\n{errored} rollout(s) ended in error — nothing was measured. Exiting "
+              "non-zero so a broken run cannot be read as a result.")
+        return 1
 
     print("\nRead these against the signed predictions in docs/pre-registration.md §4 "
           "(H1-H5). No verdict is printed here on purpose.")

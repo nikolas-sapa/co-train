@@ -28,9 +28,20 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 ENV = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
 
 
+# Sibling packages the target imports at module scope. `ptc/compare.py` does
+# `from ledger import on_pythonpath`, so a sandbox holding only `ptc/` fails at
+# COLLECTION -- every mutation then reads as dead for the wrong reason, which is a
+# whole suite of bad kills rather than one.
+SIBLINGS = ("ledger",)
+
+
 def fresh(pkg: str) -> pathlib.Path:
     d = pathlib.Path(tempfile.mkdtemp(prefix=f"mut.{pkg}."))
     shutil.copytree(REPO / pkg, d / pkg, ignore=shutil.ignore_patterns("__pycache__"))
+    for sibling in SIBLINGS:
+        if (REPO / sibling).is_dir():
+            shutil.copytree(REPO / sibling, d / sibling,
+                            ignore=shutil.ignore_patterns("__pycache__"))
     return d
 
 
