@@ -163,8 +163,14 @@ what produced it, and `verdict.py` can re-judge it later with no GPU.
 
 ## Do not
 
-- **Start Step 3.** HANDOFF is explicit that it is the interesting one and the
-  wrong next move; its shape depends on the fp16 answer (T4 vs rented Ampere).
+- **Start Step 3.** *Settled 2026-10-01: still correct, but for a new reason.* The
+  original reason has expired — Step 3's shape depended on the fp16 answer, and
+  Step 2 answered it (T4 works). What replaces it: the PTC arm is **built and one
+  command from running**, while Step 3's verifier is unbuilt, and the premise the
+  verifier would serve (arXiv 2609.11999) is first-party and uncited. If the
+  untrained bash-over-PTC gap does not reproduce, the verifier is wasted work. So
+  the untrained measurement comes first, as `docs/spike-verifiers.md` argued.
+  **Falsify the premise before building on it.**
 - **Touch `src/` or `tests/`.** Step 1's gate. `tests/leaky_env.py` is a permanent
   red-team target and must stay exploitable.
 - **Lift `transformers<5`** without re-running `gate_chat_template.py`.
