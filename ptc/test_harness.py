@@ -488,3 +488,60 @@ def test_the_program_timeout_is_configurable_and_defaults_to_the_runtime_value()
 
     assert PTCHarnessConfig().program_timeout == TIMEOUT
     assert PTCHarnessConfig(program_timeout=1.5).program_timeout == 1.5
+
+
+def test_the_prompt_advertises_argument_names_not_bare_names():
+    """`_bridge` is keyword-only by design, so a prompt listing bare names leaves the
+    model nothing to guess from -- and it guessed positionally in 26 of the first real
+    run's 54 PTC tool failures, with 8 more arriving as the same mistake wearing a
+    pydantic `Field required`. The names were available the whole time: `connect_mcp`
+    returns the schemas and `_mcp_catalog` discarded them."""
+    from ptc.harness import SYSTEM, render_catalog, schema_params
+
+    schemas = [{"type": "function", "function": {"name": "ledger_get", "parameters": {
+        "type": "object", "properties": {"id": {"type": "string"}},
+        "required": ["id"]}}}]
+    assert schema_params(schemas) == {"ledger_get": ["id"]}
+
+    rendered = render_catalog(["ledger_get"], {"ledger_get": ["id"]})
+    assert rendered == "ledger_get(id=...)"
+
+    prompt = SYSTEM.format(names=rendered)
+    assert "ledger_get(id=...)" in prompt
+    assert "KEYWORD" in prompt, "the convention must be stated, not just implied"
+
+
+def test_required_arguments_render_before_optional_ones():
+    """A signature in schema-dict order would read `links_to(depth=..., id=...)` and
+    invite the model to fill the optional one first."""
+    from ptc.harness import schema_params
+
+    schemas = [{"type": "function", "function": {"name": "links_to", "parameters": {
+        "type": "object",
+        "properties": {"depth": {"type": "integer"}, "id": {"type": "string"}},
+        "required": ["id"]}}}]
+    assert schema_params(schemas)["links_to"] == ["id", "depth"]
+
+
+def test_a_bridged_tool_falls_back_to_the_schema_not_to_kwargs():
+    """`_bridge` exposes only `**arguments`, so introspecting it yields nothing. If
+    `_callable_params` ever claimed a bridged tool takes no arguments, the prompt would
+    advertise `ledger_get()` -- worse than a bare name, because it reads as a promise."""
+    from ptc.harness import _bridge, _callable_params, render_catalog
+
+    bridged = _bridge("ledger_get", {}, {}, None, 1.0)
+    assert _callable_params(bridged) is None
+    assert render_catalog(["ledger_get"], {"ledger_get": None}) == "ledger_get(...)"
+
+
+def test_the_system_prompt_the_model_receives_carries_the_signatures():
+    """The integration half: `render_catalog` can be correct while `launch` still
+    formats bare names, which is exactly the state the first real run shipped in. This
+    reads the prompt off the wire the model saw, not the helper in isolation."""
+    def ledger_get(id):  # noqa: A002 -- mirrors the real catalog's argument name
+        return {"id": id}
+
+    policy = Policy(_assistant(None))
+    _run(policy, Catalog(tools={"ledger_get": ledger_get}))
+    prompt = policy.bodies[0]["messages"][0]["content"]
+    assert "ledger_get(id=...)" in prompt

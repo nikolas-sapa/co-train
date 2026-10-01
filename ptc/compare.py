@@ -141,14 +141,39 @@ def _config(arm: str, args, tag: str) -> dict:
         # The bash arm's own extras are off: this compares action channels, not the
         # count of affordances one arm happens to ship with.
         agent["harness"]["edit"] = False
+    if arm == "ptc":
+        # `agent.max_turns` above does NOT reach this arm. `PTCHarness` runs its own
+        # `for _ in range(self.config.max_turns)` loop (`harness.py:238`) over
+        # `PTCHarnessConfig.max_turns`, which defaults to 8 and shadows the agent-level
+        # budget entirely -- so the 2026-09-29 raise to 80 silently applied to `bash`
+        # only, and 11 of 14 PTC rollouts in the first real run stopped at exactly 8
+        # programs while `bash` spent up to 44 turns on the same tier. That is the turn
+        # budget becoming the independent variable, which the comment on `--max-turns`
+        # exists to forbid. `bash` needs no equivalent line: no bash harness config
+        # declares `max_turns`, so it reads the agent-level value already.
+        agent["harness"]["max_turns"] = args.max_turns
     config = {
         "env": {"taskset": {"id": args.taskset}, "agent": agent},
         "model": args.model, "num_tasks": args.num_tasks, "num_rollouts": 1,
-        "max_concurrent": args.num_tasks, "sampling": {"max_tokens": 512},
+        "max_concurrent": args.max_concurrent or args.num_tasks,
+        "sampling": {"max_tokens": 512},
         "rich": None, "push": False,
         "output_dir": str(Path(args.output_dir).expanduser()),
         "run": {"dir": tag}, "clean": True,
     }
+    if args.max_retries:
+        # Whole-episode retry, restricted to `ProviderError` so that ONLY transport
+        # faults are re-run. `verifiers` ships this off (`configs/retries.py`,
+        # `max_retries=0`), which is the right default for a local provider and the wrong
+        # one for a metered remote: an upstream 429 or 504 ends the rollout with
+        # `stop_condition="error"` and a score of 0.0, and a 0.0 for a transport reason is
+        # averaged into the primary outcome as if the arm had failed the task. That biases
+        # whichever arm the endpoint happens to treat worse -- here the PTC arm, whose
+        # longer catalog prompts drew 6 upstream 504s where `bash` drew none, which would
+        # have handed the comparison a ~20 pp artefact in bash's favour. Deliberately NOT
+        # a blanket retry: a harness or sandbox fault is a real result and must stay red.
+        config["env"]["retries"] = {"max_retries": args.max_retries,
+                                    "include": ["ProviderError"]}
     if args.mode == "canned":
         # server.py:600 relays a streaming request straight upstream unless the client
         # is a train client, and the bundled chat program always streams -- so with an
@@ -173,7 +198,7 @@ async def _run_arm(arm: str, args, use_tool: bool):
     records = await run_eval(EvalConfig.model_validate(_config(arm, args, tag)))
     label = arm if use_tool else f"{arm} (control)"
     return summarize(records, label, args.taskset, args.price_in, args.price_out,
-                     args.price_cached)
+                     args.price_cached, turn_budget=args.max_turns)
 
 
 def _arm_plan(mode: str, arms: str) -> list[tuple[str, bool]]:
@@ -228,6 +253,18 @@ async def main() -> int:
     # stop_condition="max_turns", which scores 0.0 for a budget reason indistinguishable
     # from incapacity. Any rollout that hits it is reported loudly, not averaged in.
     parser.add_argument("--max-turns", type=int, default=80)
+    # Rollout fan-out. Unset it and concurrency is `--num-tasks`, which is the old
+    # behaviour and is wrong against a metered endpoint: it ties load to the size of the
+    # measurement, so scaling the experiment up silently scales the request rate up with
+    # it. A rate-limited provider then answers 429, `stop_condition` becomes "error", and
+    # those rollouts score 0.0 for a transport reason that is indistinguishable from
+    # incapacity in the score column. Observed for real on VyceAI's free tier, which
+    # allows 4 simultaneous requests: at `--num-tasks 14` it errored 23 of 28 rollouts.
+    # Set this to the provider's concurrency limit, minus headroom.
+    parser.add_argument("--max-concurrent", type=int, default=None)
+    # Off by default, matching `verifiers`. See `_config` for why a metered endpoint wants
+    # it on, and why it is scoped to `ProviderError` rather than retrying everything.
+    parser.add_argument("--max-retries", type=int, default=0)
     parser.add_argument("--rollout-timeout", type=int, default=900)
     args = parser.parse_args()
 

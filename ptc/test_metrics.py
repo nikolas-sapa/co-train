@@ -364,3 +364,84 @@ def test_an_ordinary_zero_is_not_reported_as_truncation():
     out = summarize([_record([_trace(0.0)])], "ptc", "ledger")
     assert out.n_truncated == 0
     assert "A BUDGET LIMIT BOUND" not in render([out])
+
+
+# ------------------------------------------------- the budget that left no mark
+#
+# A harness that enforces its OWN budget returns normally: `is_truncated` is False and
+# `stop_condition` is "agent_completed". The first real run printed `TRUNCATED 0` while
+# the cap bound 11 of 14 PTC rollouts, so these pin both directions -- a cap that bound
+# must be loud, and a rollout that merely used its last turn must not be.
+
+
+def _budget_nodes(turns: int, *, last_calls: bool):
+    """`turns` assistant messages. `last_calls` decides whether the final one was still
+    asking for a tool call, which is the whole discriminator: `harness.py:313-316`
+    breaks out of the loop on an assistant message with no tool calls, so a rollout
+    that answers voluntarily cannot have been stopped by the budget."""
+    nodes = [_msg("system", "s"), _msg("user", "u")]
+    for i in range(turns):
+        final = i == turns - 1
+        calls = [] if (final and not last_calls) else [NS(name="run_program")]
+        nodes.append(_msg("assistant", "<answer>x</answer>" if not calls else None, calls))
+        if calls:
+            nodes.append(_msg("tool", "r1"))
+    return nodes
+
+
+def _summarize_one(trace, budget=8):
+    return summarize([_record([trace])], "ptc", "ledger", turn_budget=budget)
+
+
+def test_a_harness_internal_turn_cap_is_never_reported_as_zero_truncations():
+    """The defect that let a binding cap print as a clean run."""
+    out = _summarize_one(_trace(reward=0.0, nodes=_budget_nodes(8, last_calls=True),
+                                stop="agent_completed", truncated=False))
+    assert out.n_budget_exhausted == 1
+    assert out.n_truncated == 1, "a budget that bound must not read as untruncated"
+    assert "A BUDGET LIMIT BOUND" in render([out])
+
+
+def test_a_rollout_that_answers_on_its_last_allowed_turn_is_not_truncated():
+    """The false positive that would void good runs. Spending the budget is not the
+    same as being stopped by it: this rollout used all 8 turns and then ANSWERED, so it
+    finished. Counting it trips the `nothing truncated` rig gate and prints "the score
+    comparison is INVALID" over a healthy run."""
+    out = _summarize_one(_trace(reward=1.0, nodes=_budget_nodes(8, last_calls=False),
+                                stop="agent_completed", truncated=False))
+    assert out.n_budget_exhausted == 0
+    assert out.n_truncated == 0
+    assert "A BUDGET LIMIT BOUND" not in render([out])
+
+
+def test_a_rollout_that_stops_under_budget_is_not_truncated():
+    """The other end, or the positive case could pass by flagging everything."""
+    out = _summarize_one(_trace(reward=1.0, nodes=_budget_nodes(7, last_calls=True),
+                                stop="agent_completed", truncated=False))
+    assert out.n_budget_exhausted == 0
+    assert out.n_truncated == 0
+
+
+def test_the_budget_check_reads_the_frameworks_own_turn_count():
+    """`Trace.num_turns` (`trace.py:656`) counts SAMPLED nodes, which is the quantity
+    the budget is actually enforced on. Recounting `role == "assistant"` is a different
+    number, and the two diverge on any trace the recount cannot see. Here the recount
+    says 2 and the framework says 8: reading the recount leaves this untruncated."""
+    trace = _trace(reward=0.0, nodes=_budget_nodes(2, last_calls=True),
+                   stop="agent_completed", truncated=False)
+    trace.num_turns = 8
+    out = _summarize_one(trace)
+    assert out.n_budget_exhausted == 1
+    assert out.n_truncated == 1
+
+
+def test_the_budget_banner_does_not_claim_the_rollouts_scored_zero():
+    """A budget-exhausted rollout can spend the whole budget and still score 1.0, so
+    the banner must not assert it scored 0.0 -- the number means "bounded", not
+    "failed"."""
+    out = _summarize_one(_trace(reward=1.0, nodes=_budget_nodes(8, last_calls=True),
+                                stop="agent_completed", truncated=False))
+    note = render([out])
+    assert "A BUDGET LIMIT BOUND" in note
+    assert out.score_mean == 1.0
+    assert "scored 0.0" not in note

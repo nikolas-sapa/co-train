@@ -16,6 +16,7 @@ path when a real task suite needs it; it is not needed to stand the arm up.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 from contextlib import AsyncExitStack
 from typing import Any
@@ -39,6 +40,8 @@ __all__ = ["PTCHarness"]
 SYSTEM = (
     "You act by writing a Python program and submitting it with the `run_program` tool. "
     "The program may call only these catalog functions: {names}. "
+    "Pass their arguments BY KEYWORD, exactly as named above: the catalog takes no "
+    "positional arguments and `f(x)` is rejected where `f(id=x)` is accepted. "
     "There is no shell and no other action channel. Imports and attribute access are "
     "rejected before the program runs. Control flow, arithmetic and comprehensions are "
     "available, so prefer one program that does the whole task over many small ones. "
@@ -90,18 +93,77 @@ def _mcp_catalog(
     async catalog and an async runtime, which is a different interface and needs saying
     out loud rather than sneaking in.
     """
-    async def build() -> tuple[dict[str, Any], list[str]]:
+    async def build() -> tuple[dict[str, Any], list[str], dict[str, list[str]]]:
         config = {"mcpServers": {name: {"url": url} for name, url in mcp_urls.items()}}
-        _schemas, dispatch, servers = await connect_mcp(config, stack)
+        schemas, dispatch, servers = await connect_mcp(config, stack)
         loop = asyncio.get_running_loop()
         callable_names, unusable = partition_callable(dispatch)
         tools = {
             name: _bridge(name, servers, dispatch, loop, timeout)
             for name in callable_names
         }
-        return tools, unusable
+        params = {
+            name: args for name, args in schema_params(schemas).items()
+            if name in tools
+        }
+        return tools, unusable, params
 
     return build()
+
+
+def schema_params(schemas) -> dict[str, list[str]]:
+    """Argument names per tool, read off the MCP schemas `connect_mcp` already returns.
+
+    These were discarded for the first real run, and the prompt advertised bare names.
+    `_bridge` is keyword-only on purpose, so a model given only `ledger_get` has nothing
+    to guess from and guesses positionally: 26 of that run's 54 PTC tool failures were
+    `takes 0 positional arguments but 1 was given`, with 8 more arriving as the same
+    mistake wearing a pydantic `Field required`. Required arguments come first so the
+    rendered signature reads in the order the tool actually needs.
+    """
+    out: dict[str, list[str]] = {}
+    for schema in schemas or []:
+        function = schema.get("function") or {}
+        name = function.get("name")
+        if not name:
+            continue
+        parameters = function.get("parameters") or {}
+        properties = parameters.get("properties") or {}
+        required = [p for p in parameters.get("required") or [] if p in properties]
+        out[name] = required + [p for p in properties if p not in required]
+    return out
+
+
+def render_catalog(names, params: dict[str, list[str]]) -> str:
+    """The catalog as callable signatures: `ledger_get(id=...)`, not `ledger_get`.
+
+    A name with no known arguments renders as `name(...)` rather than `name()`, because
+    claiming it takes nothing is a worse error than admitting the schema is unknown --
+    `name()` would invite a call that then fails on a missing required field.
+    """
+    parts = []
+    for name in names:
+        args = params.get(name)
+        if args is None:
+            parts.append(f"{name}(...)")
+        else:
+            parts.append(f"{name}({', '.join(f'{a}=...' for a in args)})")
+    return ", ".join(parts)
+
+
+def _callable_params(fn) -> list[str] | None:
+    """Argument names of a locally-registered catalog function, or None if it hides
+    them behind `**kwargs` -- which is what `_bridge` does, so a bridged tool must get
+    its names from the schema instead of from here."""
+    try:
+        parameters = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return None
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters):
+        return None
+    return [p.name for p in parameters
+            if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                          inspect.Parameter.KEYWORD_ONLY)]
 
 
 def partition_callable(names) -> tuple[list[str], list[str]]:
@@ -195,18 +257,22 @@ class PTCHarness(Harness[PTCHarnessConfig]):
 
         async with AsyncExitStack() as stack:
             tools = dict(self.catalog.tools)
+            # Locally-registered catalog functions are real functions, so their own
+            # signatures are the truth; MCP tools only have schemas.
+            params = {name: _callable_params(fn) for name, fn in tools.items()}
             unusable: list[str] = []
             if mcp_urls:
-                discovered, unusable = await _mcp_catalog(
+                discovered, unusable, discovered_params = await _mcp_catalog(
                     mcp_urls, stack, self.config.tool_timeout
                 )
                 tools.update(discovered)
+                params.update(discovered_params)
             if unusable:
                 log.append(f"unreachable tool names (not identifiers): {unusable}")
             catalog = Catalog(tools={**tools, OBSERVE: observe})
             names = sorted(tools)
             messages[0]["content"] = SYSTEM.format(
-                names=", ".join(names) or "(none)"
+                names=render_catalog(names, params) or "(none)"
             ) + (f"\n\n{system}" if system else "")
 
             await self._loop(ctx, endpoint, secret, messages, catalog, printed, log)

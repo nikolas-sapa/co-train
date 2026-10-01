@@ -102,6 +102,15 @@ class ArmResult:
     the affected tasks and is reported loudly rather than averaged into the score."""
     stop_conditions: dict[str, int] = field(default_factory=dict)
     error_types: dict[str, int] = field(default_factory=dict)
+    n_budget_exhausted: int = 0
+    """Rollouts STOPPED BY the turn budget: they spent it and were still asking for a
+    tool call. Counted separately because a harness that enforces its own budget never
+    sets `is_truncated` -- `PTCHarness` just falls out of `for _ in range(max_turns)`
+    and the episode reports `stop_condition="agent_completed"`, so the first real run
+    printed `TRUNCATED 0` while the cap was binding on 11 of 14 PTC rollouts. Spending
+    the budget is NOT enough to qualify: a rollout that answers on its last allowed turn
+    finished, and counting it would void a healthy run. These fold into `n_truncated` so
+    they fire the same loud note instead of sitting in a column somebody has to notice."""
 
     # Secondary 3 and 4
     tool_calls: int = 0
@@ -123,7 +132,8 @@ def _is_failure(content: Any) -> bool:
 
 def summarize(records: list[Any], arm: str, taskset: str,
               price_in: float = 0.0, price_out: float = 0.0,
-              price_cached: float | None = None) -> ArmResult:
+              price_cached: float | None = None,
+              turn_budget: int | None = None) -> ArmResult:
     """Fold a run's records into the pre-registered outcome set.
 
     **Cost is computed from BILLED tokens, which is not the obvious field.**
@@ -183,9 +193,9 @@ def summarize(records: list[Any], arm: str, taskset: str,
                 result.n_completed += 1
             stop = getattr(trace, "stop_condition", None) or "unset"
             result.stop_conditions[stop] = result.stop_conditions.get(stop, 0) + 1
-            if getattr(trace, "is_truncated", False):
-                result.n_truncated += 1
 
+            trace_turns = 0
+            last_assistant_called_tools = False
             for node in getattr(trace, "nodes", None) or []:
                 message = getattr(node, "message", None)
                 if message is None:
@@ -194,6 +204,8 @@ def summarize(records: list[Any], arm: str, taskset: str,
                 calls = getattr(message, "tool_calls", None) or []
                 if role == "assistant":
                     result.turns += 1
+                    trace_turns += 1
+                    last_assistant_called_tools = bool(calls)
                     for call in calls:
                         result.tool_calls += 1
                         name = (getattr(call, "name", None) or "").lower()
@@ -201,6 +213,29 @@ def summarize(records: list[Any], arm: str, taskset: str,
                             result.shell_calls += 1
                 elif role == "tool" and _is_failure(getattr(message, "content", None)):
                     result.tool_failures += 1
+
+            # Checked AFTER the node walk, because a harness-enforced budget leaves no
+            # mark on the trace: `PTCHarness` falls out of `for _ in range(max_turns)`
+            # and the episode still reports `agent_completed`.
+            #
+            # Prefer the framework's own `Trace.num_turns` (`trace.py:656`, sampled nodes)
+            # over the recount above, so this measures the same quantity the budget is
+            # enforced on. The recount is the fallback for a trace that predates it.
+            #
+            # BOTH conditions are required, because spending the budget is not the same
+            # as being stopped by it: a rollout that answers on its last allowed turn
+            # ends by `break` with no tool calls (`harness.py:313-316`) and is FINISHED,
+            # not truncated. Counting that would trip the rig gate and print "the score
+            # comparison is INVALID" over a healthy run -- the same class of error as the
+            # silent zero this replaced, just inverted.
+            turns = getattr(trace, "num_turns", trace_turns)
+            spent_budget = (turn_budget is not None
+                            and turns >= turn_budget
+                            and last_assistant_called_tools)
+            if spent_budget:
+                result.n_budget_exhausted += 1
+            if getattr(trace, "is_truncated", False) or spent_budget:
+                result.n_truncated += 1
 
     if scores:
         result.score_mean = sum(scores) / len(scores)
@@ -253,6 +288,7 @@ def render(results: list[ArmResult]) -> str:
         ("tasks", "n_tasks"), ("score (primary)", "score_mean"),
         ("score 95% CI", "score_ci"), ("solved", "n_solved"),
         ("completed", "n_completed"), ("TRUNCATED (budget)", "n_truncated"),
+        ("  of which stopped by turn budget", "n_budget_exhausted"),
         ("stop conditions", "stop_conditions"),
         ("errors", "error_types"), ("prompt tokens (billed)", "prompt_tokens"),
         ("cached tokens", "cached_tokens"),
@@ -287,9 +323,11 @@ def render(results: list[ArmResult]) -> str:
     if truncated:
         notes.insert(0, "*** A BUDGET LIMIT BOUND: " + ", ".join(
             f"{arm} {n}" for arm, n in truncated.items()) +
-            ". Those rollouts scored 0.0 for running out of turns or tokens, not for "
-            "failing the task. The score comparison is INVALID until the budget is "
-            "raised — the limit, not the arm, is what was measured.")
+            ". Those rollouts were still asking for tool calls when the budget ran out, "
+            "so whatever they scored is a floor and not a capability measurement — a "
+            "rollout can exhaust the budget and still score 1.0. The score comparison "
+            "is INVALID until the budget is raised: the limit, not the arm, is what "
+            "bounded them.")
     if not all(r.usage_reported for r in results):
         notes.append("usage was not reported by at least one arm — cost is UNKNOWN, "
                      "not zero.")

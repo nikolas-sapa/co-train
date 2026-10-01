@@ -19,7 +19,7 @@ def _args(mode):
         mode=mode, taskset="glossary", model="m", base_url="http://127.0.0.1:1/v1",
         key_var="OPENAI_API_KEY", num_tasks=5, output_dir="~/scratch/x",
         arms="bash,ptc", price_in=0.0, price_out=0.0, price_cached=None,
-        max_turns=80, rollout_timeout=900)
+        max_turns=80, rollout_timeout=900, max_concurrent=None, max_retries=0)
 
 
 def test_real_mode_runs_no_control_arm():
@@ -72,3 +72,65 @@ def test_a_clean_run_carries_no_error_banner():
     ok = ArmResult(arm="bash", taskset="glossary", n_tasks=1)
     ok.stop_conditions = {"agent_completed": 1}
     assert "ROLLOUTS ERRORED" not in render([ok])
+
+
+def test_the_configured_turn_budget_reaches_the_ptc_harness():
+    """`PTCHarnessConfig.max_turns` shadows the agent-level budget and defaults to 8,
+    so setting only `agent["max_turns"]` left the PTC arm at 8 programs while `bash`
+    spent up to 44 turns on the same tier -- the turn budget becoming the independent
+    variable. Asserted by BUILDING the harness config rather than reading the dict
+    back: the right value under a name the harness never reads would satisfy a weaker
+    check, which is exactly how this survived the 4 -> 80 raise."""
+    from ptc.harness import PTCHarnessConfig
+
+    harness = compare._config("ptc", _args("real"), "t")["env"]["agent"]["harness"]
+    assert PTCHarnessConfig(**harness).max_turns == 80
+
+
+def test_invariant_no_second_turn_cap_exists_on_the_bash_path():
+    """NOT a regression test — it passes against the pre-fix code too, so it proves
+    nothing about the PTC propagation fix and must not be read as cover for it.
+
+    It is a forward-looking invariant: it records WHY the fix above is PTC-only. Nothing
+    in the bash path declares its own `max_turns`, so bash reads the agent-level budget
+    already. If a future `HarnessConfig` grows one, bash silently acquires the same
+    shadowing bug and this goes red, which is the only moment the assertion is useful.
+    """
+    from verifiers.v1.configs.harness import HarnessConfig
+
+    agent = compare._config("bash", _args("real"), "t")["env"]["agent"]
+    assert agent["max_turns"] == 80
+    assert "max_turns" not in HarnessConfig.model_fields
+
+
+# ------------------------------------------- the two flags that bill, not measure
+#
+# These are measurement POLICY, not instrument: widening either one changes what the
+# numbers mean. They had no tests at all, so a later blanket retry would pass silently.
+
+
+def test_the_retry_policy_is_restricted_to_provider_errors_exactly():
+    """Pinned as exact equality, deliberately. A retry that is not scoped to transport
+    faults re-runs rollouts that SHOULD score 0.0 -- a harness or sandbox fault is a
+    real result, and retrying it until it passes is the rig grading itself. Widening
+    `include`, or dropping it for a blanket retry, must fail here rather than quietly
+    change the experiment."""
+    cfg = compare._config("ptc", _args("real"), "t")
+    assert "retries" not in cfg["env"], "retries must stay off unless asked for"
+
+    args = _args("real")
+    args.max_retries = 3
+    assert compare._config("ptc", args, "t")["env"]["retries"] == {
+        "max_retries": 3, "include": ["ProviderError"],
+    }
+
+
+def test_the_rollout_fan_out_can_be_held_below_a_provider_limit():
+    """`max_concurrent` was hardwired to `--num-tasks`, so scaling the measurement
+    scaled the request rate with it and a 4-concurrent endpoint answered 429 on 23 of
+    28 rollouts. Unset must keep the old behaviour; set must win."""
+    args = _args("real")
+    assert compare._config("ptc", args, "t")["max_concurrent"] == args.num_tasks
+
+    args.max_concurrent = 1
+    assert compare._config("ptc", args, "t")["max_concurrent"] == 1

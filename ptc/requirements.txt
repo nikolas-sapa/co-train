@@ -1,0 +1,32 @@
+# The PTC arm's environment. Do not reuse `.venv-tok` — that is Step 2's, and it pins a
+# deliberately different trl/transformers stack.
+#
+#   uv venv --python 3.12 .venv-ptc
+#   uv pip install --python .venv-ptc/bin/python -r ptc/requirements.txt
+#
+# The ref is a COMMIT, not a tag, and that is deliberate. `ptc/harness.py` imports
+# `verifiers.v1.harnesses.utils.mcp`; that module does not exist at the newest tag
+# (v0.3.1, 2026-08-24), where the two mcp helpers are instead copy-pasted into each
+# harness's own `program.py`. They were factored into a shared module after that tag, so
+# NO released tag satisfies this import — walking back to v0.3.0 or v0.2.x moves away
+# from it, not toward it. 69cc0f9 (2026-09-24) is the commit `docs/spike-verifiers.md`
+# already recorded the spike against; it self-reports version 0.3.2.dev137.
+verifiers @ git+https://github.com/primeintellect-ai/verifiers@69cc0f948e327e9b2765ec927c4c0c7d3e0d0cd5
+
+# `glossary` is the OTHER half of the hole, and it is easy to miss: it is `--taskset`'s
+# DEFAULT, so a bare `python ptc/compare.py canned` dies without it, as do two tests in
+# `ptc/test_harness.py` (which import `glossary.servers.facts` directly). It is not on
+# PyPI — it ships *inside* the verifiers repo as `environments/glossary`, so it is pinned
+# to the same commit via `#subdirectory=`. The spike had it installed from a local clone
+# under `~/scratch/`, which is why no prior record of it survived.
+glossary @ git+https://github.com/primeintellect-ai/verifiers@69cc0f948e327e9b2765ec927c4c0c7d3e0d0cd5#subdirectory=environments/glossary
+
+# httpx and pydantic are imported directly by `ptc/harness.py` but are left unpinned here
+# on purpose: `verifiers` already constrains both (resolved to httpx 0.28.1, pydantic
+# 2.13.5), and a second pin would only drift away from whatever it needs. Nothing else was
+# installed by hand — every other import `ptc/` and `ledger/` need arrives transitively.
+#
+# `pytest` is NOT a runtime dep and is deliberately absent above; add it separately to run
+# the suite. Note that `ptc/test_harness.py:26` is `pytest.importorskip("verifiers")`, so
+# a missing/wrong verifiers makes the harness tests SKIP rather than fail — check the count
+# (110 passed, 0 skipped on this pin), not just the colour.
