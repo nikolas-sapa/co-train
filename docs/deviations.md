@@ -181,6 +181,28 @@ Bearing on the earlier runs: every PTC number in runs 1, 2b, 2c and 2d was produ
 over a transport the bash arm was not using, and on tasks whose programs run longest.
 Run 1's +64.3pp is therefore confounded by three defects, not two.
 
+### Deviation 02a — the streaming fix introduced two defects of its own
+
+Run 2e took **zero 504s and zero 429s**: the streaming fix worked, and the PTC arm
+went from 55 tool calls and 65 assistant turns (2d) to 251 and 265. It still exited
+non-zero, for two causes both created by that fix:
+
+1. The SSE parser indexed `payload["choices"][0]` directly, but the final usage chunk
+   carries `choices: []` (and a missing `choices` key on some relays). It raised
+   `KeyError: 'choices'`, which surfaced as a `HarnessError` — i.e. it read as a task
+   failure — on 2 PTC rollouts.
+2. The request omitted `stream_options: {"include_usage": True}`, so the stream carried
+   no usage chunk, the interception server recorded no billed tokens, and PTC's **cost
+   per solved task printed as unknown while bash's did not**. That is a pre-registered
+   co-primary silently lost on one arm only — the same shape of defect as the three
+   already found, introduced while fixing the third.
+
+Both fixed, each with a check proven red. 124 -> 126 tests.
+
+Recorded because it is the pattern worth noticing: every fix to this instrument so far
+has had to be verified against a real run, and two of four introduced a fresh asymmetry
+that the test suite would not have caught on its own.
+
 ### Validity threat: the endpoint is an unaudited relay
 
 VyceAI is a third-party relay, not a first-party provider. What `deepseek-v4-flash`

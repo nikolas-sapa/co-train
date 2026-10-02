@@ -75,6 +75,9 @@ def _sse(turn: dict) -> str:
         }]}}]})
     if not events:
         events.append({"choices": [{"delta": {}}]})
+    # Real streams end with a usage chunk whose `choices` is empty. The mock emits
+    # one so the parser is exercised against the shape that crashed it.
+    events.append({"choices": [], "usage": {"prompt_tokens": 11, "completion_tokens": 3}})
     rendered = "".join(f"data: {json.dumps(e)}\n\n" for e in events)
     return rendered + "data: [DONE]\n\n"
 
@@ -585,3 +588,21 @@ def test_the_ptc_arm_streams_like_the_bash_arm_does():
     assert policy.bodies, "the harness made no request"
     assert all(b["stream"] is True for b in policy.bodies), \
         [b.get("stream") for b in policy.bodies]
+
+
+def test_the_stream_asks_for_usage_so_cost_is_measurable():
+    """Billed cost per solved task is a pre-registered co-primary. Without
+    `stream_options.include_usage` the stream carries no usage chunk and this arm's
+    cost printed as unknown while bash's did not."""
+    policy = Policy(_assistant("print(1)"), _assistant(None))
+    _run(policy, Catalog({}))
+    assert all(b.get("stream_options") == {"include_usage": True} for b in policy.bodies), \
+        [b.get("stream_options") for b in policy.bodies]
+
+
+def test_a_usage_chunk_with_no_choices_does_not_kill_the_rollout():
+    """The final usage chunk carries `choices: []`. Indexing into it raised
+    KeyError: 'choices' and surfaced as a harness error, i.e. as a task failure."""
+    policy = Policy(_assistant("print(1)"), _assistant(None))
+    log = _run(policy, Catalog({}))
+    assert log is not None

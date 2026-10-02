@@ -216,7 +216,14 @@ async def _stream_message(http: httpx.AsyncClient, chat_path: str, body: dict) -
             chunk = line[5:].strip()
             if not chunk or chunk == "[DONE]":
                 continue
-            delta = json.loads(chunk)["choices"][0].get("delta") or {}
+            payload = json.loads(chunk)
+            # The usage chunk, and some relays' keep-alives, carry `choices: []`.
+            # Indexing straight into it raised `KeyError: 'choices'` and killed two
+            # rollouts as a harness error, which read as a task failure.
+            choices = payload.get("choices") or []
+            if not choices:
+                continue
+            delta = choices[0].get("delta") or {}
             if delta.get("content"):
                 content.append(delta["content"])
             for call in delta.get("tool_calls") or []:
@@ -349,6 +356,12 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                 message = await _stream_message(http, chat_path, {
                     "model": ctx.model, "messages": messages,
                     "tools": TOOLS, "tool_choice": "auto", "stream": True,
+                    # Without this the stream carries no usage chunk, the
+                    # interception server records no billed tokens, and cost per
+                    # solved task -- a pre-registered co-primary -- prints as
+                    # unknown for this arm only. `verifiers` sends it too
+                    # (`harnesses/utils/core.py:269`).
+                    "stream_options": {"include_usage": True},
                 })
                 messages.append(message)
                 calls = message.get("tool_calls") or []
