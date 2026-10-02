@@ -122,6 +122,47 @@ of 14, and three of those zeros are endpoint noise (two PTC rollouts hit VyceAI 
 one bash rollout timed out), so both arms are understated. The four unrun PTC rollouts
 were precisely the heavy enumeration tasks, which biases any partial read.
 
+### Why run 2 took four attempts — root cause, not tuning
+
+2a and 2c both died on VyceAI 429s, and the obvious reading (we went too fast) is
+wrong. Evidence: 2b (clean) and 2c (11 of 28 errored) peaked at an **identical 49
+req/60s** against a documented 60, and 2c's first 429 followed only 21 requests in the
+prior 60s, 6 in the prior 30s, 1 in the prior 10s, after a 21-second idle gap. The
+arms never even ran concurrently (bash t+0-120s, PTC t+122-506s). All 429s formed one
+contiguous **98-second band** (t+64.9 to t+163.1), with zero successful calls inside
+it and none after.
+
+So the throttle was **external to this run** and not caused by its request rate. The
+rig's failure was that its retry budget could not outlast it: `max_retries=3` gives 4
+attempts on a `min(0.5 * 2**attempt, 30.0) * (0.5 + jitter)` curve, a few seconds of
+wall clock. All six failed bash rollouts spent every attempt on request #1 and
+recorded `nodes=0` — no assistant turn ever produced. Nine of 14 PTC rollouts *did*
+retry away 1-3 429s and finished.
+
+**2d** therefore runs `--max-concurrent 1 --max-retries 7` (8 attempts, backoff
+capped at 30s each, spanning past a 98s band). No code changed; these are flags.
+
+The five 504s are a separate, relay-side failure: Cloudflare in front of VyceAI,
+hitting only PTC's slowest calls (10.8-13.4s against a 1.6s median). Not a client
+timeout — `verifiers/v1/harnesses/utils/core.py:453` passes
+`httpx.Timeout(600.0 if args.bash else None, connect=5.0)`, so the PTC arm has no read
+timeout at all. Note that line as a standing arm asymmetry in the instrument (600s
+bash vs unbounded PTC), on the permissive side for PTC.
+
+### Validity threat: the endpoint is an unaudited relay
+
+VyceAI is a third-party relay, not a first-party provider. What `deepseek-v4-flash`
+means on the other side of it is not verifiable from here: a relay can route to a
+different provider, serve a quantized or substituted model, or cache. The model
+identity is load-bearing for this measurement, so this is recorded as a known
+limitation of every real-mode number in this project, not as a solved problem.
+
+Related and worth recording because it cost three attempts: this machine routes Claude
+Code itself through another such relay (`ANTHROPIC_BASE_URL=https://agentrouter.org`).
+Two agents driving these runs died mid-flight on that pool's `402` quota errors, which
+is what ended 2b with 24 of 28 rollouts complete. A measurement must not depend on an
+agent staying alive; 2c onward run detached via `nohup`.
+
 ### Endpoint note
 
 VyceAI ignores `max_tokens` (a request capped at 1 returned 48 completion tokens), so
