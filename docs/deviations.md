@@ -92,6 +92,42 @@ reason unrelated to model behaviour, and billed cost per successful task is a
 co-primary. Run 2 must report PTC's prompt tokens as not comparable to run 1's on
 this axis; the comparison that stays valid is bash-vs-PTC *within* run 2.
 
+### Run 2 attempt log
+
+Run 2 took three attempts. All are preserved; none is discarded.
+
+- **2a**, `--max-concurrent 4`: 429 storm, 21 of 28 rollouts errored. The rig refused
+  to print a result and exited non-zero. Void, nothing measured.
+  `~/scratch/ptc-real-run2/stdout-attempt-conc4-429.log`, `traces-attempt-conc4/`.
+- **2b**, `--max-concurrent 1`: ran 3h18m and completed bash 14/14, PTC 10/14, then
+  stopped because the agent driving it died (`402` on its *own* model backend, not on
+  VyceAI — zero 402s in any trace, all 10 PTC traces `is_completed=true`, VyceAI health
+  `solid` across the whole window). No summary table was printed, so there is nothing
+  to mistake for a result. Partial traces retained at `~/scratch/ptc-real-run2/traces/`.
+- **2c**, `--max-concurrent 2 --max-retries 3 --max-turns 80`, detached from any agent
+  so a driver death cannot end it. `~/scratch/ptc-real-run2c/`. This is the attempt
+  intended to be read against P1-P5.
+
+**Both instrument fixes are confirmed to have taken**, on 2b's partial traces:
+
+- Turn budget: PTC turns `[1,2,2,3,11,5,4,12,2,28]`. Nothing pinned at 8, three
+  rollouts exceed it, `max_turns: 80` present in all traces. Run 1's wall is gone.
+- Signatures: keyword-convention failures went **34 of 54 (run 1) to 0 of 60 (run 2b)**.
+  The 26 remaining PTC tool failures are legitimate: 23 AST-allowlist rejections
+  (attribute 9, Import 4, ImportFrom 4, Try 2, unknown name 3, program budget 1) and 3
+  genuine bugs in the model's own programs.
+
+2b's partial scores are recorded but are **not** a result: PTC 6 solved of 10, bash 11
+of 14, and three of those zeros are endpoint noise (two PTC rollouts hit VyceAI 504s,
+one bash rollout timed out), so both arms are understated. The four unrun PTC rollouts
+were precisely the heavy enumeration tasks, which biases any partial read.
+
+### Endpoint note
+
+VyceAI ignores `max_tokens` (a request capped at 1 returned 48 completion tokens), so
+it provides no per-call cost ceiling. Cost control here is the turn budget and the
+price flags, not the sampling cap.
+
 ### Known residual threats to run 2
 
 - Provider treats the arms unequally: every 504 in run 1 landed on PTC, none on bash,
