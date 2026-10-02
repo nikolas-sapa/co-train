@@ -54,6 +54,31 @@ def _assistant(code: str | None, *, raw_args: str | None = None):
     return {"choices": [{"message": message, "finish_reason": "stop"}]}
 
 
+def _sse(turn: dict) -> str:
+    """Render a scripted turn as the SSE stream the harness reads.
+
+    The arm streams, so the mock must stream too. A mock that kept answering with
+    one non-streaming JSON body would leave the whole file green against a
+    transport production no longer uses.
+    """
+    message = turn["choices"][0]["message"]
+    events: list[dict] = []
+    if message.get("content"):
+        events.append({"choices": [{"delta": {"content": message["content"]}}]})
+    for index, call in enumerate(message.get("tool_calls") or []):
+        events.append({"choices": [{"delta": {"tool_calls": [{
+            "index": index, "id": call["id"],
+            "function": {
+                "name": call["function"]["name"],
+                "arguments": call["function"]["arguments"],
+            },
+        }]}}]})
+    if not events:
+        events.append({"choices": [{"delta": {}}]})
+    rendered = "".join(f"data: {json.dumps(e)}\n\n" for e in events)
+    return rendered + "data: [DONE]\n\n"
+
+
 class Policy:
     """A scripted model. Records every request the harness makes."""
 
@@ -69,7 +94,10 @@ class Policy:
             # Past the script, keep answering with "no tool call" so a loop that
             # over-runs its turn budget fails on the assertion, not on StopIteration.
             turn = self.turns.pop(0) if self.turns else _assistant(None)
-            return httpx.Response(200, json=turn)
+            return httpx.Response(
+                200, content=_sse(turn).encode(),
+                headers={"content-type": "text/event-stream"},
+            )
         return httpx.MockTransport(handle)
 
 
@@ -545,3 +573,15 @@ def test_the_system_prompt_the_model_receives_carries_the_signatures():
     _run(policy, Catalog(tools={"ledger_get": ledger_get}))
     prompt = policy.bodies[0]["messages"][0]["content"]
     assert "ledger_get(id=...)" in prompt
+
+
+def test_the_ptc_arm_streams_like_the_bash_arm_does():
+    """Posting `stream: False` made four tasks fail 45 times with 504s behind a
+    relay whose gateway timeout only applies to non-streaming requests, while the
+    bash arm streamed through `verifiers` and never hit it. Goes red if the arm
+    ever stops streaming."""
+    policy = Policy(_assistant("print(1)"), _assistant(None))
+    _run(policy, Catalog({}))
+    assert policy.bodies, "the harness made no request"
+    assert all(b["stream"] is True for b in policy.bodies), \
+        [b.get("stream") for b in policy.bodies]

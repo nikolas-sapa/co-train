@@ -149,6 +149,38 @@ timeout — `verifiers/v1/harnesses/utils/core.py:453` passes
 timeout at all. Note that line as a standing arm asymmetry in the instrument (600s
 bash vs unbounded PTC), on the permissive side for PTC.
 
+### Deviation 02 — the PTC arm was not streaming, and only the PTC arm
+
+Run 2d, with `--max-retries 7`, took **zero 429s**: the retry fix worked. It still
+failed, on a different and fully deterministic cause. All 45 of its errors were
+Cloudflare `504: Gateway time-out`, all on the PTC arm; bash made 261 calls with none.
+The same four heavy enumeration tasks failed in 2b, 2c and 2d.
+
+Measured directly against the endpoint:
+
+| request | result |
+|---|---|
+| non-streamed, long generation | **504 at 11s** |
+| identical request, streamed | **200 at 23s** |
+| non-streamed, short | 200, immediate |
+| large prompt, streamed (TTFB) | 200, first byte 2.0s |
+
+So the relay's gateway timeout applies only to non-streaming requests, and neither
+prompt size nor time-to-first-byte is involved. `ptc/harness.py` posted
+`"stream": False` while the bash arm streams through `verifiers`
+(`harnesses/utils/core.py:266`). PTC's longer programs exceeded 11s and 504'd on every
+attempt, which is why a larger retry budget changed nothing.
+
+This is the **third arm asymmetry** found in this instrument, after the turn budget and
+the prompt signatures. The PTC arm now streams and accumulates SSE deltas into one
+message; the mock transport in `ptc/test_harness.py` streams too, so the suite
+exercises the transport production uses rather than the one it abandoned. A check goes
+red if the arm ever stops streaming. 123 -> 124 tests.
+
+Bearing on the earlier runs: every PTC number in runs 1, 2b, 2c and 2d was produced
+over a transport the bash arm was not using, and on tasks whose programs run longest.
+Run 1's +64.3pp is therefore confounded by three defects, not two.
+
 ### Validity threat: the endpoint is an unaudited relay
 
 VyceAI is a third-party relay, not a first-party provider. What `deepseek-v4-flash`

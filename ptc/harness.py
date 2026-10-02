@@ -193,6 +193,50 @@ def _bridge(name, servers, dispatch, loop, timeout):
     return tool
 
 
+async def _stream_message(http: httpx.AsyncClient, chat_path: str, body: dict) -> dict:
+    """Read one SSE completion back into a single assistant message.
+
+    This arm used to post `stream: False`, and a relay in front of a hosted model
+    answers a non-streaming request only if the whole generation fits inside its
+    gateway timeout -- 11s on the endpoint this was measured against. `bash` streams
+    through `verifiers` and never hit it; PTC's longer enumeration programs hit it on
+    every retry, so four tasks failed 45 times with `504: Gateway time-out` and no
+    retry budget could help. Streaming keeps bytes flowing, and it also puts both
+    arms on the same transport instead of one streaming and one not.
+    """
+    content: list[str] = []
+    calls: dict[int, dict] = {}
+    async with http.stream("POST", chat_path, json=body) as r:
+        if r.status_code >= 400:
+            await r.aread()  # a streamed error body is unread until asked for
+        r.raise_for_status()
+        async for line in r.aiter_lines():
+            if not line.startswith("data:"):
+                continue
+            chunk = line[5:].strip()
+            if not chunk or chunk == "[DONE]":
+                continue
+            delta = json.loads(chunk)["choices"][0].get("delta") or {}
+            if delta.get("content"):
+                content.append(delta["content"])
+            for call in delta.get("tool_calls") or []:
+                slot = calls.setdefault(
+                    call.get("index", 0),
+                    {"id": "", "type": "function",
+                     "function": {"name": "", "arguments": ""}},
+                )
+                if call.get("id"):
+                    slot["id"] = call["id"]
+                fn = call.get("function") or {}
+                if fn.get("name"):
+                    slot["function"]["name"] = fn["name"]
+                slot["function"]["arguments"] += fn.get("arguments") or ""
+    message: dict = {"role": "assistant", "content": "".join(content) or None}
+    if calls:
+        message["tool_calls"] = [calls[i] for i in sorted(calls)]
+    return message
+
+
 class PTCHarnessConfig(HarnessConfig):
     max_turns: int = Field(8, gt=0)
     """Programs submitted before the loop gives up."""
@@ -302,13 +346,10 @@ class PTCHarness(Harness[PTCHarnessConfig]):
             timeout=300.0,
         ) as http:
             for _ in range(self.config.max_turns):
-                r = await http.post(chat_path, json={
+                message = await _stream_message(http, chat_path, {
                     "model": ctx.model, "messages": messages,
-                    "tools": TOOLS, "tool_choice": "auto", "stream": False,
+                    "tools": TOOLS, "tool_choice": "auto", "stream": True,
                 })
-                r.raise_for_status()
-                choice = r.json()["choices"][0]
-                message = choice["message"]
                 messages.append(message)
                 calls = message.get("tool_calls") or []
                 if not calls:
