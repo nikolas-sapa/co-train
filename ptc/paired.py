@@ -64,13 +64,19 @@ def power_pairs(delta: float, discordance: float, power: float = 0.8,
     one way under the alternative. Searches n upward rather than inverting a normal
     approximation, which is wrong at exactly the counts that matter here.
 
-    Returns None when the effect is not detectable at any n -- `delta` larger than the
-    discordance rate cannot happen, so no n makes it appear.
+    Returns None only for inputs that cannot occur: `|delta|` can never exceed the
+    discordance rate, since both are computed from the same discordant pairs.
+
+    The boundary `delta == discordance` is NOT such a case -- it means every discordant
+    pair favours one arm, which is the *easiest* effect to detect, not an impossible one.
+    Six unanimous pairs already give an exact two-sided p of 0.031. Guarding it with
+    `p >= 1` reported run 2h's unanimous 2-of-2 as "not detectable at this discordance"
+    when the answer was 42 paired tasks.
     """
     if not 0 < discordance <= 1 or delta <= 0:
         return None
     p = 0.5 + delta / (2 * discordance)
-    if p >= 1:
+    if p > 1:
         return None
     for n in range(4, 20001):
         d = round(n * discordance)
@@ -177,6 +183,12 @@ def demo() -> None:
     assert big and small and big < small, (big, small)
     # an effect larger than the discordance rate cannot be produced at any n
     assert power_pairs(0.50, 0.30) is None
+    # ...but delta == discordance is the UNANIMOUS case, the easiest to detect, not
+    # impossible. Six one-sided discordant pairs already reach exact p=0.031.
+    unanimous = power_pairs(0.1429, 0.1429)
+    assert unanimous is not None, "unanimous discordance must be detectable"
+    assert round(unanimous * 0.1429) >= 6, unanimous
+    assert _attained(0.1429, 0.1429, unanimous) >= 0.8
     assert power_pairs(0.0, 0.5) is None and power_pairs(0.1, 0.0) is None
     # the returned n really does reach the requested power, and one step less does not
     assert _attained(0.30, 0.43, big) >= 0.8

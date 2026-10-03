@@ -426,3 +426,58 @@ retries and still ends red.
   553925 -> 694679 (+25%) and its score fell 10/14 -> 7/14. So 2f and 2g are not
   comparable on the bash arm either. Only 2h onward, with the fixture fixed, forms a
   comparable series.
+
+---
+
+## Run 2h — clean, admissible, and the premise does not survive it
+
+2026-10-03, same config as 2f and 2g, with defect 6 fixed. Traces
+`~/scratch/ptc-real-run2h/`. All 28 rollouts `agent_completed`, zero errors, zero 504s,
+zero 429s, zero truncations, billed tokens on both arms. **The first run in this project's
+history that is both mechanically clean and free of a known arm asymmetry.**
+
+bash 12/14, PTC **14/14**. Paired delta **−14.3 pp** (CI [−35.7, +0.0], exact McNemar
+p=0.5000, 2 discordant pairs both PTC's, 12 tied). PTC is 8.5x cheaper per solved task on
+8x fewer billed prompt tokens, 4x fewer tool calls and 3.5x fewer turns.
+
+Adjudicated against the pre-registration in **`docs/results-untrained.md`**, which is the
+§6 negative report. Headline: H1 is wrong on **sign**, not magnitude.
+
+bash's two failures are both arithmetic — `total-invoice` and `total-receipt`, where it
+fetched all 40 records across 42 turns, listed them, and then mis-summed fifteen numbers in
+context. It had a shell throughout and its shell-call share was 0.023; it chose not to
+compute. PTC wrote `sum(...)`.
+
+### A bug in the power function, found by this run's own numbers
+
+`power_pairs` guarded `p >= 1` and returned "not detectable at this discordance". But
+`|delta|` can never exceed the discordance rate (both are computed from the same discordant
+pairs), so `p` lives in `[0.5, 1.0]` and **`p == 1.0` is the unanimous case -- the easiest
+effect to detect, not an impossible one.** Six unanimous discordant pairs already give an
+exact two-sided p of 0.031. Run 2h is exactly that case (2 of 2 one way), so the tool
+reported its own best-case input as undetectable, when the answer is 39 paired tasks.
+
+Fixed to guard `p > 1`, which is the genuinely impossible case. Pinned by a check proven red
+against the old `>=`. Worth recording as the seventh thing in this project that was wrong in
+the direction of under-reporting an effect, and the first that was wrong in *our analysis*
+rather than in the instrument.
+
+### Required n, recomputed on the fixed instrument
+
+Both figures in §8/A1 were computed from run 2f's broken-instrument discordance (0.429) and
+are superseded here. On 2h's discordance (0.143):
+
+| target | paired tasks for 80% power |
+|---|---|
+| the observed 14.3 pp | 39 |
+| pre-reg §3's +6.8 pp | 242 |
+
+242 is roughly 7 hours of wall clock at 2h's rate (28 rollouts in ~25 min), not the ~180
+hours A1 estimated from 2f. **The APEX-end band is reachable after all** — A1's conclusion
+was an artefact of the defect, which is itself worth recording as the cost of amending from
+broken data.
+
+### Ceiling
+
+PTC at 14/14 is saturated. The taskset can establish that PTC is not worse; it cannot
+measure how much better. An effect-size run needs harder tasks, not just more of these.
