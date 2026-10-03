@@ -385,9 +385,11 @@ async def _run_with_mcp(policy: Policy, url: str, **kw):
     harness = PTCHarness(PTCHarnessConfig(tool_timeout=10.0), transport=policy.transport())
     ctx = ModelContext(model="test-model", client=EvalClientConfig())
     data = TaskData(prompt=kw.get("prompt", "look it up"))
+    # The catalog's prefix comes from this key, not from the toolset's TOOL_PREFIX, so a
+    # server served under the wrong name advertises `facts_*` for `ledger`'s tools.
     return await (harness.launch(
         ctx, trace=None, runtime=None, endpoint=ENDPOINT, secret=SECRET,
-        mcp_urls={"facts": url}, data=data,
+        mcp_urls={kw.get("server", "facts"): url}, data=data,
     ))
 
 
@@ -606,3 +608,91 @@ def test_a_usage_chunk_with_no_choices_does_not_kill_the_rollout():
     policy = Policy(_assistant("print(1)"), _assistant(None))
     log = _run(policy, Catalog({}))
     assert log is not None
+
+
+def _served_ledger():
+    """The real `ledger` MCP server -- the taskset every real-mode run has scored on.
+
+    `on_pythonpath()` is load-bearing, not decoration: verifiers launches the server as
+    `python -m ledger.servers.store` in its own process, and `ledger` lives in the repo
+    rather than site-packages. Without it the child dies with `No module named 'ledger'`
+    and the test hangs for three minutes on the port-file timeout instead of failing.
+    `ledger/__init__.py` documents this; `glossary` does not need it.
+    """
+    import verifiers.v1 as vf
+    from verifiers.v1.mcp import serve
+
+    import ledger
+    from ledger.servers.store import LedgerToolset
+
+    ledger.on_pythonpath()
+    return serve(LedgerToolset(vf.ToolsetConfig()))
+
+
+def test_a_program_can_aggregate_the_catalog_without_a_parser():
+    """Defect 5, as a test: the PTC arm must be able to COMPUTE over catalog output,
+    not merely print it.
+
+    `_bridge` used to hand the program MCP's text verbatim, so `ledger_get` returned
+    the *string* `'{"amount": 8971, ...}'` and `ledger_ids` a space-separated string.
+    A program cannot read either: the sandbox rejects `import json` and every
+    attribute access (`.split`, `.keys`), and `SAFE_BUILTINS` has no `ord`. The bash
+    arm has no such barrier -- it reads the same strings with its own attention -- so
+    the arms were not comparable on anything requiring aggregation, which is most of
+    the taskset. In run 2f the model spent 25 calls on `total-invoice` building a
+    character-level JSON parser out of `<` comparisons.
+
+    The program below is the shortest thing that needs real data and no text handling.
+    """
+    from ledger.servers.store import RECORDS
+
+    expected = sum(r["amount"] for r in RECORDS.values())
+    program = "print(sum(ledger_get(id=i)['amount'] for i in ledger_ids()))"
+
+    async def go():
+        async with _served_ledger() as url:
+            policy = Policy(_assistant(program), _assistant(None))
+            return await _run_with_mcp(policy, url, server="ledger"), policy
+
+    result, _ = asyncio.run(go())
+    # No rejection, no TypeError -- the catalog handed back data.
+    assert "rejected:" not in result.stdout, result.stdout
+    assert "error:" not in result.stdout, result.stdout
+    assert str(expected) in result.stdout, result.stdout
+
+
+def test_a_catalog_function_returns_data_not_text():
+    """The shape, stated directly, because the test above would also pass if only one
+    of the two functions were decoded."""
+    from ledger.servers.store import RECORDS
+
+    program = (
+        "ids = ledger_ids()\n"
+        "rec = ledger_get(id=ids[0])\n"
+        "print(len(ids), rec['id'], rec['amount'] + 0, len(ledger_links_to(id=ids[0])))"
+    )
+
+    async def go():
+        async with _served_ledger() as url:
+            policy = Policy(_assistant(program), _assistant(None))
+            return await _run_with_mcp(policy, url, server="ledger"), policy
+
+    result, _ = asyncio.run(go())
+    first = sorted(RECORDS)[0]
+    links = sorted(r["id"] for r in RECORDS.values() if r["link"] == first)
+    assert f"{len(RECORDS)} {first} {RECORDS[first]['amount']} {len(links)}" in result.stdout, \
+        result.stdout
+
+
+def test_the_prompt_says_the_catalog_returns_data_not_text(catalog):
+    """Defect 5's other half. The bridge decodes JSON, so a program receives a dict
+    where the tool's own description says "returns a JSON object" -- and a model that
+    believes the description literally reaches for a parser the sandbox does not have.
+    In run 2f that produced 11 `TypeError: string indices must be integers` and one
+    hand-rolled character-level JSON parser. The prompt has to close the gap the
+    decoder opens."""
+    policy = Policy(_assistant(None))
+    _run(policy, catalog)
+    prompt = policy.bodies[0]["messages"][0]["content"]
+    assert "returns DATA, not text" in prompt
+    assert "Do not try to parse" in prompt

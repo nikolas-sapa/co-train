@@ -42,6 +42,9 @@ SYSTEM = (
     "The program may call only these catalog functions: {names}. "
     "Pass their arguments BY KEYWORD, exactly as named above: the catalog takes no "
     "positional arguments and `f(x)` is rejected where `f(id=x)` is accepted. "
+    "A catalog function returns DATA, not text: a tool documented as returning a JSON "
+    "object hands your program a dict you can subscript, and a JSON array hands you a "
+    "list you can iterate. Do not try to parse what you get back. "
     "There is no shell and no other action channel. Imports and attribute access are "
     "rejected before the program runs. Control flow, arithmetic and comprehensions are "
     "available, so prefer one program that does the whole task over many small ones. "
@@ -177,6 +180,31 @@ def partition_callable(names) -> tuple[list[str], list[str]]:
     return ok, [n for n in names if not n.isidentifier()]
 
 
+def _decode(result: Any) -> Any:
+    """MCP returns text; a program needs data.
+
+    This is the fix for defect 5 (`docs/deviations.md`). MCP's content is text, and
+    handing it to a program verbatim made a *typed* catalog untyped: `ledger_get`
+    returned the string `'{"amount": 8971, ...}'`, and the sandbox has no `import json`,
+    no attribute access for `.split`, and no `ord` in `SAFE_BUILTINS`, so the program
+    owned no primitive that could read it. The bash arm reads the same string with its
+    own attention and needs no parser, which made its action space a strict superset of
+    this one's and any score gap unattributable. Decoding here restores parity rather
+    than granting an advantage: both arms receive the same bytes, and only this arm has
+    to compute over them instead of reading them.
+
+    ponytail: JSON only, and non-JSON text passes through unchanged. A catalog whose
+    server returns prose keeps working and stays unparseable -- the upgrade path is a
+    per-server decoder, which is worth writing when a second taskset needs one.
+    """
+    if not isinstance(result, str):
+        return result
+    try:
+        return json.loads(result)
+    except ValueError:
+        return result
+
+
 def _bridge(name, servers, dispatch, loop, timeout):
     """One synchronous catalog function over one async MCP tool.
 
@@ -187,7 +215,7 @@ def _bridge(name, servers, dispatch, loop, timeout):
         future = asyncio.run_coroutine_threadsafe(
             call_mcp(servers, dispatch, name, arguments), loop
         )
-        return future.result(timeout=timeout)
+        return _decode(future.result(timeout=timeout))
 
     tool.__name__ = name
     return tool

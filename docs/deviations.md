@@ -307,7 +307,53 @@ requirement to write a parser to use them. A "typed catalog" that returns unpars
 text is not typed, and the 17 `unknown name` rejections show the model reaching for
 the primitives a typed one would have made unnecessary.
 
-**Not fixed here.** The fix is a decision, not a patch: parse MCP text in `_bridge` so
-a catalog function returns Python data (restoring parity, since bash's parser is the
-model's own reading), or add a parse primitive to the catalog, or declare the asymmetry
-and stop comparing scores. Each costs another paid run.
+**Fixed, in two places and one prompt.** The catalog is now typed in fact as well as in
+name:
+
+1. `ledger/servers/store.py` returns JSON from all three tools -- `ids` a JSON array,
+   `links_to` a JSON array (empty rather than `"none"`), `get` a JSON object or `null`
+   rather than the prose `"no such record"`. One shape, so one decode rule, and both
+   arms receive the same bytes.
+2. `ptc/harness.py::_decode` parses that text once in `_bridge`, so a program receives a
+   dict or a list. Non-JSON text passes through unchanged; a server returning prose
+   still needs a per-server decoder, which is the declared ceiling.
+3. The PTC system prompt now says a catalog function returns DATA, not text. Without
+   this the decoder opens a new gap: the tool's own description says "returns a JSON
+   object", and a model that believes it reaches for the parser that is still absent.
+
+Three checks, each proven red against an isolated mutant (bridge stops decoding; `ids`
+reverts to space-separated; the prompt line removed). 126 -> 207 tests across
+`tests ptc ledger` -- note that bare `pytest` runs only `tests/` per `pytest.ini`
+`testpaths`, so it reports 51 and silently skips both suites that matter here.
+
+This does not advantage the PTC arm. It hands the program the information bash reads
+with its own attention, and leaves PTC the work of computing over it rather than
+reading it.
+
+### Power, as a number rather than a word
+
+`ptc/paired.py` now reports the paired tasks needed for 80% power at exact McNemar,
+given the observed discordance rate. At run 2f's 0.429:
+
+| target effect | paired tasks for 80% power |
+|---|---|
+| +28.6 pp (2f's own point estimate) | 39 |
+| +6.8 pp (pre-reg §3's APEX target) | 732 |
+
+**The APEX-end target is out of reach for this design.** 732 paired tasks at 2f's rate
+(28 rollouts in 3h26m at `--max-concurrent 1`) is roughly 180 hours of wall clock. H1 as
+written cannot be adjudicated here; it is testable only as a large-effect claim, and the
+pre-registration's +6.8 to +8.4 pp target band is not something this instrument can
+see. Recorded rather than quietly dropped.
+
+**Sizing the next run deliberately does not mean raising n now.** Both numbers above are
+computed from the *broken* instrument: 2f's discordance came almost entirely from the
+aggregation tasks, which are exactly the ones defect 5 made unwinnable for PTC. A
+required-n derived from that discordance is a measurement of the defect. Raising n by
+expanding the per-record families would also push discordance *down* -- both arms solve
+every one-call lookup, so 40 more lookups buy tasks and no power.
+
+Order of operations, therefore: **run 2g at n=14 as a calibration run**, claim nothing
+from it, read the unconfounded effect size and discordance off it, and size the
+adjudicating run from those. One cheap run (2f cost $0.14 in total across both arms)
+before committing wall clock to a large one.

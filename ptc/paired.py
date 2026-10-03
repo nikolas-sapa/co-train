@@ -53,6 +53,45 @@ def mcnemar_exact(b: int, c: int) -> float:
     return min(1.0, 2 * tail)
 
 
+def power_pairs(delta: float, discordance: float, power: float = 0.8,
+                alpha: float = 0.05) -> int | None:
+    """Paired tasks needed to detect `delta` at `power`, given a discordance rate.
+
+    This exists because "underpowered" is a vibe until it is a number, and the
+    pre-registration's own target is numeric (+6.8 pp at the APEX end). Exact McNemar
+    is a sign test on the discordant pairs only, so n enters just through how many
+    discordant pairs it buys: `n * discordance`, split `p = 0.5 + delta / (2*discordance)`
+    one way under the alternative. Searches n upward rather than inverting a normal
+    approximation, which is wrong at exactly the counts that matter here.
+
+    Returns None when the effect is not detectable at any n -- `delta` larger than the
+    discordance rate cannot happen, so no n makes it appear.
+    """
+    if not 0 < discordance <= 1 or delta <= 0:
+        return None
+    p = 0.5 + delta / (2 * discordance)
+    if p >= 1:
+        return None
+    for n in range(4, 20001):
+        d = round(n * discordance)
+        if d < 2:
+            continue
+        # Reject when the minority count is small enough that the exact two-sided
+        # p falls under alpha; power is the chance of landing at or under that count.
+        crit = -1
+        for k in range(d // 2 + 1):
+            if mcnemar_exact(k, d - k) <= alpha:
+                crit = k
+            else:
+                break
+        if crit < 0:
+            continue
+        got = sum(comb(d, i) * p ** (d - i) * (1 - p) ** i for i in range(crit + 1))
+        if got >= power:
+            return n
+    return None
+
+
 def paired(a: dict[str, float], b: dict[str, float]) -> dict:
     shared = sorted(set(a) & set(b))
     if not shared:
@@ -104,6 +143,14 @@ def main(argv: list[str]) -> int:
     print(f"exact McNemar p            {r['p']:.4f}")
     print()
     print("Separable only if the CI on the difference excludes 0.")
+
+    disc = (r["a_only"] + r["b_only"]) / r["n"]
+    print()
+    print(f"discordance rate           {disc:.3f}")
+    for target, label in ((abs(r["delta"]), "the observed delta"), (0.068, "pre-reg's +6.8 pp")):
+        need = power_pairs(target, disc) if disc else None
+        got = f"{need} paired tasks" if need else "not detectable at this discordance"
+        print(f"n for 80% power on {label:<20} {got}")
     return 0
 
 
@@ -123,7 +170,33 @@ def demo() -> None:
     assert abs(mcnemar_exact(6, 0) - 2 * (1 / 64)) < 1e-9
     # unshared tasks are dropped, not treated as zeros
     assert paired({"t1": 1.0, "x": 1.0}, {"t1": 0.0})["n"] == 1
+
+    # power: a bigger effect needs fewer pairs, and more discordance needs fewer
+    big = power_pairs(0.30, 0.43)
+    small = power_pairs(0.07, 0.43)
+    assert big and small and big < small, (big, small)
+    # an effect larger than the discordance rate cannot be produced at any n
+    assert power_pairs(0.50, 0.30) is None
+    assert power_pairs(0.0, 0.5) is None and power_pairs(0.1, 0.0) is None
+    # the returned n really does reach the requested power, and one step less does not
+    assert _attained(0.30, 0.43, big) >= 0.8
     print("ok")
+
+
+def _attained(delta: float, discordance: float, n: int, alpha: float = 0.05) -> float:
+    """Power actually attained at n -- used by demo() so the search is checked against
+    a direct computation rather than against itself."""
+    p = 0.5 + delta / (2 * discordance)
+    d = round(n * discordance)
+    crit = -1
+    for k in range(d // 2 + 1):
+        if mcnemar_exact(k, d - k) <= alpha:
+            crit = k
+        else:
+            break
+    if crit < 0:
+        return 0.0
+    return sum(comb(d, i) * p ** (d - i) * (1 - p) ** i for i in range(crit + 1))
 
 
 if __name__ == "__main__":
