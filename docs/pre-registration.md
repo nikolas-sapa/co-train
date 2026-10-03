@@ -174,3 +174,31 @@ reached the same three functions through a sandbox with no parser, making bash's
 space a strict superset. **No score comparison from runs 1-2f is admissible**, including
 2f's +28.6 pp. Run 2g, post-fix, is the first run whose score gap is attributable to the
 action channel rather than to the rig.
+
+### A3 — 2026-10-03, after run 2h: A1's power figures were computed from a broken instrument
+
+**A1 stands as written and is wrong on its central number.** It reported ~732 paired tasks
+for §3's +6.8 pp band and concluded the band was below this instrument's floor at ~180 hours
+of wall clock. Both figures came from run 2f's discordance rate (0.429), and run 2f was the
+run whose PTC arm could not parse its own tool output (defect 5). On run 2h's discordance
+(0.143), post-fix: **242 paired tasks**, roughly 7 hours at 2h's rate. The APEX-end band is
+reachable.
+
+A1 is left in place rather than corrected, because the error is the instructive part: an
+amendment written honestly, disclosed as after-the-fact, and still wrong — because it
+reasoned from data produced by a defect it had already documented elsewhere. **A power
+calculation inherits every bias of the run it is computed from.**
+
+### A4 — 2026-10-03, after run 2h: §6's condition is met and the deliverable is written
+
+H1 predicted bash − PTC *"closer to +7 pp than +22 pp"*. Run 2h, the first mechanically clean
+run free of a known arm asymmetry, measured **−14.3 pp**: wrong on sign, not magnitude. PTC
+solved 14/14 to bash's 12/14, won both discordant pairs, and took 8.5x less cost per solved
+task on 8x fewer billed prompt tokens.
+
+**§6 fires.** `docs/results-untrained.md` is the short negative report it pre-committed, and
+it is the project's output. It claims a failure to reproduce — not a demonstration that PTC
+wins: the CI on the difference touches zero, exact McNemar gives p=0.5000 on two discordant
+pairs, and PTC's 14/14 is a ceiling that cannot carry an effect size.
+
+Co-training was never run, and nothing here is a verdict on H2 through H5.
