@@ -233,3 +233,81 @@ price flags, not the sampling cap.
 - No prompt caching (`cached_tokens` absent on all 379 calls), so re-sent transcript
   tokens bill at full input rate and cost is an upper bound.
 - n=14, one rollout each, one model, one provider, no repeat for variance.
+
+---
+
+## Run 2f — the first clean run, and the fifth defect it exposed
+
+2026-10-02, `ptc/compare.py real`, taskset `ledger`, n=14, one rollout each,
+`--max-concurrent 1`, `max_turns 80`, `max_retries 7`, streaming with
+`stream_options.include_usage`. Traces `~/scratch/ptc-real-run2f/traces/`,
+log `~/scratch/ptc-real-run2f/stdout.log`.
+
+**Mechanically clean.** All 28 rollouts `agent_completed`, zero errors, zero 504s,
+zero 429s, zero truncations, billed tokens present on both arms. Every defect found
+in runs 1 and 2a–2e is gone from the trace.
+
+| | bash | ptc |
+|---|---|---|
+| score (primary) | 0.7143 (10/14) | 0.4286 (6/14) |
+| cost / solved | 0.0051 | 0.0148 |
+| tool calls | 259 | 234 |
+| tool success rate | 1.000 | 0.6239 |
+| assistant turns | 273 | 248 |
+
+**Paired, because the arms share the taskset.** `compare.py` prints each arm's own
+unpaired CI, which throws the pairing away. `ptc/paired.py` on the same traces:
+
+```
+paired delta (bash - ptc)   +28.6 pp
+95% CI on the difference    [+0.0, +57.1] pp   (lower bound 0.0 at every seed)
+discordant pairs            bash-only 5, ptc-only 1, tied 8
+exact McNemar p             0.2188
+```
+
+Six discordant pairs cannot separate the arms. **The gap is not significant** and the
+interval includes zero, so run 2f does not license a verdict on H1 either way — it is
+underpowered, not null. The point estimate (+28.6 pp) sits nearer the TAC end (+22)
+than the APEX end (+6.8) that H1 predicted, which is evidence *against* H1's direction,
+at a confidence the n does not support.
+
+### Defect 5 — the catalog is not typed, and the sandbox denies every parser
+
+The decisive finding, and the reason the +28.6 pp is still not a model comparison.
+
+The two arms do not have comparable action spaces, in a way no previous run surfaced:
+
+- **bash arm** gets four tools: `bash`, plus `ledger_get`, `ledger_ids`,
+  `ledger_links_to` as native tool calls. Its `shell-call share` is **0.0000** — it
+  never used the shell. It called the typed functions directly and read their JSON
+  output with its own attention.
+- **PTC arm** gets one tool, `run_program`, over the same three functions inside
+  `ptc/runtime.py`'s sandbox — no imports, no attribute access, and a `SAFE_BUILTINS`
+  without `ord` or `chr`.
+
+`ledger_get` returns MCP text: the **string** `{"id": "r00", "amount": 8971, ...}`,
+because `_bridge` hands `call_mcp`'s result back unparsed. So the PTC arm receives
+data it has no primitive to parse — no `json`, no `.split`, no `.keys`, no subscript
+by key on a `str`, no `ord` to classify a digit. 46 of its 88 tool failures are the
+sandbox rejecting ordinary Python (34 attribute access, 12 import) and 11 more are
+`TypeError: string indices must be integers` — the model subscripting a JSON string
+as if it were the dict the catalog's own description implies.
+
+On `total-invoice` the model spent 25 calls hand-rolling a character-level JSON parser
+out of `<` and `>` string comparisons, discovered `.isdigit` and `ord` were both
+unavailable, and got there anyway. It is the one task PTC won and bash lost. The
+failures cluster exactly where machine parsing is unavoidable: `total-invoice`,
+`total-memo`, `total-receipt`, `largest-record`, `richest-owner`.
+
+This is the asymmetry pre-registration §5 names in advance — *"a deliberately minimal
+PTC vocabulary against a composed shell makes a PTC loss unattributable"* — except it
+is worse than minimal vocabulary. The bash arm's action space is a strict **superset**
+of the PTC arm's: same three functions, plus a shell it did not need, minus the
+requirement to write a parser to use them. A "typed catalog" that returns unparsed
+text is not typed, and the 17 `unknown name` rejections show the model reaching for
+the primitives a typed one would have made unnecessary.
+
+**Not fixed here.** The fix is a decision, not a patch: parse MCP text in `_bridge` so
+a catalog function returns Python data (restoring parity, since bash's parser is the
+model's own reading), or add a parse primitive to the catalog, or declare the asymmetry
+and stop comparing scores. Each costs another paid run.
