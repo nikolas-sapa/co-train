@@ -357,3 +357,72 @@ Order of operations, therefore: **run 2g at n=14 as a calibration run**, claim n
 from it, read the unconfounded effect size and discordance off it, and size the
 adjudicating run from those. One cheap run (2f cost $0.14 in total across both arms)
 before committing wall clock to a large one.
+
+---
+
+## Run 2g — the ordering reversed, and defect 6 made it unreadable
+
+2026-10-03, same config as 2f (`--max-concurrent 1`, `max_turns 80`, `max_retries 7`,
+streaming with usage), first run after defect 5's fix. Traces
+`~/scratch/ptc-real-run2g/`.
+
+| | bash | ptc |
+|---|---|---|
+| score (primary) | 0.5000 (7/14) | **0.8571 (12/14)** |
+| cost total | 0.0643 | **0.0072** |
+| cost / solved | 0.0092 | **0.0006** |
+| tool calls | 263 | 57 |
+| tool success rate | 1.000 | 0.5789 |
+| assistant turns | 277 | 71 |
+| wall clock | ~25 min for both arms (2f took 3h26m) | |
+
+**The ordering reversed.** PTC above bash, at 15x lower cost per solved task and a
+quarter of the turns. Defect 5 was worth more than the entire effect the project set out
+to measure.
+
+**And the run is not readable.** `richest-owner` ended `stop_condition="error"` on the
+bash arm, so its 0.0 is a transport artefact rather than a result, and `compare.py`
+exited non-zero refusing to print a verdict. Correct behaviour; the number above is
+reported only because the direction is too large to leave unrecorded, and it is not an
+admissible measurement.
+
+### Defect 6 — the arms name the same transport fault differently
+
+`richest-owner` died on `openai.APIError: The request timed out`, raised inside the
+bundled runtime script and re-wrapped by the rig as `HarnessError`. The retry policy
+included `ProviderError` only -- deliberately, so that a genuine harness or sandbox fault
+stays red -- so this was never retried. On the same run a 429 on `total-receipt` *was*
+retried and scored 1.0.
+
+The asymmetry is in who owns the socket, not in the fault:
+
+- **PTC** owns its HTTP client (`_stream_message`), so a relay timeout surfaces as
+  `ProviderError` → retryable.
+- **bash** delegates to the bundled runtime, which raises inside its own subprocess →
+  `HarnessError` → fatal.
+
+`richest-owner` is bash's heaviest task (40 catalog calls) and the bash arm is the only
+one with a read timeout at all: `harnesses/utils/core.py:453` passes
+`httpx.Timeout(600.0 if args.bash else None, connect=5.0)`. So the arm with the deadline
+was also the arm whose timeout could not be retried. This is the sixth defect in a row
+whose effect lands on one arm, and the first that lands on **bash**.
+
+**Fixed** by adding `HarnessError` to the retry include list, with the reason recorded in
+`ptc/compare.py` and in the tripwire test that had to be changed to allow it
+(`test_the_retry_policy_is_restricted_to_provider_errors_exactly`, widened once, pinned
+again). The original intent survives: a deterministic harness fault exhausts all seven
+retries and still ends red.
+
+### Two things run 2g does establish, pending 2h
+
+- **PTC's tool failures are no longer structural.** 24 of 57 calls failed, but the shape
+  changed completely: 18 are attribute access the sandbox has always banned and the
+  prompt always declared (`.get` x10, `.append` x3, `.keys` x3, `.zfill`), reachable
+  another way (`d['amount']` works, `for k in d` works), and 1 is the lone surviving
+  `TypeError`. In 2f, 46 failures had no alternative path at all. The arm now fails where
+  the model reaches past a declared constraint, which is a model result, not a rig one.
+- **The fix was not neutral to the bash arm, and that is a confound to declare.** Making
+  the server return JSON changed what BOTH arms read: bash's billed prompt tokens rose
+  553925 -> 694679 (+25%) and its score fell 10/14 -> 7/14. So 2f and 2g are not
+  comparable on the bash arm either. Only 2h onward, with the fixture fixed, forms a
+  comparable series.

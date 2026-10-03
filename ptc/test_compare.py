@@ -114,14 +114,24 @@ def test_the_retry_policy_is_restricted_to_provider_errors_exactly():
     faults re-runs rollouts that SHOULD score 0.0 -- a harness or sandbox fault is a
     real result, and retrying it until it passes is the rig grading itself. Widening
     `include`, or dropping it for a blanket retry, must fail here rather than quietly
-    change the experiment."""
+    change the experiment.
+
+    Widened once, on purpose, and this docstring is the record of why (defect 6): the
+    arms name the same transport fault differently. PTC owns its HTTP client so a relay
+    timeout is a `ProviderError`; the bash arm's bundled runtime raises
+    `openai.APIError: The request timed out` in a subprocess and the rig re-wraps it as
+    `HarnessError`. With only `ProviderError` retryable, a 429 on one task was survivable
+    and an identical timeout on another was fatal -- for bash, on `richest-owner`, its
+    heaviest task. A deterministic harness fault still ends red after exhausting retries,
+    which is what the original scoping was protecting. Any FURTHER widening must fail
+    here."""
     cfg = compare._config("ptc", _args("real"), "t")
     assert "retries" not in cfg["env"], "retries must stay off unless asked for"
 
     args = _args("real")
     args.max_retries = 3
     assert compare._config("ptc", args, "t")["env"]["retries"] == {
-        "max_retries": 3, "include": ["ProviderError"],
+        "max_retries": 3, "include": ["ProviderError", "HarnessError"],
     }
 
 

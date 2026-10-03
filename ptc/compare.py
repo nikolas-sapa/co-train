@@ -172,8 +172,23 @@ def _config(arm: str, args, tag: str) -> dict:
         # longer catalog prompts drew 6 upstream 504s where `bash` drew none, which would
         # have handed the comparison a ~20 pp artefact in bash's favour. Deliberately NOT
         # a blanket retry: a harness or sandbox fault is a real result and must stay red.
+        #
+        # `HarnessError` is included for one specific, measured reason (defect 6,
+        # `docs/deviations.md`): the two arms report the SAME transport fault under
+        # different type names. PTC owns its HTTP client (`_stream_message`), so a relay
+        # timeout arrives as `ProviderError` and is retried. The bash arm delegates to the
+        # bundled runtime script, which raises `openai.APIError: The request timed out`
+        # inside its own subprocess and the rig re-wraps it as `HarnessError` -- not in
+        # `include`, so never retried. In run 2g that killed `richest-owner`, bash's
+        # heaviest task (40 catalog calls, past the 600s read timeout that
+        # `harnesses/utils/core.py:453` gives the bash arm and withholds from PTC), while a
+        # 429 on `total-receipt` was retried and scored 1.0. Retryability was deciding the
+        # comparison by which arm's code owned the socket.
+        #
+        # The original intent survives: a DETERMINISTIC harness fault exhausts all
+        # retries and still ends red. Only a transient one is now survivable on both arms.
         config["env"]["retries"] = {"max_retries": args.max_retries,
-                                    "include": ["ProviderError"]}
+                                    "include": ["ProviderError", "HarnessError"]}
     if args.mode == "canned":
         # server.py:600 relays a streaming request straight upstream unless the client
         # is a train client, and the bundled chat program always streams -- so with an
