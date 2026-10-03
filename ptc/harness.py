@@ -16,6 +16,7 @@ path when a real task suite needs it; it is not needed to stand the arm up.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 from contextlib import AsyncExitStack
 from typing import Any
@@ -39,6 +40,11 @@ __all__ = ["PTCHarness"]
 SYSTEM = (
     "You act by writing a Python program and submitting it with the `run_program` tool. "
     "The program may call only these catalog functions: {names}. "
+    "Pass their arguments BY KEYWORD, exactly as named above: the catalog takes no "
+    "positional arguments and `f(x)` is rejected where `f(id=x)` is accepted. "
+    "A catalog function returns DATA, not text: a tool documented as returning a JSON "
+    "object hands your program a dict you can subscript, and a JSON array hands you a "
+    "list you can iterate. Do not try to parse what you get back. "
     "There is no shell and no other action channel. Imports and attribute access are "
     "rejected before the program runs. Control flow, arithmetic and comprehensions are "
     "available, so prefer one program that does the whole task over many small ones. "
@@ -90,18 +96,77 @@ def _mcp_catalog(
     async catalog and an async runtime, which is a different interface and needs saying
     out loud rather than sneaking in.
     """
-    async def build() -> tuple[dict[str, Any], list[str]]:
+    async def build() -> tuple[dict[str, Any], list[str], dict[str, list[str]]]:
         config = {"mcpServers": {name: {"url": url} for name, url in mcp_urls.items()}}
-        _schemas, dispatch, servers = await connect_mcp(config, stack)
+        schemas, dispatch, servers = await connect_mcp(config, stack)
         loop = asyncio.get_running_loop()
         callable_names, unusable = partition_callable(dispatch)
         tools = {
             name: _bridge(name, servers, dispatch, loop, timeout)
             for name in callable_names
         }
-        return tools, unusable
+        params = {
+            name: args for name, args in schema_params(schemas).items()
+            if name in tools
+        }
+        return tools, unusable, params
 
     return build()
+
+
+def schema_params(schemas) -> dict[str, list[str]]:
+    """Argument names per tool, read off the MCP schemas `connect_mcp` already returns.
+
+    These were discarded for the first real run, and the prompt advertised bare names.
+    `_bridge` is keyword-only on purpose, so a model given only `ledger_get` has nothing
+    to guess from and guesses positionally: 26 of that run's 54 PTC tool failures were
+    `takes 0 positional arguments but 1 was given`, with 8 more arriving as the same
+    mistake wearing a pydantic `Field required`. Required arguments come first so the
+    rendered signature reads in the order the tool actually needs.
+    """
+    out: dict[str, list[str]] = {}
+    for schema in schemas or []:
+        function = schema.get("function") or {}
+        name = function.get("name")
+        if not name:
+            continue
+        parameters = function.get("parameters") or {}
+        properties = parameters.get("properties") or {}
+        required = [p for p in parameters.get("required") or [] if p in properties]
+        out[name] = required + [p for p in properties if p not in required]
+    return out
+
+
+def render_catalog(names, params: dict[str, list[str]]) -> str:
+    """The catalog as callable signatures: `ledger_get(id=...)`, not `ledger_get`.
+
+    A name with no known arguments renders as `name(...)` rather than `name()`, because
+    claiming it takes nothing is a worse error than admitting the schema is unknown --
+    `name()` would invite a call that then fails on a missing required field.
+    """
+    parts = []
+    for name in names:
+        args = params.get(name)
+        if args is None:
+            parts.append(f"{name}(...)")
+        else:
+            parts.append(f"{name}({', '.join(f'{a}=...' for a in args)})")
+    return ", ".join(parts)
+
+
+def _callable_params(fn) -> list[str] | None:
+    """Argument names of a locally-registered catalog function, or None if it hides
+    them behind `**kwargs` -- which is what `_bridge` does, so a bridged tool must get
+    its names from the schema instead of from here."""
+    try:
+        parameters = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return None
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters):
+        return None
+    return [p.name for p in parameters
+            if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                          inspect.Parameter.KEYWORD_ONLY)]
 
 
 def partition_callable(names) -> tuple[list[str], list[str]]:
@@ -115,6 +180,31 @@ def partition_callable(names) -> tuple[list[str], list[str]]:
     return ok, [n for n in names if not n.isidentifier()]
 
 
+def _decode(result: Any) -> Any:
+    """MCP returns text; a program needs data.
+
+    This is the fix for defect 5 (`docs/deviations.md`). MCP's content is text, and
+    handing it to a program verbatim made a *typed* catalog untyped: `ledger_get`
+    returned the string `'{"amount": 8971, ...}'`, and the sandbox has no `import json`,
+    no attribute access for `.split`, and no `ord` in `SAFE_BUILTINS`, so the program
+    owned no primitive that could read it. The bash arm reads the same string with its
+    own attention and needs no parser, which made its action space a strict superset of
+    this one's and any score gap unattributable. Decoding here restores parity rather
+    than granting an advantage: both arms receive the same bytes, and only this arm has
+    to compute over them instead of reading them.
+
+    ponytail: JSON only, and non-JSON text passes through unchanged. A catalog whose
+    server returns prose keeps working and stays unparseable -- the upgrade path is a
+    per-server decoder, which is worth writing when a second taskset needs one.
+    """
+    if not isinstance(result, str):
+        return result
+    try:
+        return json.loads(result)
+    except ValueError:
+        return result
+
+
 def _bridge(name, servers, dispatch, loop, timeout):
     """One synchronous catalog function over one async MCP tool.
 
@@ -125,10 +215,61 @@ def _bridge(name, servers, dispatch, loop, timeout):
         future = asyncio.run_coroutine_threadsafe(
             call_mcp(servers, dispatch, name, arguments), loop
         )
-        return future.result(timeout=timeout)
+        return _decode(future.result(timeout=timeout))
 
     tool.__name__ = name
     return tool
+
+
+async def _stream_message(http: httpx.AsyncClient, chat_path: str, body: dict) -> dict:
+    """Read one SSE completion back into a single assistant message.
+
+    This arm used to post `stream: False`, and a relay in front of a hosted model
+    answers a non-streaming request only if the whole generation fits inside its
+    gateway timeout -- 11s on the endpoint this was measured against. `bash` streams
+    through `verifiers` and never hit it; PTC's longer enumeration programs hit it on
+    every retry, so four tasks failed 45 times with `504: Gateway time-out` and no
+    retry budget could help. Streaming keeps bytes flowing, and it also puts both
+    arms on the same transport instead of one streaming and one not.
+    """
+    content: list[str] = []
+    calls: dict[int, dict] = {}
+    async with http.stream("POST", chat_path, json=body) as r:
+        if r.status_code >= 400:
+            await r.aread()  # a streamed error body is unread until asked for
+        r.raise_for_status()
+        async for line in r.aiter_lines():
+            if not line.startswith("data:"):
+                continue
+            chunk = line[5:].strip()
+            if not chunk or chunk == "[DONE]":
+                continue
+            payload = json.loads(chunk)
+            # The usage chunk, and some relays' keep-alives, carry `choices: []`.
+            # Indexing straight into it raised `KeyError: 'choices'` and killed two
+            # rollouts as a harness error, which read as a task failure.
+            choices = payload.get("choices") or []
+            if not choices:
+                continue
+            delta = choices[0].get("delta") or {}
+            if delta.get("content"):
+                content.append(delta["content"])
+            for call in delta.get("tool_calls") or []:
+                slot = calls.setdefault(
+                    call.get("index", 0),
+                    {"id": "", "type": "function",
+                     "function": {"name": "", "arguments": ""}},
+                )
+                if call.get("id"):
+                    slot["id"] = call["id"]
+                fn = call.get("function") or {}
+                if fn.get("name"):
+                    slot["function"]["name"] = fn["name"]
+                slot["function"]["arguments"] += fn.get("arguments") or ""
+    message: dict = {"role": "assistant", "content": "".join(content) or None}
+    if calls:
+        message["tool_calls"] = [calls[i] for i in sorted(calls)]
+    return message
 
 
 class PTCHarnessConfig(HarnessConfig):
@@ -195,18 +336,22 @@ class PTCHarness(Harness[PTCHarnessConfig]):
 
         async with AsyncExitStack() as stack:
             tools = dict(self.catalog.tools)
+            # Locally-registered catalog functions are real functions, so their own
+            # signatures are the truth; MCP tools only have schemas.
+            params = {name: _callable_params(fn) for name, fn in tools.items()}
             unusable: list[str] = []
             if mcp_urls:
-                discovered, unusable = await _mcp_catalog(
+                discovered, unusable, discovered_params = await _mcp_catalog(
                     mcp_urls, stack, self.config.tool_timeout
                 )
                 tools.update(discovered)
+                params.update(discovered_params)
             if unusable:
                 log.append(f"unreachable tool names (not identifiers): {unusable}")
             catalog = Catalog(tools={**tools, OBSERVE: observe})
             names = sorted(tools)
             messages[0]["content"] = SYSTEM.format(
-                names=", ".join(names) or "(none)"
+                names=render_catalog(names, params) or "(none)"
             ) + (f"\n\n{system}" if system else "")
 
             await self._loop(ctx, endpoint, secret, messages, catalog, printed, log)
@@ -236,13 +381,16 @@ class PTCHarness(Harness[PTCHarnessConfig]):
             timeout=300.0,
         ) as http:
             for _ in range(self.config.max_turns):
-                r = await http.post(chat_path, json={
+                message = await _stream_message(http, chat_path, {
                     "model": ctx.model, "messages": messages,
-                    "tools": TOOLS, "tool_choice": "auto", "stream": False,
+                    "tools": TOOLS, "tool_choice": "auto", "stream": True,
+                    # Without this the stream carries no usage chunk, the
+                    # interception server records no billed tokens, and cost per
+                    # solved task -- a pre-registered co-primary -- prints as
+                    # unknown for this arm only. `verifiers` sends it too
+                    # (`harnesses/utils/core.py:269`).
+                    "stream_options": {"include_usage": True},
                 })
-                r.raise_for_status()
-                choice = r.json()["choices"][0]
-                message = choice["message"]
                 messages.append(message)
                 calls = message.get("tool_calls") or []
                 if not calls:

@@ -6,8 +6,13 @@ identical for both arms and must not do the task for either one. A `ledger_total
 tool would collapse every aggregation task into one call and measure nothing.
 
 `docs/pre-registration.md` §5 requires action-space altitude held comparable across
-arms or the asymmetry declared. Here it is held by construction: both arms receive the
-same three MCP tools, and only the channel differs.
+arms or the asymmetry declared. Identical tools are necessary but were not sufficient:
+these three used to return human-readable text -- a space-separated id list and a JSON
+string -- which the bash arm reads with its own attention and a PTC program cannot read
+at all, the sandbox having no `import json`, no `.split` and no `ord`. Same tools, one
+arm able to use them. Every return is now JSON, so one decode rule in `ptc/harness.py`
+hands a program real data and both arms receive the same bytes (defect 5,
+`docs/deviations.md`).
 """
 
 import json
@@ -23,20 +28,21 @@ class LedgerToolset(vf.Toolset[vf.ToolsetConfig]):
 
     @vf.tool
     def ids(self) -> str:
-        """List every record id in the ledger, space separated."""
-        return " ".join(sorted(RECORDS))
+        """Return every record id in the ledger as a JSON array of strings."""
+        return json.dumps(sorted(RECORDS))
 
     @vf.tool
     def get(self, id: str) -> str:
-        """Return one record as JSON: id, kind, amount, owner, link (or null)."""
-        record = RECORDS.get(id.strip().lower())
-        return json.dumps(record) if record else "no such record"
+        """Return one record as a JSON object: id, kind, amount, owner, link (or null).
+        Returns JSON null if there is no such record."""
+        return json.dumps(RECORDS.get(id.strip().lower()))
 
     @vf.tool
     def links_to(self, id: str) -> str:
-        """List the ids of records whose `link` points at this record."""
+        """Return the ids of records whose `link` points at this record, as a JSON
+        array of strings. Empty array if none do."""
         target = id.strip().lower()
-        return " ".join(sorted(r["id"] for r in RECORDS.values() if r["link"] == target)) or "none"
+        return json.dumps(sorted(r["id"] for r in RECORDS.values() if r["link"] == target))
 
 
 if __name__ == "__main__":

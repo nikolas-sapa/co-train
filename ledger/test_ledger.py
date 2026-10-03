@@ -128,11 +128,21 @@ def test_the_backlink_answer_is_the_complete_set():
 
 # ----------------------------------------------------------------- the tools
 
+def test_every_tool_returns_parseable_json():
+    """Defect 5: a PTC program has no `import json`, no `.split` and no `ord`, so the
+    only shape it can read is one the bridge can decode for it. Prose or a
+    space-separated list leaves this arm unable to use a tool the bash arm reads fine."""
+    tools = _tools()
+    for text in (tools.ids(), tools.get("r00"), tools.get("r99"),
+                 tools.links_to("r30"), tools.links_to("r99")):
+        json.loads(text)  # raises if a return ever goes back to prose
+
+
 def test_the_tools_answer_correctly():
     tools = _tools()
-    assert tools.get("r00") == json.dumps(RECORDS["r00"])
-    assert sorted(tools.ids().split()) == sorted(RECORDS)
-    assert tools.links_to("r30") == "r21"
+    assert json.loads(tools.get("r00")) == RECORDS["r00"]
+    assert json.loads(tools.ids()) == sorted(RECORDS)
+    assert json.loads(tools.links_to("r30")) == ["r21"]
 
 
 def test_the_tools_are_case_and_whitespace_tolerant():
@@ -144,9 +154,13 @@ def test_the_tools_are_case_and_whitespace_tolerant():
 
 def test_a_missing_record_says_so_instead_of_raising():
     """The reply is data the model reads and can act on. An exception would end the
-    program instead, which measures the runtime rather than the model."""
-    assert _tools().get("r99") == "no such record"
-    assert _tools().links_to("r99") == "none"
+    program instead, which measures the runtime rather than the model.
+
+    JSON `null` and `[]` rather than the prose "no such record"/"none" they used to be:
+    defect 5 made every return JSON so a PTC program can parse one, and a sentence is
+    the one shape it still could not read."""
+    assert json.loads(_tools().get("r99")) is None
+    assert json.loads(_tools().links_to("r99")) == []
 
 
 def test_no_tool_answers_a_task_in_one_call():

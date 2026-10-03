@@ -54,6 +54,34 @@ def _assistant(code: str | None, *, raw_args: str | None = None):
     return {"choices": [{"message": message, "finish_reason": "stop"}]}
 
 
+def _sse(turn: dict) -> str:
+    """Render a scripted turn as the SSE stream the harness reads.
+
+    The arm streams, so the mock must stream too. A mock that kept answering with
+    one non-streaming JSON body would leave the whole file green against a
+    transport production no longer uses.
+    """
+    message = turn["choices"][0]["message"]
+    events: list[dict] = []
+    if message.get("content"):
+        events.append({"choices": [{"delta": {"content": message["content"]}}]})
+    for index, call in enumerate(message.get("tool_calls") or []):
+        events.append({"choices": [{"delta": {"tool_calls": [{
+            "index": index, "id": call["id"],
+            "function": {
+                "name": call["function"]["name"],
+                "arguments": call["function"]["arguments"],
+            },
+        }]}}]})
+    if not events:
+        events.append({"choices": [{"delta": {}}]})
+    # Real streams end with a usage chunk whose `choices` is empty. The mock emits
+    # one so the parser is exercised against the shape that crashed it.
+    events.append({"choices": [], "usage": {"prompt_tokens": 11, "completion_tokens": 3}})
+    rendered = "".join(f"data: {json.dumps(e)}\n\n" for e in events)
+    return rendered + "data: [DONE]\n\n"
+
+
 class Policy:
     """A scripted model. Records every request the harness makes."""
 
@@ -69,7 +97,10 @@ class Policy:
             # Past the script, keep answering with "no tool call" so a loop that
             # over-runs its turn budget fails on the assertion, not on StopIteration.
             turn = self.turns.pop(0) if self.turns else _assistant(None)
-            return httpx.Response(200, json=turn)
+            return httpx.Response(
+                200, content=_sse(turn).encode(),
+                headers={"content-type": "text/event-stream"},
+            )
         return httpx.MockTransport(handle)
 
 
@@ -354,9 +385,11 @@ async def _run_with_mcp(policy: Policy, url: str, **kw):
     harness = PTCHarness(PTCHarnessConfig(tool_timeout=10.0), transport=policy.transport())
     ctx = ModelContext(model="test-model", client=EvalClientConfig())
     data = TaskData(prompt=kw.get("prompt", "look it up"))
+    # The catalog's prefix comes from this key, not from the toolset's TOOL_PREFIX, so a
+    # server served under the wrong name advertises `facts_*` for `ledger`'s tools.
     return await (harness.launch(
         ctx, trace=None, runtime=None, endpoint=ENDPOINT, secret=SECRET,
-        mcp_urls={"facts": url}, data=data,
+        mcp_urls={kw.get("server", "facts"): url}, data=data,
     ))
 
 
@@ -488,3 +521,178 @@ def test_the_program_timeout_is_configurable_and_defaults_to_the_runtime_value()
 
     assert PTCHarnessConfig().program_timeout == TIMEOUT
     assert PTCHarnessConfig(program_timeout=1.5).program_timeout == 1.5
+
+
+def test_the_prompt_advertises_argument_names_not_bare_names():
+    """`_bridge` is keyword-only by design, so a prompt listing bare names leaves the
+    model nothing to guess from -- and it guessed positionally in 26 of the first real
+    run's 54 PTC tool failures, with 8 more arriving as the same mistake wearing a
+    pydantic `Field required`. The names were available the whole time: `connect_mcp`
+    returns the schemas and `_mcp_catalog` discarded them."""
+    from ptc.harness import SYSTEM, render_catalog, schema_params
+
+    schemas = [{"type": "function", "function": {"name": "ledger_get", "parameters": {
+        "type": "object", "properties": {"id": {"type": "string"}},
+        "required": ["id"]}}}]
+    assert schema_params(schemas) == {"ledger_get": ["id"]}
+
+    rendered = render_catalog(["ledger_get"], {"ledger_get": ["id"]})
+    assert rendered == "ledger_get(id=...)"
+
+    prompt = SYSTEM.format(names=rendered)
+    assert "ledger_get(id=...)" in prompt
+    assert "KEYWORD" in prompt, "the convention must be stated, not just implied"
+
+
+def test_required_arguments_render_before_optional_ones():
+    """A signature in schema-dict order would read `links_to(depth=..., id=...)` and
+    invite the model to fill the optional one first."""
+    from ptc.harness import schema_params
+
+    schemas = [{"type": "function", "function": {"name": "links_to", "parameters": {
+        "type": "object",
+        "properties": {"depth": {"type": "integer"}, "id": {"type": "string"}},
+        "required": ["id"]}}}]
+    assert schema_params(schemas)["links_to"] == ["id", "depth"]
+
+
+def test_a_bridged_tool_falls_back_to_the_schema_not_to_kwargs():
+    """`_bridge` exposes only `**arguments`, so introspecting it yields nothing. If
+    `_callable_params` ever claimed a bridged tool takes no arguments, the prompt would
+    advertise `ledger_get()` -- worse than a bare name, because it reads as a promise."""
+    from ptc.harness import _bridge, _callable_params, render_catalog
+
+    bridged = _bridge("ledger_get", {}, {}, None, 1.0)
+    assert _callable_params(bridged) is None
+    assert render_catalog(["ledger_get"], {"ledger_get": None}) == "ledger_get(...)"
+
+
+def test_the_system_prompt_the_model_receives_carries_the_signatures():
+    """The integration half: `render_catalog` can be correct while `launch` still
+    formats bare names, which is exactly the state the first real run shipped in. This
+    reads the prompt off the wire the model saw, not the helper in isolation."""
+    def ledger_get(id):  # noqa: A002 -- mirrors the real catalog's argument name
+        return {"id": id}
+
+    policy = Policy(_assistant(None))
+    _run(policy, Catalog(tools={"ledger_get": ledger_get}))
+    prompt = policy.bodies[0]["messages"][0]["content"]
+    assert "ledger_get(id=...)" in prompt
+
+
+def test_the_ptc_arm_streams_like_the_bash_arm_does():
+    """Posting `stream: False` made four tasks fail 45 times with 504s behind a
+    relay whose gateway timeout only applies to non-streaming requests, while the
+    bash arm streamed through `verifiers` and never hit it. Goes red if the arm
+    ever stops streaming."""
+    policy = Policy(_assistant("print(1)"), _assistant(None))
+    _run(policy, Catalog({}))
+    assert policy.bodies, "the harness made no request"
+    assert all(b["stream"] is True for b in policy.bodies), \
+        [b.get("stream") for b in policy.bodies]
+
+
+def test_the_stream_asks_for_usage_so_cost_is_measurable():
+    """Billed cost per solved task is a pre-registered co-primary. Without
+    `stream_options.include_usage` the stream carries no usage chunk and this arm's
+    cost printed as unknown while bash's did not."""
+    policy = Policy(_assistant("print(1)"), _assistant(None))
+    _run(policy, Catalog({}))
+    assert all(b.get("stream_options") == {"include_usage": True} for b in policy.bodies), \
+        [b.get("stream_options") for b in policy.bodies]
+
+
+def test_a_usage_chunk_with_no_choices_does_not_kill_the_rollout():
+    """The final usage chunk carries `choices: []`. Indexing into it raised
+    KeyError: 'choices' and surfaced as a harness error, i.e. as a task failure."""
+    policy = Policy(_assistant("print(1)"), _assistant(None))
+    log = _run(policy, Catalog({}))
+    assert log is not None
+
+
+def _served_ledger():
+    """The real `ledger` MCP server -- the taskset every real-mode run has scored on.
+
+    `on_pythonpath()` is load-bearing, not decoration: verifiers launches the server as
+    `python -m ledger.servers.store` in its own process, and `ledger` lives in the repo
+    rather than site-packages. Without it the child dies with `No module named 'ledger'`
+    and the test hangs for three minutes on the port-file timeout instead of failing.
+    `ledger/__init__.py` documents this; `glossary` does not need it.
+    """
+    import verifiers.v1 as vf
+    from verifiers.v1.mcp import serve
+
+    import ledger
+    from ledger.servers.store import LedgerToolset
+
+    ledger.on_pythonpath()
+    return serve(LedgerToolset(vf.ToolsetConfig()))
+
+
+def test_a_program_can_aggregate_the_catalog_without_a_parser():
+    """Defect 5, as a test: the PTC arm must be able to COMPUTE over catalog output,
+    not merely print it.
+
+    `_bridge` used to hand the program MCP's text verbatim, so `ledger_get` returned
+    the *string* `'{"amount": 8971, ...}'` and `ledger_ids` a space-separated string.
+    A program cannot read either: the sandbox rejects `import json` and every
+    attribute access (`.split`, `.keys`), and `SAFE_BUILTINS` has no `ord`. The bash
+    arm has no such barrier -- it reads the same strings with its own attention -- so
+    the arms were not comparable on anything requiring aggregation, which is most of
+    the taskset. In run 2f the model spent 25 calls on `total-invoice` building a
+    character-level JSON parser out of `<` comparisons.
+
+    The program below is the shortest thing that needs real data and no text handling.
+    """
+    from ledger.servers.store import RECORDS
+
+    expected = sum(r["amount"] for r in RECORDS.values())
+    program = "print(sum(ledger_get(id=i)['amount'] for i in ledger_ids()))"
+
+    async def go():
+        async with _served_ledger() as url:
+            policy = Policy(_assistant(program), _assistant(None))
+            return await _run_with_mcp(policy, url, server="ledger"), policy
+
+    result, _ = asyncio.run(go())
+    # No rejection, no TypeError -- the catalog handed back data.
+    assert "rejected:" not in result.stdout, result.stdout
+    assert "error:" not in result.stdout, result.stdout
+    assert str(expected) in result.stdout, result.stdout
+
+
+def test_a_catalog_function_returns_data_not_text():
+    """The shape, stated directly, because the test above would also pass if only one
+    of the two functions were decoded."""
+    from ledger.servers.store import RECORDS
+
+    program = (
+        "ids = ledger_ids()\n"
+        "rec = ledger_get(id=ids[0])\n"
+        "print(len(ids), rec['id'], rec['amount'] + 0, len(ledger_links_to(id=ids[0])))"
+    )
+
+    async def go():
+        async with _served_ledger() as url:
+            policy = Policy(_assistant(program), _assistant(None))
+            return await _run_with_mcp(policy, url, server="ledger"), policy
+
+    result, _ = asyncio.run(go())
+    first = sorted(RECORDS)[0]
+    links = sorted(r["id"] for r in RECORDS.values() if r["link"] == first)
+    assert f"{len(RECORDS)} {first} {RECORDS[first]['amount']} {len(links)}" in result.stdout, \
+        result.stdout
+
+
+def test_the_prompt_says_the_catalog_returns_data_not_text(catalog):
+    """Defect 5's other half. The bridge decodes JSON, so a program receives a dict
+    where the tool's own description says "returns a JSON object" -- and a model that
+    believes the description literally reaches for a parser the sandbox does not have.
+    In run 2f that produced 11 `TypeError: string indices must be integers` and one
+    hand-rolled character-level JSON parser. The prompt has to close the gap the
+    decoder opens."""
+    policy = Policy(_assistant(None))
+    _run(policy, catalog)
+    prompt = policy.bodies[0]["messages"][0]["content"]
+    assert "returns DATA, not text" in prompt
+    assert "Do not try to parse" in prompt

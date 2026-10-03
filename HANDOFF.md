@@ -6,6 +6,23 @@ Status as of 2026-09-25: **research complete. Step 1 BUILT** (branch
 `step1-nonsolver-gate`, 18 commits, 51 tests). Next: **Step 2.**
 See `docs/superpowers/specs/` and `docs/superpowers/plans/` for Step 1's spec and plan.
 
+> **⚠ SUPERSEDED FOR CURRENT STATE — 2026-10-03.** Steps 1 and 2 are done, the PTC arm
+> is built, and the untrained premise check has now met a real model seven times
+> (runs 1, 2a-2f, with 2g in flight). **Nothing below this line describes any of that.**
+>
+> - **`docs/deviations.md` is the live record of every real-mode run** and of the five
+>   instrument defects they exposed. Read it before interpreting any number.
+> - **No score comparison from runs 1-2f is admissible** — see `pre-registration.md`
+>   §8/A2. Run 2g is the first whose gap is attributable to the action channel.
+> - **`pre-registration.md` §8 is an append-only amendment log.** A1 records that H1's
+>   predicted +6.8 to +8.4 pp band needs ~732 paired tasks and is below this
+>   instrument's floor.
+> - **Step 3 remains deliberately unstarted**, per the PTC-first decision in
+>   `docs/HANDOFF-STEP2.md`: falsify the premise before building the verifier.
+> - `ptc/paired.py` is the adjudication tool (paired CI, exact McNemar, required n).
+>   Run the test suite as `pytest tests ptc ledger` — bare `pytest` honours
+>   `pytest.ini`'s `testpaths = tests` and silently skips the two suites that matter.
+
 ---
 
 ## The question
@@ -141,6 +158,7 @@ the asymmetry (`08` §8): a deliberately minimal PTC vocabulary makes a PTC loss
 | **T4 = no bf16** | Compute capability 7.5. bf16 needs 8.0. fp16 only. vLLM floor is 7.5, so T4 just clears it; **P100 (6.0) cannot run vLLM at all.** |
 | **Use Unsloth on T4, not raw TRL** | A TRL PR exists *solely* because "T4 in collab need fp16 and vllm defaults to bf16." Unsloth ships 40 Kaggle GRPO notebooks and has done the fp16-on-Turing work. Migrate to TRL/prime-rl only when renting proper hardware. |
 | **TRL trainability gate** | ⚠ **CORRECTED by Step 2 — see `step2/README.md`.** The raise is guarded by `if self.tools`: it is inside the multi-turn tool loop, so a no-tools GRPO run never reaches it. It does not exist at all in TRL ≤ 0.24.0 (`trl/chat_template_utils.py` is 404 at that tag; `self.tools` appears zero times), and **Unsloth pins `trl<=0.24.0`** — so on the Step 2 stack the gate is absent, not merely unfired. Qwen3-0.6B **does fail** the check where it exists (it drops `<think></think>` from history), but TRL auto-repairs it via `get_training_chat_template`, verified False→True here. **The proxy escape hatch is not needed.** Steps 5-6 are a different matter: PTC *is* tool calling, and that path does not exist on the Unsloth stack. |
+| **`verifiers` is pinned to a commit, not a tag** | `ptc/requirements.txt`: `69cc0f9` in `.venv-ptc` (py3.12, reports 0.3.2.dev137). No released tag works — `ptc/harness.py` imports `verifiers.v1.harnesses.utils.mcp`, which was only factored out of the per-harness `program.py` copies *after* the newest tag v0.3.1, so going back through the tags moves away from it. The ref was recovered from `docs/spike-verifiers.md` §Environment, which recorded it; it was **not** re-derived from matching module paths, and PyPI `verifiers` (0.1.5, no `v1/` tree) is a different package. The `glossary` taskset is pinned to the same commit as a `#subdirectory=` — it is `--taskset`'s default and is **not** on PyPI, and the spike had it installed from a since-orphaned `~/scratch/` clone. |
 | **`NCCL_CUMEM_ENABLE=0`** | Set before any vLLM weight sync. 180 s → 4 s on 70B. One env var. |
 | **Sandbox cost ≈ GPU cost** | 256 concurrent rollouts ≈ $42/hr (E2B/Daytona), $61 (Modal), $3.5-9 (Fly Machines). E2B Hobby caps at **20 concurrent** — unusable. Wall-clock billed, so idle environments cost money. |
 
