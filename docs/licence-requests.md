@@ -1,4 +1,4 @@
-# Licence requests — drafted, NOT filed
+# Licence requests — #1 FILED, #2 deliberately not
 
 Two repositories this project wants to reuse ship with **no licence file**, which
 makes them all-rights-reserved by default: public to read, not legal to vendor,
@@ -6,9 +6,19 @@ fork-and-modify, or redistribute. Verified 2026-09-25 (`08` §4a, §4b): GitHub 
 `license: null`, and `LICENSE` / `LICENSE.txt` / `LICENCE` / `COPYING` / `NOTICE`
 all return 404 on both.
 
-**Status: drafted only. Nothing has been posted.** Filing puts a public, permanent,
-attributable comment under the repo owner's GitHub identity, so it needs a human to
-press the button. To file: open the URL, paste the body, submit.
+**Status 2026-10-03.** #1 is **filed**:
+[Qihoo360/harness-bench#14](https://github.com/Qihoo360/harness-bench/issues/14), as
+`nikolas-sapa`, open, awaiting reply. Both repos were re-checked the same day and still
+report `license: null`, eight days after this file was drafted.
+
+**#2 is deliberately NOT filed.** It is wanted only for the recording proxy, and §4b of
+`research/08-gap-closure.md` already found that pattern shipped in three other places with
+real licences (`verifiers`' interception layer, Polar, ClawGym II, plus prime-agent's
+`proxy.ts`). There is nothing to gain that is not already obtainable, so it does not justify
+spending a public comment under a personal identity.
+
+Filing puts a public, permanent, attributable comment under the repo owner's GitHub
+identity. To file #2 if that ever changes: open the URL, paste the body, submit.
 
 ---
 
