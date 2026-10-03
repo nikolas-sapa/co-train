@@ -125,3 +125,52 @@ Not claiming novelty in harness-native training *or* in cross-harness transfer �
 are published (`08` §1.2). The single surviving claim is **harness type as the
 independent variable**: shell vs PTC, model held constant, which is unoccupied across
 20 arXiv queries, 13 Scholar queries and 13 OpenAlex calls.
+
+---
+
+## 8. Amendments
+
+**Append-only. §1-7 above are left byte-identical to what was written on 2026-09-25,
+before any run.** An amendment states what was learned, when, and from which data, and
+it never edits a prediction into agreement with a result. If a reader cannot tell the
+original from the revision, the pre-registration has stopped doing its job.
+
+### A1 — 2026-10-03, after run 2f: H1's predicted band is below this instrument's floor
+
+**What was learned.** `ptc/paired.py` reports the paired tasks needed for 80% power at
+exact McNemar, given an observed discordance rate. At run 2f's rate (0.429), detecting
+§3's APEX-end target of **+6.8 pp needs ~732 paired tasks**. Run 2f carried 14, at
+roughly 3h26m of wall clock for 28 rollouts at `--max-concurrent 1`: ~180 hours for 732.
+Its own point estimate (+28.6 pp) needs 39.
+
+**What this changes, and what it does not.** H1 stands exactly as written, and it is
+**not** restated as a large-effect prediction to make it passable. What changes is the
+claim that will be made from it: this design can report whether a *large* bash-over-PTC
+gap exists, and cannot adjudicate the +6.8 to +8.4 pp band it predicted in either
+direction. A null at this n is not evidence of absence at that band, and will not be
+written as one. §6's kill condition still applies on its own terms — a gap that fails to
+reproduce *directionally* ends the project — and run 2f does not trigger it: the gap
+reproduced, large and in the predicted direction, at p=0.2188 with the CI on the
+difference touching zero.
+
+**Disclosed because it is after the fact.** This amendment was written after seeing run
+2f's numbers. The power ceiling is a property of n and the discordance rate, not of the
+result, and it would have read identically had the sign gone the other way — but it was
+still found by looking, and that is recorded rather than smoothed over.
+
+**Open and deliberately not decided here.** Whether to buy the n. 732 paired tasks is
+reachable only by growing the taskset ~50x, and the aggregation families that produce
+the discordance do not expand per-record the way the lookup families do (there is one
+richest owner). Expanding the cheap families lowers the discordance rate and buys tasks
+without buying power. No taskset expansion is pre-registered by this amendment.
+
+### A2 — 2026-10-03, after run 2f: every real-mode number before run 2g is instrument-bound
+
+Runs 1 through 2f each measured an instrument defect at least as large as the effect
+sought; `docs/deviations.md` carries all five with the trace evidence for each. Defect 5
+is the one that matters for interpretation: the bash arm held the typed catalog as
+native tools *and* reached data it could read with its own attention, while the PTC arm
+reached the same three functions through a sandbox with no parser, making bash's action
+space a strict superset. **No score comparison from runs 1-2f is admissible**, including
+2f's +28.6 pp. Run 2g, post-fix, is the first run whose score gap is attributable to the
+action channel rather than to the rig.
