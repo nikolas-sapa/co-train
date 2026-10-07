@@ -1,11 +1,16 @@
-# Outreach — drafted, NOT sent
+# Outreach — §1 sent, §2 prepared
 
 Companion to `docs/licence-requests.md`. Everything here is addressed to people outside the
-project and therefore needs a human to send it.
+project and therefore needs a human to send it. **§1 was sent 2026-10-07.** §2 is still
+waiting on a human.
 
 ---
 
-## 1. The source paper's authors — DRAFTED, NOT SENT
+## 1. The source paper's authors — SENT 2026-10-07
+
+**Sent 2026-10-07 by the owner, send confirmed.** The text below is what went out, kept
+verbatim as the record. No reply as of that date. It is the reply, or 2026-10-17, that
+releases §2.
 
 **Paper:** "Is Bash All You Need? An Empirical Study of Tool Interfaces for Enterprise
 Digital Worker Agents", arXiv:2609.11999, cs.SE (cross-list cs.AI, cs.CL), submitted
@@ -15,8 +20,8 @@ Digital Worker Agents", arXiv:2609.11999, cs.SE (cross-list cs.AI, cs.CL), submi
 Alejandro Gutierrez Munoz. Hazel Mak (listed on the submission as Sze Ning Hazel Mak) is
 first author and submitter, so she is the addressee.
 
-**Address:** not recorded here. arXiv hides it behind the "view email" link on the abstract
-page; the PDF header is the other source. Look it up at send time rather than storing it.
+**Address:** looked up at send time and deliberately still not recorded here. arXiv hides it
+behind the "view email" link on the abstract page; the PDF header is the other source.
 
 **Why this goes before publication.** The result is a non-reproduction of their paper on a
 small self-authored taskset, and the two questions below could change the write-up entirely.
@@ -74,7 +79,10 @@ repo is private, so there is no link to give until that changes.
 
 ## 2. OSF posting — PREPARED, NOT POSTED
 
-Hold until Hazel Mak replies or two weeks pass (2026-10-17), whichever comes first. OSF is
+**The clock is running: §1 went out 2026-10-07, so the hard date is 2026-10-17.** Post on
+her reply or on that date, whichever comes first. If she answers that her bash condition was
+shell-only, the title changes from a non-reproduction to a different-setup report — so read
+any reply before posting, do not post early. OSF is
 chosen over arXiv deliberately: a first cs.LG/cs.SE submission needs an endorsement, a short
 non-replication is a poor fit for the format, and OSF gives a public URL and DOI with no
 gatekeeper. There is no arXiv mechanism for commenting on someone else's paper.

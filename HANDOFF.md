@@ -6,22 +6,31 @@ Status as of 2026-09-25: **research complete. Step 1 BUILT** (branch
 `step1-nonsolver-gate`, 18 commits, 51 tests). Next: **Step 2.**
 See `docs/superpowers/specs/` and `docs/superpowers/plans/` for Step 1's spec and plan.
 
-> **⚠ SUPERSEDED FOR CURRENT STATE — 2026-10-03.** Steps 1 and 2 are done, the PTC arm
-> is built, and the untrained premise check has now met a real model seven times
-> (runs 1, 2a-2f, with 2g in flight). **Nothing below this line describes any of that.**
+> **⚠ SUPERSEDED FOR CURRENT STATE — 2026-10-03, outreach updated 2026-10-07.** Steps 1
+> and 2 are done, the PTC arm is built, and the untrained premise check met a real model
+> across seven runs. **It is decided: the premise did not hold.**
+> **Nothing below this line describes any of that.**
 >
-> - **`docs/deviations.md` is the live record of every real-mode run** and of the five
->   instrument defects they exposed. Read it before interpreting any number.
-> - **No score comparison from runs 1-2f is admissible** — see `pre-registration.md`
->   §8/A2. Run 2g is the first whose gap is attributable to the action channel.
-> - **`pre-registration.md` §8 is an append-only amendment log.** A1 records that H1's
->   predicted +6.8 to +8.4 pp band needs ~732 paired tasks and is below this
->   instrument's floor.
-> - **Step 3 remains deliberately unstarted**, per the PTC-first decision in
->   `docs/HANDOFF-STEP2.md`: falsify the premise before building the verifier.
+> - **`docs/results-untrained.md` is this project's output** — pre-registration §6 fired.
+>   H1 is wrong on **sign**, not magnitude: run 2h measured PTC 14/14 against bash 12/14,
+>   paired −14.3 pp, PTC 8.5x cheaper per solved task and 8x fewer billed prompt tokens.
+>   Not separable at n=14, so it is reported as a non-reproduction, not a reversal.
+> - **`docs/deviations.md` is the live record of every real-mode run** and of the **six**
+>   instrument defects they exposed — five penalising the PTC arm, the sixth penalising
+>   bash. Read it before interpreting any number.
+> - **Only run 2h is admissible.** Runs 1-2f carry instrument defects (`pre-registration.md`
+>   §8/A2); 2g is unreadable because defect 6 errored the bash arm.
+> - **`pre-registration.md` §8 is an append-only amendment log.** A1's ~732 paired tasks was
+>   computed off 2f's broken-instrument discordance and is **superseded by A3: 242 tasks,
+>   ~7 hours.** A power calculation inherits every bias of the run it is computed from.
+> - **Co-training was never run and H2-H5 are unadjudicated.** Step 3 remains deliberately
+>   unstarted, per the PTC-first decision in `docs/HANDOFF-STEP2.md`.
 > - `ptc/paired.py` is the adjudication tool (paired CI, exact McNemar, required n).
 >   Run the test suite as `pytest tests ptc ledger` — bare `pytest` honours
 >   `pytest.ini`'s `testpaths = tests` and silently skips the two suites that matter.
+> - **Outreach:** the author email went to Hazel Mak **2026-10-07** (`docs/outreach.md` §1).
+>   The OSF posting is prepared and held until she replies or **2026-10-17**, whichever
+>   comes first.
 
 ---
 
