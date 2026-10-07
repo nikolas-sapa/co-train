@@ -202,3 +202,45 @@ wins: the CI on the difference touches zero, exact McNemar gives p=0.5000 on two
 pairs, and PTC's 14/14 is a ceiling that cannot carry an effect size.
 
 Co-training was never run, and nothing here is a verdict on H2 through H5.
+
+### A5 — 2026-10-07, after run 2h: the taskset is extended, and that resets the benchmark
+
+**This amendment discloses a post-hoc change to the instrument. It is the kind of change
+that, left undisclosed, turns a benchmark into a result.**
+
+15 tasks were added to `ledger` (14 → 29). Every one is a second-order read of the same five
+fields: no new field, no new record, no new tool. They differ from the original tier in
+needing an intermediate result — a rank, a mean, a link-walk, a set — before the final one,
+where the original many-call tier is a single filter-and-sum pass.
+
+**Why, stated plainly.** Run 2h scored PTC **14/14**. §4's H2 cites 2607.12640 for the
+finding that GRPO helps *"only when there is headroom to climb"*; a taskset the untrained
+model already solves completely has none, so a co-training run against it could not produce
+a readable result in either direction. The alternative — 242 tasks of the existing shapes,
+per A3 — buys statistical power over tasks both arms already solve, which is power to detect
+nothing. A3's arithmetic stands; it answers a different question than this does.
+
+**What this amendment does NOT license:**
+
+- **No comparison across taskset versions is admissible.** Runs 1 through 2h were scored on
+  the 14-task set. Any future run is scored on the 29-task set. A score from one is not a
+  score from the other, and the two must never appear in the same table as though they were.
+- **`docs/results-untrained.md` is unaffected and is not reopened.** It reports run 2h on
+  the 14-task set, which is what it says it does. The ordering it found is not re-litigated
+  by a harder taskset.
+- **H1 through H5 stay byte-identical and stay adjudicated as they are.** §6 fired. The
+  premise is dead and co-training cannot resurrect it. Any work on the extended taskset is a
+  **new question**, pre-registered separately or not claimed at all.
+- **The construct-validity handicap is now worse, not better.** `ledger/__init__.py` already
+  records that a self-authored catalog is not evidence about catalogs in general. Authoring
+  harder tasks after seeing which shape one arm failed on compounds that: bash's two failures
+  on 2h were arithmetic, and this tier deliberately contains more arithmetic. A reader is
+  entitled to discount it accordingly, and the Harness-Bench request
+  (`docs/licence-requests.md`) remains the only fix that does not have this problem.
+
+**The new question, stated before the data exists**, so that it is a prediction rather than
+a description: run 2h's bash arm retrieved all 40 records correctly and then mis-summed
+fifteen numbers in context, with a shell available and used on 2.3% of calls. **Does forcing
+the action to be expressed as a program make a model compute where a free-text channel lets
+it guess?** That is H4's mechanism, not H1's premise. It needs its own pre-registration
+before any run on this taskset is reported as evidence for it.

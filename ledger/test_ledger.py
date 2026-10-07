@@ -79,6 +79,108 @@ def test_the_answers_are_computed_from_the_data_not_transcribed():
         RECORDS.values(), key=lambda r: (r["amount"], r["id"]))["id"]
 
 
+def test_the_hard_answers_are_computed_from_the_data_not_transcribed():
+    """Same contract as the test above, for the tier added 2026-10-07. Recomputed by a
+    route independent of `_tasks` -- different expressions, not the same comprehension
+    pasted twice -- because a wrong expected value on a hard task is the one defect
+    that reads as the model failing to reason."""
+    answers = {name: answer for name, _p, answer, _m in _tasks()}
+
+    # walk then aggregate
+    for start in ("r03", "r11"):
+        walk, cur = [start], start
+        while RECORDS[cur]["link"]:
+            cur = RECORDS[cur]["link"]
+            walk.append(cur)
+        total = 0
+        for rid in walk:
+            total += RECORDS[rid]["amount"]
+        assert answers[f"chainsum-{start}"] == str(total), start
+    assert answers["chainend-owner-r11"] == RECORDS[_chain_end("r11")]["owner"]
+
+    # rank, not extreme
+    descending = sorted((r["amount"] for r in RECORDS.values()), reverse=True)
+    assert answers["third-largest-amount"] == str(descending[2])
+    assert descending[1] != descending[2], "a tie at rank 3 makes the answer ambiguous"
+
+    kind_totals: dict[str, int] = {}
+    for record in RECORDS.values():
+        kind_totals[record["kind"]] = kind_totals.get(record["kind"], 0) + record["amount"]
+    ranked_kinds = sorted(kind_totals, key=lambda k: kind_totals[k], reverse=True)
+    assert answers["second-kind-total"] == ranked_kinds[1]
+
+    # mean, not sum -- and the two must disagree or the task tests nothing
+    sums: dict[str, int] = {}
+    counts: dict[str, int] = {}
+    for record in RECORDS.values():
+        sums[record["owner"]] = sums.get(record["owner"], 0) + record["amount"]
+        counts[record["owner"]] = counts.get(record["owner"], 0) + 1
+    by_mean = max(sums, key=lambda o: sums[o] / counts[o])
+    assert answers["owner-largest-mean"] == by_mean
+    assert by_mean != max(sums, key=lambda o: sums[o]), (
+        "richest by mean and by sum are the same owner, so the task no longer "
+        "distinguishes a mean from a sum")
+
+    mean = sum(r["amount"] for r in RECORDS.values()) / len(RECORDS)
+    assert answers["above-mean-count"] == str(
+        len([r for r in RECORDS.values() if r["amount"] > mean]))
+
+    # set reasoning
+    kinds_per_owner: dict[str, set[str]] = {}
+    for record in RECORDS.values():
+        kinds_per_owner.setdefault(record["owner"], set()).add(record["kind"])
+    every_kind = {r["kind"] for r in RECORDS.values()}
+    complete = sorted(o for o, ks in kinds_per_owner.items() if ks == every_kind)
+    assert answers["owners-all-kinds"] == " ".join(complete)
+    assert 0 < len(complete) < len(kinds_per_owner), (
+        "every owner or no owner holds all kinds, so the answer is degenerate")
+    assert answers["invoice-total-all-kind-owners"] == str(sum(
+        r["amount"] for r in RECORDS.values()
+        if r["owner"] in complete and r["kind"] == "invoice"))
+
+    pointed_at = [r["link"] for r in RECORDS.values() if r["link"]]
+    assert answers["isolated-total"] == str(sum(
+        r["amount"] for r in RECORDS.values()
+        if r["link"] is None and r["id"] not in pointed_at))
+
+    for kind in every_kind:
+        assert answers[f"kind-max-{kind}"] == str(
+            max(r["amount"] for r in RECORDS.values() if r["kind"] == kind)), kind
+
+
+def test_the_longest_chain_start_is_unambiguous():
+    """A tie for longest chain makes the answer arbitrary, and the arm that picked the
+    other one would be marked wrong for being right."""
+    lengths: dict[str, int] = {}
+    for rid in RECORDS:
+        seen, cur, n = set(), rid, 1
+        while RECORDS[cur]["link"] and cur not in seen:
+            seen.add(cur)
+            cur = RECORDS[cur]["link"]
+            n += 1
+        lengths[rid] = n
+    ranked = sorted(lengths.values(), reverse=True)
+    assert ranked[0] > ranked[1], "two records begin chains of equal longest length"
+    answers = {name: answer for name, _p, answer, _m in _tasks()}
+    assert lengths[answers["longest-chain-start"]] == ranked[0]
+
+
+def test_the_hard_tier_needs_more_than_one_pass_over_the_data():
+    """The point of this tier is that filter-and-sum is not enough. Each of these needs
+    an intermediate result -- a rank, a mean, a walk, a set -- before the final one, and
+    every one of them is reported at the full-scan cost so the cost co-primary stays
+    readable against difficulty."""
+    second_order = {
+        "third-largest-amount", "second-kind-total", "owner-largest-mean",
+        "above-mean-count", "owners-all-kinds", "invoice-total-all-kind-owners",
+        "isolated-total", "longest-chain-start",
+    }
+    calls = {name: m for name, _p, _a, m in _tasks()}
+    assert second_order <= set(calls), second_order - set(calls)
+    for name in second_order:
+        assert calls[name] == len(RECORDS), name
+
+
 def test_the_chain_answers_are_terminal():
     """A chain answer that still has a link is a truncated walk, and a model that
     walked one step further would be marked wrong for being right."""

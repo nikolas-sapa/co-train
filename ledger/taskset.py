@@ -47,6 +47,19 @@ def _chain_end(start: str) -> str:
     return current
 
 
+def _chain(start: str) -> list[str]:
+    """The whole chain from `start` to its end, inclusive. Same bound as `_chain_end`
+    for the same reason. Kept separate rather than folded into it: the end-only walk is
+    load-bearing for four existing answers and a tested cycle guard, and widening its
+    return type would have meant touching all of them."""
+    seen, current, out = set(), start, [start]
+    while RECORDS[current]["link"] and current not in seen:
+        seen.add(current)
+        current = RECORDS[current]["link"]
+        out.append(current)
+    return out
+
+
 def _tasks() -> list[tuple[str, str, str, int]]:
     """(name, prompt, answer, minimum tool calls a correct solution needs)."""
     by_kind: dict[str, list[dict]] = {}
@@ -119,6 +132,145 @@ def _tasks() -> list[tuple[str, str, str, int]]:
         "Which record has the largest amount? Reply with its id alone in "
         "<answer></answer> tags.",
         largest["id"],
+        len(RECORDS),
+    ))
+
+    # --- the hard tier: added 2026-10-07, AFTER the premise check -------------
+    #
+    # Run 2h scored PTC 14/14 on everything above. A benchmark the untrained model
+    # already aces cannot show a training effect -- there is no headroom to climb, and
+    # a flat post-training result would be unreadable (`docs/pre-registration.md` §8/A5
+    # records that this extension is post-hoc and that no comparison across taskset
+    # versions is admissible). 2607.12640, cited in §4's H2, is the reason: GRPO helped
+    # "only when there is headroom to climb".
+    #
+    # Every shape below is a SECOND-ORDER read of the same five fields: no new fields,
+    # no new tools, no new record. What makes them hard is that the single-pass
+    # filter-and-sum that solves the tier above is not enough -- each needs an
+    # intermediate result (a mean, a rank, a walk, a set) before the final one. That is
+    # also the shape the 2h finding points at: bash retrieved all 40 records correctly
+    # and then mis-summed fifteen numbers in context, so the open question is whether a
+    # model computes when the action must be expressed as a program.
+    #
+    # ponytail: no new data file. 40 records support these; what they did not support
+    # was 242 tasks of the EXISTING shapes, which is a different problem (A3).
+
+    # walk then aggregate: the chain tasks above stop at the end, these sum it
+    for start in ("r03", "r11"):
+        walk = _chain(start)
+        out.append((
+            f"chainsum-{start}",
+            f"Start at record {start} and follow its `link` to the end of the chain. "
+            f"What is the total amount across every record in that chain, including "
+            f"{start} itself and the last one? Reply with the number alone in "
+            f"<answer></answer> tags.",
+            str(sum(RECORDS[r]["amount"] for r in walk)),
+            len(walk),
+        ))
+    out.append((
+        "chainend-owner-r11",
+        "Start at record r11 and follow its `link` to the end of the chain. Who owns "
+        "the last record in that chain? Reply with the owner name alone in "
+        "<answer></answer> tags.",
+        RECORDS[_chain_end("r11")]["owner"],
+        len(_chain("r11")),
+    ))
+    longest = min(RECORDS, key=lambda i: (-len(_chain(i)), i))
+    out.append((
+        "longest-chain-start",
+        "Every record may link to another, forming chains. Which record begins the "
+        "longest chain? Reply with its id alone in <answer></answer> tags.",
+        longest,
+        len(RECORDS),
+    ))
+
+    # rank, not extreme: off-by-one is the failure this is here to catch
+    ranked = sorted((r["amount"] for r in RECORDS.values()), reverse=True)
+    out.append((
+        "third-largest-amount",
+        "What is the third largest amount in the ledger? Reply with the number alone "
+        "in <answer></answer> tags.",
+        str(ranked[2]),
+        len(RECORDS),
+    ))
+    kind_totals = {k: sum(r["amount"] for r in v) for k, v in by_kind.items()}
+    out.append((
+        "second-kind-total",
+        "Rank the record kinds by their total amount. Which kind has the second "
+        "largest total? Reply with the kind alone in <answer></answer> tags.",
+        sorted(kind_totals, key=lambda k: (-kind_totals[k], k))[1],
+        len(RECORDS),
+    ))
+
+    # mean, not sum: the richest owner by sum and by mean are different owners, so an
+    # arm that reaches for the sum it already computed gets this one wrong
+    out.append((
+        "owner-largest-mean",
+        "Which owner has the largest MEAN amount across their own records? Reply with "
+        "the owner name alone in <answer></answer> tags.",
+        min(owners, key=lambda o: (
+            -sum(r["amount"] for r in RECORDS.values() if r["owner"] == o)
+            / sum(1 for r in RECORDS.values() if r["owner"] == o), o)),
+        len(RECORDS),
+    ))
+    mean = sum(r["amount"] for r in RECORDS.values()) / len(RECORDS)
+    out.append((
+        "above-mean-count",
+        "How many records have an amount strictly greater than the mean amount across "
+        "the whole ledger? Reply with the number alone in <answer></answer> tags.",
+        str(sum(1 for r in RECORDS.values() if r["amount"] > mean)),
+        len(RECORDS),
+    ))
+
+    # set reasoning across both link directions, and across kinds
+    all_kinds = set(by_kind)
+    all_kind_owners = sorted(
+        o for o in owners
+        if {r["kind"] for r in RECORDS.values() if r["owner"] == o} == all_kinds)
+    out.append((
+        "owners-all-kinds",
+        "Which owners own at least one record of every kind in the ledger? Reply with "
+        "their names in alphabetical order, separated by single spaces, in "
+        "<answer></answer> tags.",
+        " ".join(all_kind_owners),
+        len(RECORDS),
+    ))
+    out.append((
+        "invoice-total-all-kind-owners",
+        "Consider only the owners who own at least one record of every kind. What is "
+        "the total amount of their invoice records? Reply with the number alone in "
+        "<answer></answer> tags.",
+        str(sum(r["amount"] for r in RECORDS.values()
+                if r["kind"] == "invoice" and r["owner"] in all_kind_owners)),
+        len(RECORDS),
+    ))
+    linked_to = {r["link"] for r in RECORDS.values() if r["link"]}
+    out.append((
+        "isolated-total",
+        "A record is isolated if it links to nothing and nothing links to it. What is "
+        "the total amount across every isolated record? Reply with the number alone in "
+        "<answer></answer> tags.",
+        str(sum(r["amount"] for r in RECORDS.values()
+                if not r["link"] and r["id"] not in linked_to)),
+        len(RECORDS),
+    ))
+
+    # two constraints at once, the cheapest of the hard shapes
+    for kind in sorted(by_kind):
+        out.append((
+            f"kind-max-{kind}",
+            f"What is the largest amount on any {kind} record? Reply with the number "
+            f"alone in <answer></answer> tags.",
+            str(max(r["amount"] for r in by_kind[kind])),
+            len(RECORDS),
+        ))
+    top_owner = max(owners, key=lambda o: sum(1 for r in RECORDS.values() if r["owner"] == o))
+    out.append((
+        f"count-{top_owner}-invoice",
+        f"How many invoice records does {top_owner} own? Reply with the number alone "
+        f"in <answer></answer> tags.",
+        str(sum(1 for r in RECORDS.values()
+                if r["owner"] == top_owner and r["kind"] == "invoice")),
         len(RECORDS),
     ))
     return out
