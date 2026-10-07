@@ -102,6 +102,24 @@ def paired(a: dict[str, float], b: dict[str, float]) -> dict:
     shared = sorted(set(a) & set(b))
     if not shared:
         raise SystemExit("no shared task names -- are these the same taskset?")
+    # An intersection was silently narrowing the comparison. If one arm dies partway
+    # through -- which 2g did, and run 1, and 2a-2e -- the surviving tasks still
+    # intersect, so this reported `n (paired) 12` on a 29-task taskset and a BROKEN run
+    # read as a clean underpowered one. The arms are paired by construction (one rollout
+    # per task on a shared taskset, pre-reg §3); unequal sets mean the pairing is gone
+    # and no delta computed from them is admissible. Fail closed and name what is
+    # missing, rather than average what is left.
+    missing_from_a = sorted(set(b) - set(a))
+    missing_from_b = sorted(set(a) - set(b))
+    if missing_from_a or missing_from_b:
+        raise SystemExit(
+            "the arms did not run the same tasks, so the pairing is broken and no "
+            "paired delta from them is admissible.\n"
+            f"  {len(shared)} shared, {len(missing_from_a)} missing from arm A, "
+            f"{len(missing_from_b)} missing from arm B\n"
+            f"  absent from A: {', '.join(missing_from_a) or 'none'}\n"
+            f"  absent from B: {', '.join(missing_from_b) or 'none'}\n"
+            "Re-run the arm that died. A partial arm is a void run, not a small one.")
     diffs = [a[t] - b[t] for t in shared]
     wins = sum(1 for d in diffs if d > 0)
     losses = sum(1 for d in diffs if d < 0)
