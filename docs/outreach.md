@@ -77,7 +77,12 @@ repo is private, so there is no link to give until that changes.
 
 ---
 
-## 2. OSF posting — PREPARED, NOT POSTED
+## 2. OSF posting — DRAFTED ON OSF, PRIVATE, NOT PUBLISHED
+
+**Node `2hfzt` exists: https://osf.io/2hfzt/ — created 2026-10-07, `public: false`.** Title,
+description (abstract plus the limitations paragraph) and tags are set; all three files are
+uploaded and md5-verified against the repo copies. **Everything reversible is done.** What
+remains is the one irreversible step: flip the node public and mint the DOI.
 
 **The clock is running: §1 went out 2026-10-07, so the hard date is 2026-10-17.** Post on
 her reply or on that date, whichever comes first. If she answers that her bash condition was
@@ -106,7 +111,9 @@ produced it
 > arithmetic on data it had retrieved correctly.
 
 **Files to upload:** `docs/results-untrained.md`, `docs/deviations.md`,
-`docs/pre-registration.md`.
+`docs/pre-registration.md`. **Uploaded 2026-10-07**, md5 verified against the repo copies.
+Re-upload if any of the three changes before publication — the node holds a snapshot, not a
+reference.
 
 **State the limitations in the OSF description, not only in the paper:** n=14, one model, one
 provider (an unaudited third-party relay), a self-authored taskset, no repeats, and a
