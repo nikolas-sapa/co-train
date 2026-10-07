@@ -14,6 +14,30 @@ amendment.
 
 ---
 
+## How to launch a real-mode run (recorded 2026-10-07, because it was not written down)
+
+Every run below names the relay as "VyceAI" and none of them records the endpoint, so
+reproducing one meant reverse-engineering it out of `~/.zshrc`. The invocation is:
+
+```
+./.venv-ptc/bin/python ptc/compare.py real \
+  --taskset ledger --model deepseek-v4-flash \
+  --base-url https://vyceai.com/v1 --key-var VYCEAI_API_KEY \
+  --num-tasks 29 --arms bash,ptc --max-turns 80 --max-concurrent 1 \
+  --price-in 0.09 --price-out 0.18 --output-dir ~/scratch/<run>
+```
+
+`GET https://vyceai.com/v1/models` lists the available ids and is free, so it is the
+cheap way to confirm `deepseek-v4-flash` still resolves before spending a run on it.
+`https://api.vyceai.com/v1` is NOT the endpoint — it answers, but not with JSON.
+
+This does not retire the standing validity threat: the relay is third-party and
+unaudited, and what `deepseek-v4-flash` means on the far side is still not verifiable
+from here. Writing the URL down makes the run reproducible, not the model identity
+trustworthy.
+
+---
+
 ## Deviation 01 — untrained measurement, run 1 void on instrument defect
 
 **Run 1.** 2026-10-01, `ptc/compare.py real`, taskset `ledger`, n=14, `num_rollouts=1`,
