@@ -40,6 +40,20 @@ leaving the default at 0 rather than raising it. A run that needs eight attempts
 rollout is telling you something, so read the retry count in the output rather than passing
 the flag and looking away.
 
+**Do not run the test suite while a real-mode run is in flight.** `pytest tests ptc
+ledger` serves MCP servers from two different test files in one session, and a live run is
+spawning its own; under that contention a server loses the port-startup race and the test
+waiting on it burns the ~3 minute port-file timeout. It fails as an *assertion* in whichever
+server-dependent test drew the short straw, which reads like a logic regression and is not
+one. Two runs on 2026-10-07 failed that way, each on a DIFFERENT test, with suite times of
+162s and 696s against a normal 14-17s.
+
+Measured both ways before trusting it: three sequential full-suite runs at the commit before
+the A5 taskset extension and three after, nothing else running — 207 passed in 14.3/17.8/14.2s
+and 215 passed in 16.4/14.4/14.2s, zero failures. `ptc/test_harness.py` alone is 42 passed in
+~11s, 3/3, and does not flake even with a second pytest running concurrently. **A suite time
+over ~30s is the tell: read it as contention and re-run clean, do not debug the assertion.**
+
 `GET https://vyceai.com/v1/models` lists the available ids and is free, so it is the
 cheap way to confirm `deepseek-v4-flash` still resolves before spending a run on it.
 `https://api.vyceai.com/v1` is NOT the endpoint — it answers, but not with JSON.
