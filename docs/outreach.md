@@ -98,23 +98,49 @@ produced it
 **Abstract:**
 
 > A premise check for a co-training experiment attempted to reproduce the untrained
-> bash-over-programmatic-tool-calling gap reported in arXiv:2609.11999 (+6.8 to +22.0 pp in
-> favour of a shell interface). Across seven runs on a 40-record ledger taskset with a single
-> small model, the gap reproduced only while the measuring instrument was defective. Six
-> defects were found, five penalising the PTC arm and one the shell arm, each invisible to a
-> passing test suite and detectable only against a live endpoint. The largest was an
-> action-space asymmetry: both arms received identical tools, but the shell arm read tool
-> output as text while the PTC arm received it inside a sandbox with no parser, making the
-> shell arm's action space a strict superset. After correction the ordering inverted (PTC
-> 14/14 versus 12/14, at 8x fewer billed prompt tokens), though not separably at n=14.
-> Reported as a non-reproduction rather than a reversal. The shell arm's only failures were
-> arithmetic on data it had retrieved correctly.
+> bash-over-programmatic-tool-calling (PTC) gap reported in arXiv:2609.11999 (+6.8 to
+> +22.0 pp in favour of a shell interface). Across ten runs on a 40-record ledger taskset
+> with a single small model, the gap reproduced only while the measuring instrument was
+> defective.
+>
+> Nine defects were found and fixed, each invisible to a passing test suite and detectable
+> only against a live endpoint, or against its own output read carefully. Six were in the
+> measurement harness: the largest was an action-space asymmetry, where both arms received
+> identical tools but the shell arm read tool output as text while the PTC arm received it
+> inside a sandbox with no parser, making the shell arm's action space a strict superset.
+> Five of the six penalised the PTC arm and one the shell arm. Three more were in the tools
+> that adjudicate the result: a partial-run guard that only fired on an empty overlap, a
+> reader that scored an errored rollout 0.0 and so could not distinguish a crash from a
+> wrong answer, and an interaction interval computed on the reverse difference. The
+> instrument has been the problem at least as often as the thing it measures.
+>
+> After the harness corrections the ordering inverted on the original 14 tasks (PTC 14/14
+> against the shell arm's 12/14, at 8x fewer billed prompt tokens), though not separably at
+> n=14. Reported as a non-reproduction, not a reversal. The shell arm's only failures were
+> arithmetic on data it had retrieved correctly, with a shell available and used on 2.3% of
+> its calls.
+>
+> That ceiling prompted 15 harder tasks (14 to 29), each a second-order read of the same
+> records: a rank, a mean, a link-walk or a set, rather than a single filter-and-sum pass.
+> On the extended taskset the effect resolves by task tier rather than overall. The shell
+> arm leads on single-call retrieval (+18.2 pp on 11 cheap tasks) and PTC leads where a
+> program must be written to compute (-5.6 pp on 18 full-scan tasks), a tier interaction of
+> -23.7 pp with a 95% CI of [-64.1, +15.2]. The marginal across all 29 tasks is +3.4 pp to
+> the shell arm with p=1.0000, which is a wash and not the finding. Nothing here is
+> statistically separable at these sample sizes, and the pre-registered prediction for the
+> interaction (-25 pp) was missed by 1.3 pp.
+>
+> The extension is a post-hoc instrument change, disclosed as an append-only amendment and
+> carrying the handicap that the harder tasks were written after observing which shape the
+> shell arm failed on.
 
 **Files to upload:** `docs/results-untrained.md`, `docs/deviations.md`,
 `docs/pre-registration.md`. **Uploaded 2026-10-07**, md5 verified against the repo copies.
 Re-upload if any of the three changes before publication — the node holds a snapshot, not a
 reference.
 
-**State the limitations in the OSF description, not only in the paper:** n=14, one model, one
-provider (an unaudited third-party relay), a self-authored taskset, no repeats, and a
-saturated PTC arm that cannot carry an effect size.
+**State the limitations in the OSF description, not only in the paper:** n=11 and n=18 within
+tier, one model, one provider (an unaudited third-party relay, so model identity is not
+verifiable and is load-bearing), a self-authored taskset whose harder tier was written after
+seeing which shape one arm failed on, no repeats, and a retry budget that had to be raised to
+survive a per-account request-rate limit on the longer rollouts.
