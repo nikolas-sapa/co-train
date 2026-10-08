@@ -737,3 +737,64 @@ what it says. But on the extended taskset the untrained ordering is now **bash a
 cheap tier and PTC ahead on the full-scan tier, with the marginal in bash's favour by 3.4 pp
 and p=1.0000.** Anyone reading the 2h inversion as "PTC wins" should read this alongside it:
 the effect is tier-dependent, and the aggregate is a wash.
+
+---
+
+## Run 3d — clean, and the tier pattern holds while the magnitude shrinks
+
+2026-10-08, 29 tasks, `--max-turns 150 --max-retries 20 --max-concurrent 1`. **The cleanest
+run in the project: zero voids, zero truncations, 29 `agent_completed` on both arms.**
+
+| | bash | ptc |
+|---|---|---|
+| score | 23/29 (0.7931) | 23/29 (0.7931) |
+| cost / solved | $0.0090 | **$0.0010** |
+| billed prompt tokens | 2,229,481 | 208,780 |
+| tool calls / turns | 822 / 851 | 156 / 185 |
+| shell-call share | 0.0304 | 0.0000 |
+
+**Exact tie on score**, and 5 `HarnessError`s on bash were retried away to completion rather
+than voiding anything — the 150-turn budget was sufficient for `longest-chain-start`, which
+is what 3c's single truncation was about.
+
+### Across three consecutive clean runs
+
+| | 3b (void) | 3c | 3d |
+|---|---|---|---|
+| bash / ptc | incomplete | 21 / 20 | **23 / 23** |
+| cheap tier delta | — | +18.2 pp | **+9.1 pp** |
+| full-scan delta | — | −5.6 pp | **−5.6 pp** |
+| interaction | — | −23.7 pp | **−14.6 pp**, CI [−49.5, +16.7] |
+| bash full-scan shell share | — | 0.0140 | **0.0300** |
+| voids | 10 | 0 | **0** |
+
+**The full-scan delta is −5.6 pp in both clean runs — identical to the decimal.** With n=18
+that is 12 against 13, one task apart, so the agreement is as likely to be the small integer
+grid as a stable effect. It should not be read as replication at this n.
+
+**N1 not met, on either clean run.** Predicted ≤ −25 pp; measured −23.7 then −14.6. The
+direction has held three times and the magnitude has never approached the bar I signed. The
+cheap tier's bash advantage halved between the two runs (+18.2 → +9.1) while full-scan's
+barely moved, so even the consistency of the *gap* is driven by the tier that is noisier at
+n=11.
+
+### N3 holds, and its falsification test failed to fire
+
+bash's full-scan shell share **rose** from 0.0140 to 0.0300, and 6 of 18 rollouts now do some
+arithmetic against 4 of 18 in 3c. **Its full-scan score did not rise with it — 0.667, exactly
+as in 3c.** A6 named this the prediction most worth being wrong about, on the ground that a
+share rising *together with* the score would mean the mechanism is tool availability rather
+than channel, and the framing should be retired. Availability increased, solve rate did not:
+the mechanism is not availability. Retained.
+
+### The honest summary after three runs
+
+The cost result is the only one that has never wavered: PTC at **$0.0010–0.0013 per solved
+task** against bash's $0.0071–0.0099, on 8-10x fewer billed prompt tokens, because bash
+re-sends its whole transcript once per turn. That is structural, it favours PTC under the
+pre-registered co-primary, and it would hold even at an exact score tie — which run 3d is.
+
+Score-wise the project now has: a premise that failed to reproduce, an inverted ordering on
+the original 14 tasks that did not survive extension to 29, and on the extended set a tier
+interaction that points consistently one way and has never cleared significance or the signed
+threshold. **The defensible finding is the cost structure, not the accuracy ordering.**
