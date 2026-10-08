@@ -57,7 +57,11 @@ def mcnemar_exact(b: int, c: int) -> float:
 def bootstrap_interaction(diffs_low: list[float], diffs_high: list[float],
                           iters: int = 2000, alpha: float = 0.05,
                           seed: int = 0) -> tuple[float, float] | None:
-    """Percentile CI on `mean(high-tier delta) - mean(low-tier delta)`.
+    """Percentile CI on `mean(diffs_high) - mean(diffs_low)`.
+
+    Argument ORDER is the difference and the sign depends on it, so callers pass these by
+    keyword. The interval is on the interaction as A6 defines it, `full-scan minus cheap`,
+    which means `diffs_low` is the CHEAP tier.
 
     A6 pre-specifies the interaction as "the difference of those two paired deltas", so
     the interval that decides N1 is the interval on that difference -- not either tier's
@@ -326,7 +330,13 @@ def main(argv: list[str]) -> int:
             # here would repeat this project's own recurring defect: reporting a number
             # whose interval nobody computed.
             inter = deltas["full-scan"] - deltas["cheap"]
-            ici = bootstrap_interaction(diffs["full-scan"], diffs["cheap"])
+            # Keyword arguments deliberately: this call site passed (full-scan, cheap)
+            # positionally into a signature named (low, high) and printed the interval on
+            # the REVERSE difference -- [-13.1, +64.1] for a point estimate of -23.7 pp,
+            # an estimate sitting outside its own CI. Naming the sides here makes the
+            # order unswappable.
+            ici = bootstrap_interaction(diffs_low=diffs["cheap"],
+                                        diffs_high=diffs["full-scan"])
             iband = (f"[{ici[0] * 100:+.1f}, {ici[1] * 100:+.1f}]" if ici else "n/a")
             print("-" * 70)
             print(f"interaction (full-scan delta - cheap delta)   {inter * 100:+.1f} pp"

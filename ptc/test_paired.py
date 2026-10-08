@@ -20,6 +20,7 @@ from math import comb  # noqa: E402
 import random  # noqa: E402
 
 from ptc.paired import (  # noqa: E402
+    bootstrap_interaction,
     mcnemar_exact,
     paired,
     power_pairs,
@@ -296,3 +297,40 @@ def test_power_matches_a_simulation_of_the_test_it_claims_to_size():
     simulated = rejected / trials
     assert simulated == pytest.approx(0.80, abs=0.06), (
         f"simulated power {simulated:.3f} disagrees with the analytic sizing")
+
+
+def test_the_interaction_interval_is_on_high_minus_low_and_contains_the_estimate():
+    """The bug this pins, found 2026-10-08: `main` passed (full-scan, cheap) positionally
+    into a signature named (low, high), so the printed interval was on the REVERSE
+    difference -- [-13.1, +64.1] against a point estimate of -23.7 pp. An estimate outside
+    its own confidence interval is the tell; it is impossible for a correct percentile
+    bootstrap around a mean."""
+    low = [1.0, 1.0, 0.0, 0.0, 0.0]      # +40 pp
+    high = [0.0, -1.0, -1.0, 0.0, 0.0]   # -40 pp
+    ci = bootstrap_interaction(low, high, iters=500)
+    point = sum(high) / len(high) - sum(low) / len(low)
+    assert point == pytest.approx(-0.8)
+    assert ci[0] <= point <= ci[1], f"point {point} outside its own interval {ci}"
+
+
+def test_the_interval_reproduces_a_hand_computed_percentile_bootstrap():
+    """Exact, so it pins the RNG consumption order as well as the direction: the low tier
+    is resampled first, then the high tier, and the draw is high minus low."""
+    low, high = [1.0, 0.0], [-1.0, 0.0]
+    iters, seed = 100, 7
+    ci = bootstrap_interaction(low, high, iters=iters, seed=seed)
+
+    rng = random.Random(seed)
+    draws = []
+    for _ in range(iters):
+        lo = sum(rng.choices(low, k=len(low))) / len(low)
+        hi = sum(rng.choices(high, k=len(high))) / len(high)
+        draws.append(hi - lo)
+    draws.sort()
+    assert ci == pytest.approx((draws[int(0.025 * iters)],
+                                draws[min(iters - 1, int(0.975 * iters))]))
+
+
+def test_the_interval_needs_at_least_two_samples_on_both_sides():
+    assert bootstrap_interaction([1.0], [0.0, 1.0]) is None
+    assert bootstrap_interaction([1.0, 0.0], [0.0]) is None

@@ -639,8 +639,15 @@ in advance, which is just as well.
 
 ### Against the signed predictions
 
-- **N1 — NOT met.** Predicted the interaction at ≤ −25 pp; measured **−23.7 pp**. Direction
-  correct, magnitude short by 1.3 pp. Cheap tier: bash +18.2 pp (0.909 vs 0.727), CI
+- **N1 — NOT met, and not separable.** Predicted the interaction at ≤ −25 pp; measured
+  **−23.7 pp**, 95% CI **[−64.1, +15.2]** — direction correct, magnitude short by 1.3 pp,
+  and the interval includes zero, so the tier asymmetry is a point estimate on this n and
+  not a demonstrated effect either. The first interval this tool printed for it was
+  `[−13.1, +64.1]`, which put the estimate OUTSIDE its own CI; the call site was passing
+  `(full-scan, cheap)` positionally into a signature named `(low, high)` and reporting the
+  interval on the reverse difference. Fixed and pinned by tests (see below). Either way the
+  conclusion is the same — includes zero — but the printed number was wrong, which is worse
+  than useless in a file like this one. Cheap tier: bash +18.2 pp (0.909 vs 0.727), CI
   [+0.0, +45.5], p=0.5000. Full-scan tier: bash **−5.6 pp** (0.611 vs 0.667), CI
   [−38.9, +27.8], p=1.0000. The interaction is real and points the way A6 said, but on this
   n it does not clear the bar I signed — and 18 full-scan tasks cannot separate a 5.6 pp gap.
@@ -651,6 +658,24 @@ in advance, which is just as well.
   and then guesses even where a shell is exactly what the task needs.
 - **N4 — MET, better than predicted.** 0 void rollouts against a predicted ≤ 4. The retry
   budget was the whole constraint; the endpoint was never the problem.
+
+### Two tool defects found while adjudicating this run
+
+Both in `ptc/paired.py`, both found by the numbers looking wrong rather than by a test:
+
+1. **`power_pairs` took 115 seconds and left a redirected stdout at 0 bytes**, which read as
+   a silent failure and sent me chasing a nonexistent bug through the shell. `crit` was
+   recomputed inside the candidate-`n` loop as an `O(d^2)` scan. It depends only on `d`, and
+   it is monotone in `k`, so it is now cached and binary-searched: 115s → 16s, identical
+   answers on all seven reference cases.
+2. **The interaction interval was computed on the reverse difference** — see N1 above. The
+   tell was an estimate sitting outside its own CI, which a correct percentile bootstrap
+   cannot do.
+
+Neither was caught by the suite, because the suite tested the harness and not the reading of
+its output — the same gap that produced the `paired.py` void-rollout defect a day earlier.
+That is now three defects in the tools that adjudicate results, against six in the harness
+itself. **The instrument has been the problem at least as often as the thing it measures.**
 
 ### The one budget caveat
 
