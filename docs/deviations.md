@@ -65,6 +65,50 @@ trustworthy.
 
 ---
 
+## The defect ledger (added 2026-10-08, because the count kept being asserted)
+
+**Twelve distinct faults: nine in the harness, three in the adjudication tools.** Written
+down because three totals were in circulation and none had been derived. The vault index
+says "six", which was correct as of run 2h and stopped being correct at run 3b. An OSF
+abstract drafted on 2026-10-07 asserted nine with a "six harness, three tools" split, which
+sums to nine and describes the wrong nine. A number in a published abstract has to be
+derived, not remembered.
+
+**Counting convention, stated so the total reproduces:** one row per fault that made a run
+inadmissible, however it was numbered in the prose below. This file numbers seven of them
+(1-7, of which "Defect 5" and "defect 6" appear literally, and 7 is titled "the seventh
+defect"). `Deviation 02a` contributes two more that are unnumbered — knock-ons introduced by
+defect 4's fix — which is why the numbered total and the true total differ by exactly two.
+
+### Harness — nine
+
+| fault | file's label | found by | run |
+|---|---|---|---|
+| turn budget of 8 never reached the PTC harness, so the cap bound 11 of 14 PTC rollouts while bash used up to 80 | 1, in `Deviation 01` | run 1's own turn counts | 1 |
+| the rig reported that binding cap as `TRUNCATED (budget) 0` — the instrument asserted its own soundness falsely | 2, in `Deviation 01` | the trace contradicting the table | 1 |
+| PTC's system prompt advertised bare tool names at a keyword-only bridge; 34 of 54 tool failures were this one mismatch | 3, in `Deviation 01` | tool-failure breakdown | 1 |
+| PTC posted `stream: False` into a relay whose gateway timeout applies only to non-streaming requests — 504 on every attempt, so a larger retry budget changed nothing | 4, `Deviation 02` | measuring the endpoint directly | 2d |
+| the SSE parser indexed `choices[0]` on the final usage chunk, which carries `choices: []` — `KeyError` on 2 PTC rollouts, surfacing as a task failure | unnumbered, `Deviation 02a` | the fix's own side effect | 2e |
+| the request omitted `stream_options.include_usage`, so PTC's cost per solved task printed as unknown while bash's did not — a co-primary silently lost on one arm only | unnumbered, `Deviation 02a` | the empty column | 2e |
+| the catalog was not typed and the sandbox denied every parser: same three tools both arms, but bash's action space was a strict superset | "Defect 5" | reading what each arm actually received | 2f |
+| the arms name the same transport fault differently, so retryability was decided by which arm's code owned the socket | "defect 6" | a relay timeout fatal on one arm and retried on the other | 2g |
+| full-scan rollouts die on a per-account request-rate limit, confounding the tier comparison it was meant to produce | "the seventh defect" | 10 of 10 void rollouts being the 40-call tasks | 3b |
+
+### Adjudication tools — three
+
+| fault | found by |
+|---|---|
+| `paired.py` intersected arm task names and only errored on an empty overlap, so a partial run reported `n=12` on a 29-task taskset | pre-flight before reading a live run |
+| `paired.py` scored off `rewards` alone, so an errored rollout summed to 0.0 and was indistinguishable from a wrong answer — ten crashes would have read as ten failures | reading 3b's own output |
+| the interaction interval was computed on the reverse difference; an estimate sat outside its own CI | the number looking impossible |
+
+**Five of the nine harness faults penalised the PTC arm, one penalised bash (defect 6), two
+were symmetric (the two knock-ons), and one — the rate limit — is symmetric in principle but
+falls roughly three times harder on bash per unit of work, because bash makes one request per
+turn.** All twelve were invisible to a green test suite.
+
+---
+
 ## Deviation 01 — untrained measurement, run 1 void on instrument defect
 
 **Run 1.** 2026-10-01, `ptc/compare.py real`, taskset `ledger`, n=14, `num_rollouts=1`,
@@ -659,7 +703,7 @@ in advance, which is just as well.
 - **N4 — MET, better than predicted.** 0 void rollouts against a predicted ≤ 4. The retry
   budget was the whole constraint; the endpoint was never the problem.
 
-### Two tool defects found while adjudicating this run
+### Two further tool defects found while adjudicating this run
 
 Both in `ptc/paired.py`, both found by the numbers looking wrong rather than by a test:
 

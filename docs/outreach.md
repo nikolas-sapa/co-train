@@ -103,16 +103,18 @@ produced it
 > with a single small model, the gap reproduced only while the measuring instrument was
 > defective.
 >
-> Nine defects were found and fixed, each invisible to a passing test suite and detectable
-> only against a live endpoint, or against its own output read carefully. Six were in the
-> measurement harness: the largest was an action-space asymmetry, where both arms received
-> identical tools but the shell arm read tool output as text while the PTC arm received it
-> inside a sandbox with no parser, making the shell arm's action space a strict superset.
-> Five of the six penalised the PTC arm and one the shell arm. Three more were in the tools
-> that adjudicate the result: a partial-run guard that only fired on an empty overlap, a
-> reader that scored an errored rollout 0.0 and so could not distinguish a crash from a
-> wrong answer, and an interaction interval computed on the reverse difference. The
-> instrument has been the problem at least as often as the thing it measures.
+> Twelve faults were found and fixed, each invisible to a passing test suite and detectable
+> only against a live endpoint or against its own output read carefully: nine in the
+> measurement harness and three in the tools that adjudicate the result. Five of the nine
+> penalised the PTC arm, one the shell arm, two were introduced by a fix and were symmetric,
+> and one is the rate limit described below. The largest single fault was an action-space
+> asymmetry, where both arms received identical tools but the shell arm read tool output as
+> text while the PTC arm received it inside a sandbox with no parser, making the shell arm's
+> action space a strict superset. The three adjudication faults were a partial-run guard that
+> only fired on an empty overlap, a reader that scored an errored rollout 0.0 and so could
+> not distinguish a crash from a wrong answer, and an interaction interval computed on the
+> reverse difference. The instrument has been the problem at least as often as the thing it
+> measures.
 >
 > After the harness corrections the ordering inverted on the original 14 tasks (PTC 14/14
 > against the shell arm's 12/14, at 8x fewer billed prompt tokens), though not separably at
