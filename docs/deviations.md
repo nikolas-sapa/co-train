@@ -596,7 +596,22 @@ this relay — so "bash scores lower on full-scan tasks" and "bash cannot comple
 rollouts here" are not separable with this endpoint, and more retries only hides the
 difference further. Raising the budget again would be measuring the relay.
 
-**Not fixed, and recorded rather than patched.** The options are a provider whose tail
-latency survives a 40-turn rollout, or an honest statement that the comparison is
-unobtainable on full-scan tasks with this relay. Both are owner decisions: one costs money,
-the other narrows what the benchmark can claim.
+**Corrected 2026-10-08 — it is a rate limit, not tail latency.** The paragraph above
+originally read this as the relay's tail latency failing a 40-turn rollout, and framed the
+fix as buying a better provider. Reading the per-rollout `errors` arrays says otherwise:
+across the 10 void bash rollouts the tally is **67 `ProviderError` 429s and 3
+`HarnessError`s**, and the first void rollout carries exactly 7 errors — the whole
+`--max-retries 7` budget — every one of them `upstream 429: rate_limit_exceeded`.
+
+So the mechanism is throttling, and the exposure is still structural: bash issues 475 tool
+calls across 494 turns against PTC's 138 and 167, so it meets a per-account request-rate
+limit roughly three times as hard. `--max-concurrent 1` does not help, because this is
+request rate over time rather than parallelism. 2d took zero 429s on the same budget at
+n=14; n=29 simply outlasts it.
+
+This is tunable with a flag that already exists, which the earlier framing wrongly
+presented as a spend decision. **Run 3c re-runs at `--max-retries 20`.** Raising the budget
+does not weaken the instrument: `compare.py:188` keeps a deterministic harness or sandbox
+fault exhausting every retry and ending red, so only transient faults become survivable.
+
+If 3c still voids, THEN the endpoint is the constraint and the original two options apply.
