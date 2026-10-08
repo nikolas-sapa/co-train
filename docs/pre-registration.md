@@ -244,3 +244,71 @@ fifteen numbers in context, with a shell available and used on 2.3% of calls. **
 the action to be expressed as a program make a model compute where a free-text channel lets
 it guess?** That is H4's mechanism, not H1's premise. It needs its own pre-registration
 before any run on this taskset is reported as evidence for it.
+
+### A6 — 2026-10-08, BEFORE run 3c's numbers: the new question, signed
+
+**Written while run 3c was in flight and before any of its output was read.** A5 committed
+that the question the extended taskset asks "needs its own pre-registration before any run
+on this taskset is reported as evidence for it", and this is it. The git timestamp is the
+evidence that it precedes the data; nothing below was adjusted afterwards.
+
+**What I knew when writing this, stated so the prediction can be discounted correctly:**
+run 3b's full output, which is void as a comparison (10 bash rollouts lost to 429s) but
+whose per-task scores I had read, split by tier:
+
+| tier | bash | ptc |
+|---|---|---|
+| cheap, `min_calls` < 40, n=11 | 11/11, 0 void | 9/11, 0 void |
+| full-scan, `min_calls` = 40, n=18 | 3/18 (10 void, 3 of 8 completed) | 11/18, 0 void |
+
+This is therefore a **prediction from partial prior data, not from a blank slate.** It is
+weaker than §4's predictions, which preceded all data. Recorded as such.
+
+## The question
+
+**Does forcing the action to be expressed as a program make a model compute, where a
+free-text channel lets it guess?** Run 2h's bash arm retrieved all 40 records correctly
+across 42 turns and then mis-summed fifteen numbers in context, with a shell available and
+used on 2.3% of its calls. That is H4's mechanism — interface shaping *how* the work gets
+done — and it is not H1's premise, which §6 already killed.
+
+## Signed predictions
+
+- **N1 — the effect is an interaction, not a marginal score.** PTC's advantage is confined
+  to tasks needing many calls. Predicted: PTC − bash is **negative or near zero on the
+  cheap tier** and **positive by ≥ 25 pp on the full-scan tier**. *Confidence: moderate.*
+  The marginal score across all 29 is the wrong statistic and is pre-emptively declined as
+  the headline: it averages two opposite effects and its value depends only on how many
+  tasks of each tier the suite happens to contain.
+- **N2 — bash wins the cheap tier.** Predicted bash ≥ PTC there, 10-11/11 against 9-11/11.
+  A typed-tool call read with the model's own attention is the cheaper channel when one
+  call suffices, and PTC pays a program-authoring overhead for nothing.
+- **N3 — bash still will not use the shell.** Predicted shell-call share **< 0.10** on the
+  full-scan tier, where a shell is exactly what the task needs. 2h measured 0.023, 3b
+  0.0105. *This is the prediction most worth being wrong about*: if bash's share rises and
+  its full-scan score rises with it, the mechanism is availability, not channel, and the
+  whole framing is wrong.
+- **N4 — the retry budget fixes the voids but not completely.** Predicted **≤ 4** void bash
+  rollouts at `--max-retries 20`, down from 10. More than 4 means the endpoint, not the
+  parameter, is the constraint, and `docs/deviations.md`'s two options come back.
+
+## Pre-specified analysis
+
+Paired **within each tier**, since the tiers answer different questions: `ptc/paired.py` on
+the 11 cheap tasks and on the 18 full-scan tasks separately, each with its own bootstrap CI
+and exact McNemar. The interaction is the difference of those two paired deltas. **Any void
+rollout on either arm voids the whole comparison** — `paired.py` enforces this and must not
+be worked around by dropping the arm that died.
+
+## What would falsify this
+
+N1 reversed, or flat across tiers, means the channel is not what decides computation and
+the extension bought nothing. N3 reversed means the mechanism is tool availability and this
+question should be retired rather than pursued.
+
+## What this still does not fix
+
+`ledger` remains self-authored, the tier split was authored after seeing which shape bash
+failed on (A5), n is 11 and 18, there is one model behind one unaudited relay, and no run
+repeats. A confirmed N1 on this instrument is a reason to build a better instrument, not a
+result to publish.
