@@ -124,13 +124,22 @@ produced it
 >
 > That ceiling prompted 15 harder tasks (14 to 29), each a second-order read of the same
 > records: a rank, a mean, a link-walk or a set, rather than a single filter-and-sum pass.
-> On the extended taskset the effect resolves by task tier rather than overall. The shell
-> arm leads on single-call retrieval (+18.2 pp on 11 cheap tasks) and PTC leads where a
-> program must be written to compute (-5.6 pp on 18 full-scan tasks), a tier interaction of
-> -23.7 pp with a 95% CI of [-64.1, +15.2]. The marginal across all 29 tasks is +3.4 pp to
-> the shell arm with p=1.0000, which is a wash and not the finding. Nothing here is
+> On the extended taskset the effect resolves by task tier rather than overall, and the two
+> mechanically clean runs disagree about the magnitude while agreeing about the direction.
+> The shell arm leads on single-call retrieval (+18.2 then +9.1 pp over 11 cheap tasks); PTC
+> leads where a program must be written to compute (-5.6 pp over 18 full-scan tasks, both
+> runs); the tier interaction is -23.7 then -14.6 pp, with confidence intervals of
+> [-64.1, +15.2] and [-49.5, +16.7]. Both intervals include zero. The second clean run ends
+> at an exact score tie, 23 of 29 each, with the marginal at p=1.0000. Nothing here is
 > statistically separable at these sample sizes, and the pre-registered prediction for the
-> interaction (-25 pp) was missed by 1.3 pp.
+> interaction (-25 pp) was missed on both occasions.
+>
+> The one result that has never wavered is cost. Because the shell arm re-sends its entire
+> transcript on every turn and takes one call per turn, it billed 8 to 10 times the prompt
+> tokens for the same work: $0.0071 to $0.0099 per solved task against PTC's $0.0010 to
+> $0.0013. That is structural rather than incidental, it favours PTC under a co-primary
+> declared in advance, and it holds even at an exact score tie. The defensible finding of
+> this study is the cost structure, not the accuracy ordering.
 >
 > The extension is a post-hoc instrument change, disclosed as an append-only amendment and
 > carrying the handicap that the harder tasks were written after observing which shape the
