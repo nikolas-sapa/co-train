@@ -615,3 +615,56 @@ does not weaken the instrument: `compare.py:188` keeps a deterministic harness o
 fault exhausting every retry and ending red, so only transient faults become survivable.
 
 If 3c still voids, THEN the endpoint is the constraint and the original two options apply.
+
+---
+
+## Run 3c — clean on the 29-task set, and it contradicts A6's headline prediction
+
+2026-10-08, 29 tasks, `--max-retries 20 --max-concurrent 1 --max-turns 80`. **Zero void
+rollouts on either arm** — 28 `agent_completed` plus one `max_turns` on bash, 29
+`agent_completed` on PTC. First admissible comparison on the extended taskset.
+
+| | bash | ptc |
+|---|---|---|
+| score | **21/29 (0.7241)** | 20/29 (0.6897) |
+| 95% CI | [0.552, 0.862] | [0.517, 0.862] |
+| billed prompt tokens | 2,245,429 | 241,561 |
+| cost / solved | $0.0099 | **$0.0013** |
+| tool calls / turns | 836 / 864 | 150 / 179 |
+| shell-call share | 0.0132 | 0.0000 |
+
+**The marginal is +3.4 pp to bash**, paired CI [−20.7, +27.6], 6 discordant pairs to bash and
+5 to PTC, exact McNemar p=1.0000. Not separable, and A6 declined this number as the headline
+in advance, which is just as well.
+
+### Against the signed predictions
+
+- **N1 — NOT met.** Predicted the interaction at ≤ −25 pp; measured **−23.7 pp**. Direction
+  correct, magnitude short by 1.3 pp. Cheap tier: bash +18.2 pp (0.909 vs 0.727), CI
+  [+0.0, +45.5], p=0.5000. Full-scan tier: bash **−5.6 pp** (0.611 vs 0.667), CI
+  [−38.9, +27.8], p=1.0000. The interaction is real and points the way A6 said, but on this
+  n it does not clear the bar I signed — and 18 full-scan tasks cannot separate a 5.6 pp gap.
+- **N2 — MET.** bash wins the cheap tier at +18.2 pp. A typed-tool call read with the model's
+  own attention beats paying program-authoring overhead when one call suffices.
+- **N3 — HOLDS.** bash's full-scan shell share is **0.0140**, and 4 of 18 rollouts do any
+  arithmetic at all. The prediction most worth being wrong about was right: bash retrieves
+  and then guesses even where a shell is exactly what the task needs.
+- **N4 — MET, better than predicted.** 0 void rollouts against a predicted ≤ 4. The retry
+  budget was the whole constraint; the endpoint was never the problem.
+
+### The one budget caveat
+
+One bash rollout stopped on `max_turns` rather than completing, and `compare.py` flags the
+score comparison as invalid until the budget rises. It is the same class of issue as the
+retries: bash spends turns re-retrieving because it has one call per turn, and it cost
+**864 turns to PTC's 179** for the same 29 tasks. That is the mechanism N1 was about,
+showing up as a resource limit rather than a score. Whether it changes the full-scan tier
+needs a `--max-turns` above 80, which is a cost decision, not a flag default.
+
+### What this changes
+
+`docs/results-untrained.md` stands untouched — it reports run 2h on the 14-task set, which is
+what it says. But on the extended taskset the untrained ordering is now **bash ahead on the
+cheap tier and PTC ahead on the full-scan tier, with the marginal in bash's favour by 3.4 pp
+and p=1.0000.** Anyone reading the 2h inversion as "PTC wins" should read this alongside it:
+the effect is tier-dependent, and the aggregate is a wash.
