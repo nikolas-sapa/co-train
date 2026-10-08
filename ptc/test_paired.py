@@ -16,7 +16,17 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from ptc.paired import paired, refuse_voids, rollouts, split_tiers  # noqa: E402
+from math import comb  # noqa: E402
+import random  # noqa: E402
+
+from ptc.paired import (  # noqa: E402
+    mcnemar_exact,
+    paired,
+    power_pairs,
+    refuse_voids,
+    rollouts,
+    split_tiers,
+)
 
 
 def test_a_partial_arm_is_refused_rather_than_averaged():
@@ -171,3 +181,118 @@ def test_run_2h_reports_the_effect_inside_the_tier_that_holds_it():
     assert cheap["delta"] == 0.0, "the cheap tier is a tie; the marginal hides that"
     assert round(full["delta"] * 100, 1) == -33.3
     assert round((full["delta"] - cheap["delta"]) * 100, 1) == -33.3
+
+
+# ------------------------------------------------------------- the statistics
+#
+# Every published claim in this project is a CI, a p-value or a power figure computed by
+# these three functions, and this session already found one bug among them -- `p >= 1`
+# called the unanimous-discordance case undetectable. Verified against independent
+# computation rather than against themselves.
+
+def _mcnemar_by_formula(b: int, c: int) -> float:
+    """Exact two-sided binomial sign test, written out from the definition."""
+    n = b + c
+    if n == 0:
+        return 1.0
+    return min(1.0, 2 * sum(comb(n, i) for i in range(min(b, c) + 1)) / 2 ** n)
+
+
+def test_mcnemar_matches_an_independent_computation():
+    for b, c in ((0, 0), (0, 1), (1, 1), (0, 2), (2, 2), (1, 2), (0, 6), (3, 3),
+                 (5, 6), (0, 29), (7, 13)):
+        assert mcnemar_exact(b, c) == pytest.approx(_mcnemar_by_formula(b, c)), (b, c)
+
+
+def test_mcnemar_is_symmetric_and_inside_the_unit_interval():
+    """Both properties are load-bearing: `paired` decides which arm is which by the sign
+    of b - c, so an asymmetric p would let arm order change the verdict."""
+    for b in range(13):
+        for c in range(13):
+            p = mcnemar_exact(b, c)
+            assert 0.0 <= p <= 1.0, (b, c, p)
+            assert p == pytest.approx(mcnemar_exact(c, b)), (b, c)
+
+
+def test_mcnemar_needs_six_unanimous_pairs_not_seven():
+    """The boundary the old guard got wrong. Six unanimous discordant pairs give an exact
+    two-sided p of 0.031; seven are unnecessary for significance."""
+    assert mcnemar_exact(0, 6) == pytest.approx(0.03125)
+    assert mcnemar_exact(0, 6) <= 0.05
+    assert mcnemar_exact(0, 5) > 0.05
+
+
+def power_at(n: int, delta: float, discordance: float, alpha: float = 0.05) -> float:
+    """Power at a given n, recomputed from the definition rather than read from the
+    function under test: draw d discordant pairs, reject when the minority count is at or
+    below the largest count whose exact p clears alpha."""
+    d = round(n * discordance)
+    if d < 2:
+        return 0.0
+    p = 0.5 + delta / (2 * discordance)
+    crit = -1
+    for k in range(d // 2 + 1):
+        if mcnemar_exact(k, d - k) <= alpha:
+            crit = k
+        else:
+            break
+    if crit < 0:
+        return 0.0
+    return sum(comb(d, i) * p ** (d - i) * (1 - p) ** i for i in range(crit + 1))
+
+
+def test_power_returns_the_MINIMAL_n_that_reaches_the_target():
+    """A power function that returns a number too small is the dangerous direction: it
+    would size a real run underpowered and let the result be read as a null."""
+    for delta, disc in ((0.1, 0.5), (0.2, 0.5), (0.3, 0.5), (0.1, 0.2)):
+        n = power_pairs(delta, disc)
+        assert n is not None
+        assert power_at(n, delta, disc) >= 0.80, (delta, disc, n)
+        assert power_at(n - 1, delta, disc) < 0.80, (
+            f"n={n} is not minimal for delta={delta} disc={disc}")
+
+
+def test_power_falls_as_the_effect_shrinks():
+    need = [power_pairs(d, 0.5) for d in (0.05, 0.1, 0.15, 0.2, 0.3, 0.5)]
+    assert need == sorted(need, reverse=True), need
+
+
+def test_power_RISES_with_discordance_and_that_is_not_a_bug():
+    """Counter-intuitive, so pinned before someone 'fixes' it. With `delta` held fixed, a
+    higher discordance rate splits the same total signal across more coin-flips, so
+    `p = 0.5 + delta / (2 * disc)` moves toward a half and the run needs MORE pairs, not
+    fewer. Only when `delta == discordance` -- every discordant pair favouring one arm --
+    is the effect unanimous and the cheapest to detect."""
+    need = [power_pairs(0.1, d) for d in (0.1, 0.2, 0.3, 0.5, 0.8)]
+    assert need == sorted(need), need
+    assert power_pairs(0.5, 0.5) < power_pairs(0.1, 0.5)
+    # The boundary is detectable, with variance small because the pairs are unanimous.
+    assert power_pairs(0.25, 0.25) is not None
+    assert power_pairs(0.5, 0.5) <= 12
+
+
+def test_power_returns_none_only_for_inputs_that_cannot_occur():
+    assert power_pairs(0.5, 0.2) is None, "delta cannot exceed the discordance rate"
+    assert power_pairs(0.0, 0.5) is None
+    assert power_pairs(-0.1, 0.5) is None
+    assert power_pairs(0.1, 0.0) is None
+
+
+def test_power_matches_a_simulation_of_the_test_it_claims_to_size():
+    """The analytic route and a simulated one have to agree, because a wrong p formula
+    would be self-consistent across every other test in this file and still size every
+    run in the project wrongly."""
+    delta, disc = 0.2, 0.5
+    n = power_pairs(delta, disc)
+    d = round(n * disc)
+    p = 0.5 + delta / (2 * disc)
+    rng = random.Random(0)
+    trials = 4000
+    rejected = 0
+    for _ in range(trials):
+        wins = sum(1 for _ in range(d) if rng.random() < p)
+        if mcnemar_exact(wins, d - wins) <= 0.05:
+            rejected += 1
+    simulated = rejected / trials
+    assert simulated == pytest.approx(0.80, abs=0.06), (
+        f"simulated power {simulated:.3f} disagrees with the analytic sizing")
