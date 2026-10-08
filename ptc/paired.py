@@ -98,6 +98,73 @@ def power_pairs(delta: float, discordance: float, power: float = 0.8,
     return None
 
 
+def rollouts(path: str) -> dict[str, dict]:
+    """Task name -> {score, ok, min_calls}.
+
+    `load` above returns scores alone, and that is not enough to adjudicate: a rollout
+    that errored has no `rewards`, so it sums to **0.0 and is indistinguishable from a
+    genuine wrong answer**. Run 3b wrote all 29 task names on both arms with 10 of bash's
+    errored, so the partial-arm guard below could not fire either -- the tool would have
+    reported bash 14/29 against PTC 20/29 as a real comparison with ten crashes counted
+    as failures. `compare.py` catches this and exits non-zero; this tool did not.
+
+    `min_calls` is the tier key. `pre-registration.md` §8/A6 pre-specifies the comparison
+    paired WITHIN tier, because the cheap and full-scan tiers answer opposite questions
+    and the marginal score across both averages them away.
+    """
+    out: dict[str, dict] = {}
+    with open(path) as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            d = json.loads(line)
+            score = 0.0
+            for tr in d["traces"]:
+                for comp in tr["rewards"].values():
+                    score += comp["score"] * comp.get("weight", 1.0)
+            out[d["task"]["data"]["name"]] = {
+                "score": score,
+                "ok": bool(d.get("ok")),
+                "min_calls": d["task"]["data"].get("min_calls"),
+            }
+    return out
+
+
+def refuse_voids(name_a: str, ra: dict[str, dict],
+                 name_b: str, rb: dict[str, dict]) -> None:
+    """A void rollout voids the comparison, per A6. Nothing is salvageable by dropping
+    it: the arm that crashed did not fail the task, and scoring it 0.0 is the single
+    most flattering thing this tool could do to the other arm."""
+    void = [(n, arm) for arm, r in ((name_a, ra), (name_b, rb))
+            for n, v in r.items() if not v["ok"]]
+    if void:
+        per_arm: dict[str, list[str]] = {}
+        for n, arm in void:
+            per_arm.setdefault(arm, []).append(n)
+        lines = [f"  {arm}: {len(ns)} void -- {', '.join(sorted(ns))}"
+                 for arm, ns in sorted(per_arm.items())]
+        raise SystemExit(
+            f"{len(void)} rollout(s) errored, so this comparison is void.\n"
+            + "\n".join(lines)
+            + "\nAn errored rollout has no rewards and scores 0.0 here, which is NOT the "
+              "arm failing the task. Re-run; do not read the table."
+        )
+
+
+def split_tiers(r: dict[str, dict]) -> dict[str, set[str]]:
+    """Tier key is `min_calls`: the full-scan tier is the maximum (one call per record,
+    `len(RECORDS)`), everything else is cheap. Derived from the data rather than
+    hardcoding 40, so a taskset built on a different record count still splits."""
+    seen = [v["min_calls"] for v in r.values() if v["min_calls"] is not None]
+    if not seen:
+        return {"all": set(r)}
+    top = max(seen)
+    return {
+        "cheap": {n for n, v in r.items() if v["min_calls"] != top},
+        "full-scan": {n for n, v in r.items() if v["min_calls"] == top},
+    }
+
+
 def paired(a: dict[str, float], b: dict[str, float]) -> dict:
     shared = sorted(set(a) & set(b))
     if not shared:
@@ -147,7 +214,10 @@ def main(argv: list[str]) -> int:
     path_a, path_b = argv[1], argv[2]
     name_a = path_a.split("/")[-2]
     name_b = path_b.split("/")[-2]
-    a, b = load(path_a), load(path_b)
+    ra, rb = rollouts(path_a), rollouts(path_b)
+    refuse_voids(name_a, ra, name_b, rb)
+    a = {n: v["score"] for n, v in ra.items()}
+    b = {n: v["score"] for n, v in rb.items()}
     r = paired(a, b)
 
     print(f"{'task':<26}{name_a:>18}{name_b:>18}{'diff':>8}")
@@ -167,6 +237,35 @@ def main(argv: list[str]) -> int:
     print(f"exact McNemar p            {r['p']:.4f}")
     print()
     print("Separable only if the CI on the difference excludes 0.")
+
+    # A6 pre-specifies the comparison paired WITHIN tier and names the interaction as
+    # the effect. The marginal delta above averages two opposite effects, so its value
+    # depends on how many tasks of each tier the suite happens to hold -- A6 declines it
+    # as the headline in advance, which is why it is not the last thing printed.
+    tiers = split_tiers(ra)
+    if len(tiers) > 1:
+        print()
+        print("paired WITHIN tier (pre-registration A6)")
+        print("-" * 70)
+        deltas = {}
+        for tier in ("cheap", "full-scan"):
+            names = tiers.get(tier, set()) & set(r["tasks"])
+            if not names:
+                continue
+            t = paired({n: a[n] for n in names}, {n: b[n] for n in names})
+            deltas[tier] = t["delta"]
+            ci = t["ci"]
+            band = (f"[{ci[0] * 100:+.1f}, {ci[1] * 100:+.1f}]" if ci else "n/a")
+            print(f"{tier:<12} n={t['n']:<3} "
+                  f"{name_a} {t['mean_a']:.3f}  {name_b} {t['mean_b']:.3f}  "
+                  f"delta {t['delta'] * 100:+.1f} pp  CI {band}  p={t['p']:.4f}")
+        if len(deltas) == 2:
+            inter = deltas["full-scan"] - deltas["cheap"]
+            print("-" * 70)
+            print(f"interaction (full-scan delta - cheap delta)   {inter * 100:+.1f} pp")
+            print(f"A6/N1 predicted this NEGATIVE by >= 25 pp "
+                  f"({name_b} ahead on full-scan, not on cheap): "
+                  f"{'consistent' if inter <= -0.25 else 'NOT met'}")
 
     disc = (r["a_only"] + r["b_only"]) / r["n"]
     print()
