@@ -25,7 +25,7 @@ See `docs/superpowers/specs/` and `docs/superpowers/plans/` for Step 1's spec an
 > - **Run 3d is the cleanest: zero voids, zero truncations, 29/29 completed on both arms, and
 >   an exact 23/23 tie.** Launched `--max-turns 150 --max-retries 20 --max-concurrent 1`.
 > - **The defensible finding is cost, not accuracy.** bash re-sends its transcript once per
->   turn, billing 8-10x the prompt tokens: $0.0071-0.0099 per solved task against PTC's
+>   turn, billing 8.0-10.7x the prompt tokens: $0.0071-0.0099 per solved task against PTC's
 >   $0.0010-0.0013. Structural, on a co-primary declared in advance, and it holds at a tie.
 > - **The tier pattern is consistent and never significant.** bash +18.2 then +9.1 pp on the
 >   11 cheap tasks, PTC -5.6 pp on the 18 full-scan tasks in both clean runs, interaction

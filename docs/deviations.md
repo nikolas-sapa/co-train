@@ -798,7 +798,7 @@ the mechanism is not availability. Retained.
 ### The honest summary after three runs
 
 The cost result is the only one that has never wavered: PTC at **$0.0010–0.0013 per solved
-task** against bash's $0.0071–0.0099, on 8-10x fewer billed prompt tokens, because bash
+task** against bash's $0.0071–0.0099, on 8.0-10.7x fewer billed prompt tokens, because bash
 re-sends its whole transcript once per turn. That is structural, it favours PTC under the
 pre-registered co-primary, and it would hold even at an exact score tie — which run 3d is.
 

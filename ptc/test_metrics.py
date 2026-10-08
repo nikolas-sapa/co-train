@@ -483,3 +483,74 @@ def test_a_small_unanimous_sample_is_stable_too():
     bounds = {(round(bootstrap_ci(diffs, seed=s)[0] * 100, 1),
                round(bootstrap_ci(diffs, seed=s)[1] * 100, 1)) for s in range(20)}
     assert len(bounds) == 1, f"interval moved across seeds: {bounds}"
+
+
+# ------------------------------------------------------------------ the cost co-primary
+#
+# Cost per solved task is now this project's headline finding -- the one result that held
+# across every run, including an exact score tie -- and it had no test that checked the
+# arithmetic against a known answer. Three of the project's twelve faults were in the code
+# that READS results rather than the code that produces them, so an unverified formula
+# behind the headline is the exact shape of defect this project keeps finding in itself.
+#
+# Verified 2026-10-08 by summing `calls[].usage` straight out of three runs' traces and
+# comparing to the printed table: all six prompt-token totals matched to the token and all
+# six cost-per-solved figures to the published cent. These lock that in.
+
+def _cost(prompt: int, completion: int, cached: int = 0,
+          price_in: float = 0.09, price_out: float = 0.18,
+          price_cached: float | None = None) -> float:
+    """The formula from `summarize`, written out independently."""
+    cached_rate = price_in if price_cached is None else price_cached
+    return ((prompt / 1e6) * price_in
+            + (cached / 1e6) * cached_rate
+            + (completion / 1e6) * price_out)
+
+
+def test_cost_uses_billed_prompt_tokens_not_the_deduplicated_count():
+    """The field choice IS the finding. `Trace.num_input_tokens` is the *new* tokens per
+    call, deduplicated across branches -- training-relevant and not what anyone charges.
+    A provider bills the whole prompt every call, and the bash arm re-sends the whole
+    transcript once per turn, so the deduplicated count understates precisely the arm that
+    spends more. On run 3d: billed 2,229,481 against a deduplicated 64,261, a factor of 35.
+    Using the wrong field would have erased the one co-primary PTC wins on."""
+    billed, deduplicated = 2229481, 64261
+    assert _cost(billed, 33793) == pytest.approx(0.2067, abs=5e-5)
+    assert _cost(deduplicated, 33793) < 0.02, (
+        "the deduplicated field gives a cost an order of magnitude too low")
+
+
+@pytest.mark.parametrize("run,prompt,completion,solved,cost,per_solved", [
+    # (run, billed prompt, completion, solved, total cost, cost per solved) -- every value
+    # read off the published table and re-derived from that run's own traces.
+    ("2h bash", 660842, 9518, 12, 0.0612, 0.0051),
+    ("2h ptc", 82664, 7928, 14, 0.0089, 0.0006),
+    ("3c bash", 2245429, 30384, 21, 0.2076, 0.0099),
+    ("3c ptc", 241561, 24892, 20, 0.0262, 0.0013),
+    ("3d bash", 2229481, 33793, 23, 0.2067, 0.0090),
+    ("3d ptc", 208780, 24646, 23, 0.0232, 0.0010),
+])
+def test_the_published_cost_figures_reproduce(run, prompt, completion, solved,
+                                              cost, per_solved):
+    got = _cost(prompt, completion)
+    assert got == pytest.approx(cost, abs=5e-5), run
+    assert got / solved == pytest.approx(per_solved, abs=5e-5), run
+
+
+def test_the_token_ratio_claim_is_8_0_to_10_7x():
+    """Published as "8 to 10 times" until this was checked, which understated run 3d. The
+    ratio grows with taskset size because bash's transcript grows per turn and PTC's does
+    not, so a claim stated as a fixed range needs re-deriving whenever a run is added."""
+    ratios = [660842 / 82664, 2245429 / 241561, 2229481 / 208780]
+    assert min(ratios) == pytest.approx(7.99, abs=0.01)
+    assert max(ratios) == pytest.approx(10.68, abs=0.01)
+    assert all(r >= 7.9 for r in ratios)
+
+
+def test_cost_is_flagged_as_an_upper_bound_when_cache_pricing_is_unknown():
+    """A cached token billed at the full input rate overstates cost. The flag exists so a
+    cost advantage is never claimed on an unstated discount."""
+    full = _cost(1_000_000, 0, cached=1_000_000)
+    discounted = _cost(1_000_000, 0, cached=1_000_000, price_cached=0.009)
+    assert full > discounted
+    assert full == pytest.approx(0.18)

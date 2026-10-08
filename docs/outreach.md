@@ -139,7 +139,7 @@ in the adjudication tools, per the ledger in `docs/deviations.md`.)*
 > interaction (-25 pp) was missed on both occasions.
 >
 > The one result that has never wavered is cost. Because the shell arm re-sends its entire
-> transcript on every turn and takes one call per turn, it billed 8 to 10 times the prompt
+> transcript on every turn and takes one call per turn, it billed 8.0 to 10.7 times the prompt
 > tokens for the same work: $0.0071 to $0.0099 per solved task against PTC's $0.0010 to
 > $0.0013. That is structural rather than incidental, it favours PTC under a co-primary
 > declared in advance, and it holds even at an exact score tie. The defensible finding of

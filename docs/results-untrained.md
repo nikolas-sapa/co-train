@@ -171,7 +171,7 @@ winning on accuracy does not survive the extended taskset.
 ## What has never wavered, in any run
 
 Cost. bash re-sends its entire transcript on every turn and takes one tool call per turn, so
-it billed **8 to 10 times** the prompt tokens for the same work across every run: **$0.0071
+it billed **8.0 to 10.7 times** the prompt tokens for the same work across every run: **$0.0071
 to $0.0099 per solved task against PTC's $0.0010 to $0.0013.** Pre-registration §2 declared
 cost per successful task a co-primary *precisely* so this axis could not be chosen after the
 fact. It is structural rather than incidental, and it holds at an exact score tie — which run
