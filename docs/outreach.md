@@ -92,8 +92,12 @@ chosen over arXiv deliberately: a first cs.LG/cs.SE submission needs an endorsem
 non-replication is a poor fit for the format, and OSF gives a public URL and DOI with no
 gatekeeper. There is no arXiv mechanism for commenting on someone else's paper.
 
-**Title:** Failure to reproduce the bash-over-PTC ordering, and six instrument defects that
-produced it
+**Title:** Failure to reproduce the bash-over-PTC ordering, and twelve instrument defects
+that produced it
+
+*(This is the title now set on OSF node `2hfzt`. The earlier draft said "six", which was the
+harness count as of run 2h and stopped being true at run 3b — nine harness faults plus three
+in the adjudication tools, per the ledger in `docs/deviations.md`.)*
 
 **Abstract:**
 
