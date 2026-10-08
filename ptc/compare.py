@@ -286,6 +286,16 @@ async def main() -> int:
     if args.mode == "real" and not args.base_url:
         parser.error("real mode needs --base-url (the OpenAI-compatible endpoint)")
 
+    if args.mode == "real" and args.max_retries == 0:
+        # Runs 2d-2h all passed 7. The relay throws transient 429s and 504s, so a budget
+        # of 0 lets one void the rollout it hits -- run 3a lost 27 of 58 that way, PTC 20
+        # to bash's 7, which reads like an arm asymmetry and was not one. Warn rather
+        # than raise the default: a retry budget also masks a FATAL fault, so 0 is the
+        # honest default for anyone who reads this line and chooses it.
+        print("WARNING: --max-retries 0 in real mode. Every admissible run (2d-2h) used "
+              "7, because the relay throws transient 429s and 504s and a budget of 0 "
+              "voids the rollout one hits. See docs/deviations.md, top.")
+
     if args.mode == "real":
         print("No control arm in real mode: `_config` ignores `use_tool`, so a control "
               "would be its tool arm relabelled -- double the bill, and a column that "

@@ -24,8 +24,21 @@ reproducing one meant reverse-engineering it out of `~/.zshrc`. The invocation i
   --taskset ledger --model deepseek-v4-flash \
   --base-url https://vyceai.com/v1 --key-var VYCEAI_API_KEY \
   --num-tasks 29 --arms bash,ptc --max-turns 80 --max-concurrent 1 \
-  --price-in 0.09 --price-out 0.18 --output-dir ~/scratch/<run>
+  --max-retries 7 --price-in 0.09 --price-out 0.18 --output-dir ~/scratch/<run>
 ```
+
+**`--max-retries 7` is not optional, and its default is 0.** Runs 2d through 2h all
+passed 7; the flag exists because the relay throws transient 429s and 504s, and a budget
+of 0 lets a single one void the rollout it hits. The first version of this recipe omitted
+it, and run 3a -- the first run launched FROM this recipe -- died with 27 of 58 rollouts
+errored, PTC 20 and bash 7. That reads exactly like an arm asymmetry and was not one.
+`--max-concurrent 1` is load-bearing for the same reason: 2c at concurrency 2 took 429s
+that a retry budget of 3 could not outlast.
+
+A retry budget hides a *fatal* fault as well as a transient one, which is the argument for
+leaving the default at 0 rather than raising it. A run that needs eight attempts per
+rollout is telling you something, so read the retry count in the output rather than passing
+the flag and looking away.
 
 `GET https://vyceai.com/v1/models` lists the available ids and is free, so it is the
 cheap way to confirm `deepseek-v4-flash` still resolves before spending a run on it.
@@ -505,3 +518,71 @@ broken data.
 
 PTC at 14/14 is saturated. The taskset can establish that PTC is not worse; it cannot
 measure how much better. An effect-size run needs harder tasks, not just more of these.
+
+---
+
+## Runs 3a and 3b — the hard tier has headroom, and the bash arm cannot finish it
+
+**First runs on the 29-task taskset** (`pre-registration.md` §8/A5). Both are **void as
+comparisons**. One of them answers the question it was launched for anyway, and the other
+is a self-inflicted repeat of a lesson this file already contained.
+
+### 3a — void, and the cause was the launch, not the arms
+
+2026-10-07, 29 tasks, both arms, `--max-retries 0` — **the default, and my error.** 27 of 58
+rollouts errored: PTC 20, bash 7. Scores printed as bash 0.586 / PTC 0.241, and **none of
+that is admissible**: the rig said so and exited non-zero.
+
+The shape of it is the trap. PTC losing 20 rollouts to bash's 7 reads exactly like the
+arm asymmetry this project has found six times, and it was nothing of the kind — every
+admissible run from 2d on passed `--max-retries 7`, because the relay throws transient
+429s and 504s. The recipe at the top of this file was written the same day and **omitted
+the flag**, so the first run launched from it reproduced the defect the flag exists to
+prevent. Recipe fixed, and `compare.py` now warns at launch when real mode gets a budget
+of 0.
+
+### 3b — the headroom question is answered on the arm that ran clean
+
+2026-10-07, same taskset and model, `--max-retries 7`, `--max-concurrent 1`, `max_turns 80`.
+
+| | bash | ptc |
+|---|---|---|
+| completed | 19/29, **10 void** | **29/29, zero errors** |
+| solved | 14 (0.4828) | 20 (0.6897) |
+| errors | HarnessError 4, ProviderError 124 | ProviderError 37, all survived |
+| billed prompt tokens | 1,079,666 | 209,318 |
+| tool calls / turns | 475 / 494 | 138 / 167 |
+
+**The comparison is void.** bash lost 10 rollouts, so no paired delta exists and
+`ptc/paired.py` now refuses to compute one (that guard was added the same day, after
+finding it would have silently compared the 19 survivors and called it `n=19`).
+
+**What is readable: A5's extension worked.** The PTC arm completed every rollout with zero
+errors and scored **20/29 (69%)**, against **14/14 (100%)** on the old taskset. The hard
+tier is not saturated, and a training run against it would have somewhere to climb. That
+was the whole purpose of the extension and it is the one claim these runs support.
+
+### The seventh defect, and it is structural rather than fixable
+
+**All 10 of bash's void rollouts are full-scan tasks** — `total-*`, `richest-owner`,
+`isolated-total`, `owners-all-kinds`, `invoice-total-all-kind-owners`, `kind-max-*`,
+`count-nakamura-invoice`. Every one carries `min_calls = 40`. Not one of the cheap tasks
+failed on either arm.
+
+That is not luck. bash makes one tool call per turn and re-sends the transcript each time,
+so a 40-call task is a 40+ turn rollout with a transcript that grows every turn: 1.08M
+billed prompt tokens across 494 turns, against PTC's 209k across 167. A longer rollout with
+slower per-turn responses is simply exposed to more transport faults, and 124 ProviderErrors
+were retried away while 4 HarnessErrors were fatal — defect 6's class again, where the bash
+arm delegates to the bundled runtime and a relay timeout arrives as a non-retryable error.
+
+**This confounds the measurement it was supposed to produce.** On the tasks where a
+program-over-catalog arm should win, the shell arm cannot reliably finish a rollout through
+this relay — so "bash scores lower on full-scan tasks" and "bash cannot complete full-scan
+rollouts here" are not separable with this endpoint, and more retries only hides the
+difference further. Raising the budget again would be measuring the relay.
+
+**Not fixed, and recorded rather than patched.** The options are a provider whose tail
+latency survives a 40-turn rollout, or an honest statement that the comparison is
+unobtainable on full-scan tasks with this relay. Both are owner decisions: one costs money,
+the other narrows what the benchmark can claim.
