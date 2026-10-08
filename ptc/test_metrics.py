@@ -445,3 +445,41 @@ def test_the_budget_banner_does_not_claim_the_rollouts_scored_zero():
     assert "A BUDGET LIMIT BOUND" in note
     assert out.score_mean == 1.0
     assert "scored 0.0" not in note
+
+
+# ----------------------------------------------------- reportable-stability
+#
+# The project publishes CIs to one decimal place. A bound that moves between seeds would
+# make that digit arbitrary, which is the same class of defect as a p-value computed under
+# the wrong formula -- and it would be invisible, because every run passes the same seed.
+
+def test_the_bootstrap_resamples_the_MEAN_and_not_a_median_or_a_sum():
+    """Recomputed from the definition. A CI on the wrong statistic would still look like a
+    plausible interval."""
+    values = [1.0, 0.0, 0.0, 1.0, 0.0]
+    import random as _random
+    rng = _random.Random(3)
+    draws = sorted(sum(rng.choices(values, k=5)) / 5 for _ in range(1000))
+    got = bootstrap_ci(values, iters=1000, seed=3)
+    assert got[0] == pytest.approx(draws[int(0.025 * 1000)])
+    assert got[1] == pytest.approx(draws[min(999, int(0.975 * 1000))])
+
+
+def test_published_intervals_do_not_move_across_seeds():
+    """Run 2h's headline interval is [-35.7, +0.0] pp on fourteen paired tasks: two
+    discordant pairs for PTC, twelve ties. Nothing in the report is seed-dependent, so a
+    change here means a published bound acquired a random component."""
+    diffs = [-1.0] * 2 + [0.0] * 12
+    for seed in range(20):
+        lo, hi = bootstrap_ci(diffs, seed=seed)
+        assert round(lo * 100, 1) == -35.7, seed
+        assert round(hi * 100, 1) == 0.0, seed
+
+
+def test_a_small_unanimous_sample_is_stable_too():
+    """Every discordant pair favouring one arm -- the cheapest case to detect, and the one
+    where a sparse bootstrap could wobble most."""
+    diffs = [-1.0] * 6
+    bounds = {(round(bootstrap_ci(diffs, seed=s)[0] * 100, 1),
+               round(bootstrap_ci(diffs, seed=s)[1] * 100, 1)) for s in range(20)}
+    assert len(bounds) == 1, f"interval moved across seeds: {bounds}"
