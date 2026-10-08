@@ -6,31 +6,42 @@ Status as of 2026-09-25: **research complete. Step 1 BUILT** (branch
 `step1-nonsolver-gate`, 18 commits, 51 tests). Next: **Step 2.**
 See `docs/superpowers/specs/` and `docs/superpowers/plans/` for Step 1's spec and plan.
 
-> **⚠ SUPERSEDED FOR CURRENT STATE — 2026-10-03, outreach updated 2026-10-07.** Steps 1
-> and 2 are done, the PTC arm is built, and the untrained premise check met a real model
-> across seven runs. **It is decided: the premise did not hold.**
-> **Nothing below this line describes any of that.**
+> **⚠ SUPERSEDED FOR CURRENT STATE — 2026-10-08.** Steps 1 and 2 are done, the PTC arm is
+> built, and the untrained premise check has met a real model twelve times. **It is decided:
+> the premise did not hold. Nothing below this line describes any of that.**
 >
-> - **`docs/results-untrained.md` is this project's output** — pre-registration §6 fired.
->   H1 is wrong on **sign**, not magnitude: run 2h measured PTC 14/14 against bash 12/14,
->   paired −14.3 pp, PTC 8.5x cheaper per solved task and 8x fewer billed prompt tokens.
->   Not separable at n=14, so it is reported as a non-reproduction, not a reversal.
-> - **`docs/deviations.md` is the live record of every real-mode run** and of the **six**
->   instrument defects they exposed — five penalising the PTC arm, the sixth penalising
->   bash. Read it before interpreting any number.
-> - **Only run 2h is admissible.** Runs 1-2f carry instrument defects (`pre-registration.md`
->   §8/A2); 2g is unreadable because defect 6 errored the bash arm.
-> - **`pre-registration.md` §8 is an append-only amendment log.** A1's ~732 paired tasks was
->   computed off 2f's broken-instrument discordance and is **superseded by A3: 242 tasks,
->   ~7 hours.** A power calculation inherits every bias of the run it is computed from.
-> - **Co-training was never run and H2-H5 are unadjudicated.** Step 3 remains deliberately
->   unstarted, per the PTC-first decision in `docs/HANDOFF-STEP2.md`.
-> - `ptc/paired.py` is the adjudication tool (paired CI, exact McNemar, required n).
->   Run the test suite as `pytest tests ptc ledger` — bare `pytest` honours
+> - **Start with `docs/deviations.md`'s defect ledger** (new, at the top of that file). Twelve
+>   distinct faults — nine in the harness, three in the tools that adjudicate the result —
+>   each with the run that exposed it and the observation that caught it. Every one was
+>   invisible to a green test suite. Read it before believing any number in this repo.
+> - **`docs/results-untrained.md` is the pre-committed output.** §6 fired: run 2h measured
+>   PTC 14/14 against bash 12/14 on the original 14 tasks, so H1 is wrong on **sign**. Not
+>   separable at n=14 — a non-reproduction, not a reversal.
+> - **The taskset was extended 14 → 29** (`pre-registration.md` §8/A5) because PTC's 14/14
+>   left no headroom for a training effect. A6 signs the new question before its data existed.
+> - **Only 2h, 3c and 3d are admissible.** Runs 1-2f carry instrument defects; 2g is
+>   unreadable (defect 6); 3a and 3b are void — 3a on `--max-retries 0`, which was my own
+>   launch error, and 3b on the rate limit that flag exists to survive.
+> - **Run 3d is the cleanest: zero voids, zero truncations, 29/29 completed on both arms, and
+>   an exact 23/23 tie.** Launched `--max-turns 150 --max-retries 20 --max-concurrent 1`.
+> - **The defensible finding is cost, not accuracy.** bash re-sends its transcript once per
+>   turn, billing 8-10x the prompt tokens: $0.0071-0.0099 per solved task against PTC's
+>   $0.0010-0.0013. Structural, on a co-primary declared in advance, and it holds at a tie.
+> - **The tier pattern is consistent and never significant.** bash +18.2 then +9.1 pp on the
+>   11 cheap tasks, PTC -5.6 pp on the 18 full-scan tasks in both clean runs, interaction
+>   -23.7 then -14.6 pp, both CIs including zero, against a signed -25 pp threshold missed
+>   twice. Point estimates on this n, not demonstrated effects.
+> - **Co-training was never run and H2-H5 are unadjudicated.** Step 3 stays unstarted.
+> - **Outreach:** author email sent 2026-10-07. OSF node `2hfzt` private, loaded and
+>   md5-verified; public + DOI held to a reply or 2026-10-17. Harness-Bench licence request
+>   open, zero comments.
+> - `ptc/paired.py` adjudicates (paired CI, exact McNemar, required n, tier split, and a
+>   refusal to read a partial run). `ptc/audit.py` answers whether an arm computes or
+>   guesses. Run the suite as `pytest tests ptc ledger` — bare `pytest` honours
 >   `pytest.ini`'s `testpaths = tests` and silently skips the two suites that matter.
-> - **Outreach:** the author email went to Hazel Mak **2026-10-07** (`docs/outreach.md` §1).
->   The OSF posting is prepared and held until she replies or **2026-10-17**, whichever
->   comes first.
+> - **Never run the suite while a real-mode run is in flight.** It serves MCP servers the
+>   live run is also spawning; contention fails a server-dependent test for ~3 minutes and
+>   reads as a regression. Suite time over ~30s is the tell.
 
 ---
 
