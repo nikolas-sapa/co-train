@@ -12,6 +12,7 @@ Usage: python -m ptc.paired <arm-a>/traces.jsonl <arm-b>/traces.jsonl
 from __future__ import annotations
 
 import json
+import random
 import sys
 from math import comb
 
@@ -53,6 +54,35 @@ def mcnemar_exact(b: int, c: int) -> float:
     return min(1.0, 2 * tail)
 
 
+def bootstrap_interaction(diffs_low: list[float], diffs_high: list[float],
+                          iters: int = 2000, alpha: float = 0.05,
+                          seed: int = 0) -> tuple[float, float] | None:
+    """Percentile CI on `mean(high-tier delta) - mean(low-tier delta)`.
+
+    A6 pre-specifies the interaction as "the difference of those two paired deltas", so
+    the interval that decides N1 is the interval on that difference -- not either tier's
+    own CI, and not the two CI endpoints subtracted. Subtracting marginal endpoints is
+    interval arithmetic on quantities that are not independent, and it is both wider than
+    this and wrong: it answers "how far apart could these two be if each moved
+    adversarially", which is not a confidence statement about their difference.
+
+    The tiers are disjoint sets of tasks, so the two are resampled independently within
+    each iteration. Seeded like `metrics.bootstrap_ci`, so a reported interval reproduces
+    from the same traces.
+    """
+    if len(diffs_low) < 2 or len(diffs_high) < 2:
+        return None
+    rng = random.Random(seed)
+    draws = []
+    for _ in range(iters):
+        low = sum(rng.choices(diffs_low, k=len(diffs_low))) / len(diffs_low)
+        high = sum(rng.choices(diffs_high, k=len(diffs_high))) / len(diffs_high)
+        draws.append(high - low)
+    draws.sort()
+    return (draws[int((alpha / 2) * iters)],
+            draws[min(iters - 1, int((1 - alpha / 2) * iters))])
+
+
 def power_pairs(delta: float, discordance: float, power: float = 0.8,
                 alpha: float = 0.05) -> int | None:
     """Paired tasks needed to detect `delta` at `power`, given a discordance rate.
@@ -78,18 +108,50 @@ def power_pairs(delta: float, discordance: float, power: float = 0.8,
     p = 0.5 + delta / (2 * discordance)
     if p > 1:
         return None
-    for n in range(4, 20001):
+    # `crit` depends only on d, not on p, so it is computed once per d and cached. It
+    # used to be recomputed inside the search, which for a small delta with moderate
+    # discordance meant ~20,000 candidate n and a k-loop of big-integer `comb` calls each
+    # -- minutes of work to return a number, during which a redirected stdout stayed at
+    # 0 bytes and read as a silent failure. Cached, the same search is milliseconds.
+    #
+    # `hi` bounds the search: the required n grows as the effect shrinks (1571 at delta
+    # 0.05 against 11 at delta 0.5, both at discordance 0.5), so a small delta with a
+    # moderate discordance rate exceeds any sane run. When the bound is reached, None is
+    # returned deliberately -- the honest answer is "not on a runnable n", and the caller
+    # prints `n/a` rather than a number nobody could fund.
+    # `crit` depends only on d, and it is monotone in k: growing k toward d/2 moves the
+    # discordant split toward even, so the exact two-sided p only grows with k. That makes
+    # the largest k clearing alpha a binary search (~13 evaluations) rather than a scan
+    # (~d/2 of them, each summing k+1 binomial terms -- O(d^2) per candidate n, which is
+    # what made this function take 115s to answer and left a redirected stdout at 0 bytes
+    # long enough to read as a silent failure).
+    #
+    # `hi` bounds the search. The required n grows as the effect shrinks -- 1571 at delta
+    # 0.05 against 11 at delta 0.5, both at discordance 0.5 -- so a small delta with a
+    # moderate discordance rate exceeds any runnable n. Reaching the bound returns None
+    # deliberately: "not on a runnable n" is the honest answer, and the caller prints n/a
+    # rather than a number nobody could fund.
+    def crit_for(d: int) -> int:
+        if d < 2 or mcnemar_exact(0, d) > alpha:
+            return -1
+        lo, hi_ = 0, d // 2
+        while lo < hi_:
+            mid = (lo + hi_ + 1) // 2
+            if mcnemar_exact(mid, d - mid) <= alpha:
+                lo = mid
+            else:
+                hi_ = mid - 1
+        return lo
+
+    crit_cache: dict[int, int] = {}
+    hi = 20001 if delta >= 0.02 else 2001
+    for n in range(4, hi):
         d = round(n * discordance)
         if d < 2:
             continue
-        # Reject when the minority count is small enough that the exact two-sided
-        # p falls under alpha; power is the chance of landing at or under that count.
-        crit = -1
-        for k in range(d // 2 + 1):
-            if mcnemar_exact(k, d - k) <= alpha:
-                crit = k
-            else:
-                break
+        if d not in crit_cache:
+            crit_cache[d] = crit_for(d)
+        crit = crit_cache[d]
         if crit < 0:
             continue
         got = sum(comb(d, i) * p ** (d - i) * (1 - p) ** i for i in range(crit + 1))
@@ -247,25 +309,35 @@ def main(argv: list[str]) -> int:
         print()
         print("paired WITHIN tier (pre-registration A6)")
         print("-" * 70)
-        deltas = {}
+        deltas, diffs = {}, {}
         for tier in ("cheap", "full-scan"):
             names = tiers.get(tier, set()) & set(r["tasks"])
             if not names:
                 continue
-            t = paired({n: a[n] for n in names}, {n: b[n] for n in names})
-            deltas[tier] = t["delta"]
-            ci = t["ci"]
+            sub = paired({n: a[n] for n in names}, {n: b[n] for n in names})
+            deltas[tier], diffs[tier] = sub["delta"], sub["diffs"]
+            ci = sub["ci"]
             band = (f"[{ci[0] * 100:+.1f}, {ci[1] * 100:+.1f}]" if ci else "n/a")
-            print(f"{tier:<12} n={t['n']:<3} "
-                  f"{name_a} {t['mean_a']:.3f}  {name_b} {t['mean_b']:.3f}  "
-                  f"delta {t['delta'] * 100:+.1f} pp  CI {band}  p={t['p']:.4f}")
+            print(f"{tier:<12} n={sub['n']:<3} "
+                  f"{name_a} {sub['mean_a']:.3f}  {name_b} {sub['mean_b']:.3f}  "
+                  f"delta {sub['delta'] * 100:+.1f} pp  CI {band}  p={sub['p']:.4f}")
         if len(deltas) == 2:
+            # The interval on the interaction is the one that decides N1. A point estimate
+            # here would repeat this project's own recurring defect: reporting a number
+            # whose interval nobody computed.
             inter = deltas["full-scan"] - deltas["cheap"]
+            ici = bootstrap_interaction(diffs["full-scan"], diffs["cheap"])
+            iband = (f"[{ici[0] * 100:+.1f}, {ici[1] * 100:+.1f}]" if ici else "n/a")
             print("-" * 70)
-            print(f"interaction (full-scan delta - cheap delta)   {inter * 100:+.1f} pp")
-            print(f"A6/N1 predicted this NEGATIVE by >= 25 pp "
-                  f"({name_b} ahead on full-scan, not on cheap): "
+            print(f"interaction (full-scan delta - cheap delta)   {inter * 100:+.1f} pp"
+                  f"  95% CI {iband}")
+            print(f"A6/N1 predicted NEGATIVE by >= 25 pp "
+                  f"({name_b} ahead on full-scan, not on cheap)")
+            print(f"  point estimate: "
                   f"{'consistent' if inter <= -0.25 else 'NOT met'}")
+            if ici:
+                print(f"  interval:       "
+                      f"{'EXCLUDES 0 -- negative direction supported' if ici[1] < 0 else 'INCLUDES 0 -- direction not separable'}")
 
     disc = (r["a_only"] + r["b_only"]) / r["n"]
     print()

@@ -16,7 +16,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from ptc.audit import ARITHMETIC, audit_rollout, calls_of, final_answer  # noqa: E402
+from ptc.audit import (  # noqa: E402
+    ARITHMETIC,
+    assign_tiers,
+    audit_rollout,
+    calls_of,
+    final_answer,
+)
 
 
 def _rollout(name: str, min_calls: int, calls: list[tuple[str, str]],
@@ -81,9 +87,22 @@ def test_arithmetic_rollouts_count_a_rollout_once_however_many_sums_it_runs():
     assert audit_rollout(none)["arithmetic_calls"] == 0
 
 
-def test_the_tier_comes_from_min_calls_and_a_void_rollout_is_flagged():
-    assert audit_rollout(_rollout("a", 40, []))["tier"] == "full-scan"
-    assert audit_rollout(_rollout("b", 2, []))["tier"] == "cheap"
+def test_the_tier_is_assigned_across_the_run_from_its_own_maximum():
+    """Tier is not a property of a rollout -- it needs the whole run, because it is
+    defined relative to the run's maximum `min_calls`. `paired.py` derives it the same
+    way, and a hardcoded 40 here would have the two tools adjudicating A6 by different
+    rules the moment a taskset is built on a different record count."""
+    rows = [audit_rollout(_rollout("a", 40, [])),
+            audit_rollout(_rollout("b", 2, [])),
+            audit_rollout(_rollout("c", 40, []))]
+    assign_tiers(rows)
+    by_task = {r["task"]: r["tier"] for r in rows}
+    assert by_task == {"a": "full-scan", "b": "cheap", "c": "full-scan"}
+
+    # A taskset with a different record count must still split, not collapse to one tier.
+    scaled = [audit_rollout(_rollout("x", 7, [])), audit_rollout(_rollout("y", 1, []))]
+    assign_tiers(scaled)
+    assert {r["task"]: r["tier"] for r in scaled} == {"x": "full-scan", "y": "cheap"}
     void = audit_rollout(_rollout("c", 40, [], ok=False))
     assert void["ok"] is False and void["score"] == 0.0
     assert void["shell_share"] == 0.0, "a void rollout has no calls to divide by"

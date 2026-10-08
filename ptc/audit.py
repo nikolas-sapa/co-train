@@ -61,8 +61,8 @@ def audit_rollout(rollout: dict) -> dict:
             score += comp["score"] * comp.get("weight", 1.0)
     return {
         "task": rollout["task"]["data"]["name"],
-        "tier": ("full-scan" if rollout["task"]["data"].get("min_calls") == 40
-                 else "cheap"),
+        "min_calls": rollout["task"]["data"].get("min_calls"),
+        "tier": None,  # assigned by `assign_tiers`, which needs the whole run
         "ok": bool(rollout.get("ok")),
         "score": score,
         "n_calls": len(calls),
@@ -72,6 +72,24 @@ def audit_rollout(rollout: dict) -> dict:
         "shell_share": (len(shell) / len(calls)) if calls else 0.0,
         "answer": final_answer(rollout)[:80],
     }
+
+
+def assign_tiers(rows: list[dict]) -> None:
+    """Set each row's tier in place, from the run's own maximum `min_calls`.
+
+    `paired.py` derives the split the same way. Hardcoding 40 would have the two tools
+    adjudicating A6 by different rules the moment a run uses a taskset built on a
+    different record count -- and a silent divergence between the tool that decides the
+    comparison and the tool that decides the mechanism is worse than either being wrong.
+    """
+    seen = [r["min_calls"] for r in rows if r["min_calls"] is not None]
+    if not seen:
+        for r in rows:
+            r["tier"] = "all"
+        return
+    top = max(seen)
+    for r in rows:
+        r["tier"] = "full-scan" if r["min_calls"] == top else "cheap"
 
 
 def summarise(rows: list[dict]) -> list[dict]:
@@ -110,6 +128,8 @@ def main(argv: list[str]) -> int:
                         r = audit_rollout(json.loads(line))
                         r["arm"] = arm_dir.name
                         rows.append(r)
+
+    assign_tiers(rows)
 
     print(f"{'arm':<20}{'tier':<11}{'n':>4}{'void':>6}{'solved':>8}"
           f"{'shell share':>13}{'arith rollouts':>16}")
