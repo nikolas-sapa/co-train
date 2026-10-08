@@ -23,11 +23,19 @@ reproducing one meant reverse-engineering it out of `~/.zshrc`. The invocation i
 ./.venv-ptc/bin/python ptc/compare.py real \
   --taskset ledger --model deepseek-v4-flash \
   --base-url https://vyceai.com/v1 --key-var VYCEAI_API_KEY \
-  --num-tasks 29 --arms bash,ptc --max-turns 80 --max-concurrent 1 \
-  --max-retries 7 --price-in 0.09 --price-out 0.18 --output-dir ~/scratch/<run>
+  --num-tasks 29 --arms bash,ptc --max-turns 150 --max-concurrent 1 \
+  --max-retries 20 --price-in 0.09 --price-out 0.18 --output-dir ~/scratch/<run>
 ```
 
-**`--max-retries 7` is not optional, and its default is 0.** Runs 2d through 2h all
+**These are the values that produced a clean run, and they are not the ones this recipe
+first carried.** `--max-turns 80 --max-retries 7` was the 2d-2h configuration and is
+insufficient on the 29-task set: at 7 retries run 3b lost 10 of 29 bash rollouts to a
+per-account rate limit, and at 80 turns run 3c still truncated `longest-chain-start`. Run 3d
+at 150/20 is the first with zero voids and zero truncations on both arms. Both numbers scale
+with how many sequential model calls the heaviest task needs on the one-call-per-turn arm, so
+a taskset with more records needs more of each.
+
+**`--max-retries` is not optional, and its default is 0.** Runs 2d through 2h all
 passed 7; the flag exists because the relay throws transient 429s and 504s, and a budget
 of 0 lets a single one void the rollout it hits. The first version of this recipe omitted
 it, and run 3a -- the first run launched FROM this recipe -- died with 27 of 58 rollouts
