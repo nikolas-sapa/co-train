@@ -72,10 +72,19 @@ to be tested, never a default upgrade.**
 
 | | value | basis |
 |---|---|---|
-| topology | 1x T4 16 GB, `vllm_mode="colocate"`, Unsloth vLLM Standby | — |
+| topology | 1x T4 16 GB, Unsloth vLLM Standby | — |
+| `vllm_mode` | **`"colocate"` — set explicitly, never inherited** | required (see below) |
 | `num_generations` | **4** | derived (see below) |
 | `max_completion_length` | **conditional — there is no unconditional value. See next table.** | — |
 | generation peak | 11.2 GB vLLM (`gpu_memory_utilization=0.7`) + 1.39 resident = **12.59 GB** | derived |
+
+**`vllm_mode` must be written out, because its default flips inside the version range
+this project has actually used.** At trl **1.13.0** it defaults to `"colocate"`
+(`grpo_config.py:121`); at trl **0.24.0** it defaults to `"server"`. Both are correct
+at their own version. A script that relies on the default therefore gets **server
+mode and its two-device requirement** on the old pin and one-card colocate on the
+new one — same source, different topology, no error. This is the cap problem again in
+miniature: a value whose meaning depends on a version nobody re-checked. Set it.
 
 ### The cap has two values, and neither is valid without its condition
 
@@ -126,8 +135,9 @@ rollouts agree, so at run 3d's PTC solve rate of 23/29 = 0.793 (measured):
 Unsloth's G=2 example is tolerable because their GRPO notebooks use *graded* rewards,
 where G=2 still carries magnitude. Against 0/1 it carries one bit, often zero.
 
-**Why not G=8:** at the cross-arm cap of 4,258 it needs 20.7 GB on one card
-(derived). Two T4s under DDP would fit (10.35 GB/card), and Unsloth does **not**
+**Why not G=8:** at the both-arms cap of 4,258 it needs 20.7 GB on one card, and at
+the PTC-only cap of 3,072 it still needs 14.94 GB, leaving ~1 GB for activations
+(both derived). Two T4s under DDP would fit either (10.35 and 7.47 GB/card), and Unsloth does **not**
 block that — every `_n_gpu = 1` site is gated on
 `parallel_mode == NOT_DISTRIBUTED` (`models/rl.py:545`), and the hard multi-GPU
 `RuntimeError` is injected only into `SFTTrainer`/`DPOTrainer`/`KTOTrainer`, never
@@ -305,7 +315,8 @@ in this document is preparation for a measurement that cannot yet be made.
 - Unsloth fp16-on-Turing at trl 1.13.0 — the stack's premise, untested.
 - vLLM throughput for 0.6B fp16 on T4 — decides minutes vs hours per step.
 - Realised completion-length distribution for a 0.6B policy under GRPO — decides
-  whether the 4,258 cap holds.
+  whether whichever cap applies holds: 3,072 if only PTC is trained, 4,258 if both
+  arms are. Neither number survives being quoted without that condition.
 - Whether `gpu_memory_utilization=0.7` is computed against total or free VRAM when
   the trainer already holds 1.39 GB; if total, it needs lowering.
 - The zero-advantage fraction for the actual policy, which criterion A answers
