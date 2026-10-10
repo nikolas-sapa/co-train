@@ -455,6 +455,12 @@ reverts to space-separated; the prompt line removed). 126 -> 207 tests across
 `tests ptc ledger` -- note that bare `pytest` runs only `tests/` per `pytest.ini`
 `testpaths`, so it reports 51 and silently skips both suites that matter here.
 
+> **Tooling note, 2026-10-10.** That last caveat no longer applies: `pytest.ini`'s
+> `testpaths` now reads `tests ptc ledger`, so a bare `pytest` collects all three. The
+> counts above are left as recorded. `step2` is still a separate invocation, and the
+> interpreter must be `.venv-ptc/bin/python` -- the system one has no `verifiers` and
+> fails during collection.
+
 This does not advantage the PTC arm. It hands the program the information bash reads
 with its own attention, and leaves PTC the work of computing over it rather than
 reading it.

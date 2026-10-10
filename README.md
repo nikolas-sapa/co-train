@@ -7,6 +7,24 @@ survive a harness swap?**
 Both halves have published baselines. Neither has been run. A negative result is publishable and
 cheap, which is the point: this is a falsification-first research repo, not a product.
 
+---
+
+## Start here
+
+~6,500 lines of markdown across 24 documents. One row per question a reader actually arrives
+with; read the one file, not the pile.
+
+| If you arrived asking | Read |
+|---|---|
+| **What is the result?** | **`docs/results-untrained.md`** — the pre-committed report on the untrained premise check. Read it before the framing below on this page, which was written before the run. |
+| **What went wrong with the instrument?** | **`docs/deviations.md`** — defect ledger at the top of the file, each fault with the run that exposed it and the observation that caught it. |
+| **What is the state, and what is next?** | **`HANDOFF.md`** — current state first, then the dated history below it. |
+| **How do I run the suite?** | [Quick start](#quick-start), below. **`.venv-ptc` is required** — the system interpreter cannot collect two of the suites. |
+| **What was fixed before the run, so the result stays falsifiable?** | `docs/pre-registration.md` (append-only, owner-signed); every amendment to it is in `docs/deviations.md`. |
+| **How does the PTC arm work? What are the tasks?** | `ptc/README.md` for the restricted runtime, `ledger/README.md` for the taskset. |
+| **Why any of these choices?** | `research/README.md` — 8 synthesis documents + 6 deep lanes. |
+| **Did the training loop run on free hardware?** | `step2/results/README.md` for the verdict, `step2/README.md` for the detail. |
+
 ```
                  untrained          co-trained          swapped harness
    bash            69.4  ──┐          ?                   ?
@@ -44,14 +62,35 @@ GPU via `python step2/verdict.py step2/results/step2_metrics.jsonl`.
 
 ## Quick start
 
-No GPU needed. Step 1's suite is stdlib-only and offline; Step 2's needs `transformers` and
-reaches the HF hub for the Qwen3 tokenizer. Developed on CPython 3.12 and 3.14; no lower bound
-has actually been tested.
+**Use `.venv-ptc/bin/python`.** `ptc/` and `ledger/` import `verifiers`, which is pinned to a
+commit rather than a tag (`69cc0f9` — see `HANDOFF.md` for why no released tag works) and is
+**not** installed on the system interpreter. On system `python3` the suite does not fail
+loudly at the end on a missing dependency; it dies during *collection*, so a careless reader
+sees a count and not an error:
+
+```
+ERROR ptc/test_compare.py    - ModuleNotFoundError: No module named 'verifiers'
+ERROR ledger/test_ledger.py  - ModuleNotFoundError: No module named 'verifiers'
+```
+
+No GPU needed for any of it. Step 1's suite is stdlib-only and offline; Step 2's needs
+`transformers` and reaches the HF hub for the Qwen3 tokenizer. Developed on CPython 3.12 and
+3.14; no lower bound has actually been tested.
 
 ```bash
-pytest -q            # Step 1's gate — 51 tests, stdlib only, nothing imports torch
-pytest step2/ -q     # Step 2 — 54 tests (19 need transformers + the HF hub)
+.venv-ptc/bin/python -m pytest -q         # the default suite: tests + ptc + ledger, offline
+.venv-ptc/bin/python -m pytest step2 -q   # Step 2 — 54 tests (19 need transformers + the HF hub)
+
+.venv-ptc/bin/python -m pytest tests -q   # Step 1's gate alone — 51 tests, nothing imports torch
 ```
+
+A bare `pytest` is now safe to type: `pytest.ini`'s `testpaths` covers all three default
+suites. It used to read `testpaths = tests`, so `pytest` collected 51 and silently skipped
+`ptc` and `ledger` — the two suites that adjudicate the result. **Expect 266 passed** from the
+default suite (measured 2026-10-10); a sharply lower number means collection is being skipped
+again, which is a failure this config has already had once.
+
+`step2/` is deliberately left out of `testpaths` so the default suite stays offline.
 
 Step 2's own dev venv, if you want the tokenizer-dependent tests:
 
@@ -73,7 +112,9 @@ Everything trains on Kaggle or rented hardware.
 
 | Path | What it is |
 |---|---|
-| **`HANDOFF.md`** | **Read this to continue the work.** Build sequence, hard constraints, the "do NOT do these" list, corpus map. |
+| **`HANDOFF.md`** | **Read this to continue the work.** Current state at the top; below the history marker, the original build sequence, hard constraints, the "do NOT do these" list and corpus map, kept as written. |
+| `docs/results-untrained.md` | The pre-committed report on the untrained premise check. |
+| `docs/deviations.md` | Append-only amendment log, with the defect ledger at the top. |
 | `docs/HANDOFF-STEP2.md` | What Step 1 learned, and the constraints it places on Steps 3-5. |
 | `docs/pre-registration.md` | Outcomes fixed before the untrained run, so the result stays falsifiable. |
 | `docs/licence-requests.md` | Drafted asks for the two unlicensed upstreams. |
