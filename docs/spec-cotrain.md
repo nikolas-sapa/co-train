@@ -21,8 +21,15 @@ The eval, not the pipeline, is the blocker. See *Non-goals*.
 ## The stack, with the dated reason
 
 ```
-unsloth==2026.10.3        trl==1.13.0        transformers<5        fp16
+unsloth>=2026.10.3        trl==1.13.0        transformers<5        fp16
 ```
+
+**`unsloth>=2026.10.3` is a hard floor, not a recommendation.** Every seam this spec
+depends on is absent below it, because 2026.9.12 caps TRL at 0.24.0 where those seams
+do not exist. An install that resolves to 2026.9.12 does not produce a degraded run —
+**it produces a different experiment**, with no tool loop, no external rollout entry
+point, no tool-token masking, and `vllm_mode` defaulting the other way. Assert the
+resolved version at startup rather than trusting the resolver.
 
 - **unsloth 2026.9.12** — the version the Step 2 run used — declares
   `trl!=0.19.0,<=0.24.0,>=0.18.2`. **That was the wall, and it was real when the
