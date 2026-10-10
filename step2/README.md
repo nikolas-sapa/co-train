@@ -3,7 +3,11 @@
 One question: **does GRPO run on Kaggle T4, and is fp16 stable.** Five steps.
 Not a learning run.
 
-Nothing here has touched a GPU yet. What has been verified, and how, is below.
+**Run on Kaggle T4 2026-09-30: `STEP 2 PASS`.** Result, caveats and stack in
+`step2/results/`; re-checkable with no GPU via `verdict.py`. This line previously
+read "nothing here has touched a GPU yet" and survived the commit that added the
+result (`650a303` edited this file but not this sentence), so the repo asserted
+both at once. What has been verified, and how, is below.
 
 ## Run order
 
@@ -14,8 +18,8 @@ python step2/verdict.py step2_metrics.jsonl   # re-check a saved run
 ```
 
 Kaggle: accelerator `NvidiaTeslaT4` (= T4 x2).
-**`pip install unsloth "transformers<5"`** — the pin is load-bearing, see the
-next section. Copy
+**`pip install unsloth==2026.9.12 "trl==0.24.0" "transformers<5"`** — every pin
+is load-bearing, see the next section. Copy
 `step2/` to `/kaggle/working`, `cd` there, run. Output lands in
 `/kaggle/working`, which persists; notebook scrollback does not, and the
 20-30 min idle timeout can take the kernel before you read it.
@@ -32,8 +36,13 @@ its docs, three things hold that the note does not say:
 2. **Neither the check nor the tool loop exists in TRL ≤ 0.24.0.**
    `trl/chat_template_utils.py` is 404 at that tag and `self.tools` appears
    zero times in its `grpo_trainer.py`. Both land in 0.26.0.
-3. **Unsloth pins `trl>=0.18.2,!=0.19.0,<=0.24.0`.** So on the Step 2 stack
-   the gate is not merely unfired — it is absent.
+3. **Unsloth pinned `trl>=0.18.2,!=0.19.0,<=0.24.0`.** So on the Step 2 stack
+   the gate is not merely unfired — it is absent. **That pin has since moved:**
+   unsloth 2026.10.3 (2026-10-08) declares `trl!=0.19.0,<=1.13.0`. The sentence
+   above describes unsloth 2026.9.12, the version the run used — verified from
+   its own PyPI metadata, not inferred. The recipe now pins unsloth and trl to
+   the versions the artifact records, rather than relying on a ceiling that has
+   already moved once.
 
 **Qwen3-0.6B does fail the gate** where it exists. Qwen3 drops the
 `<think></think>` block from an assistant turn once a later turn is appended,
@@ -46,9 +55,63 @@ after TRL patch    True   (get_training_chat_template, 3834 chars)
 ```
 
 TRL's own docstring for `get_training_chat_template` uses Qwen3-0.6B as its
-worked example of exactly this, and ships the repair; TRL applies it
-automatically when `tools=` is set. **The escape hatch — proxying the model
-call, as LEGO-RL and OpenForgeRL do — is not needed on that path.**
+worked example of exactly this, and ships the repair, applied at
+`grpo_trainer.py:423-428` of v0.26.0 whenever `tools` is truthy.
+
+### The repair matches `Qwen/Qwen3-0.6B`. The run loads `unsloth/Qwen3-0.6B`.
+
+**This section previously concluded "the escape hatch is not needed on that
+path." That conclusion was measured against a model this project does not
+train, and it is wrong for the one it does.**
+
+TRL's repair is not a transformation. `chat_template_utils.py:353-362` is, in
+full, three branches:
+
+```python
+if is_chat_template_prefix_preserving(tokenizer):
+    return None                                   # no patch NEEDED
+if tokenizer.chat_template == qwen3_chat_template:
+    return qwen3_training_chat_template            # the one repair it has
+else:
+    raise ValueError("...patching is not supported for this template.")
+```
+
+The middle branch is an **exact string equality against a vendored copy of
+Qwen3's template**. Measured 2026-10-10, no GPU, from the live tokenizer
+configs and trl v0.26.0's source:
+
+| template | chars | sha1 (12) | `== qwen3_chat_template` |
+|---|---:|---|---|
+| trl 0.26 vendored `qwen3_chat_template` | 4168 | `b066ba71c1b5` | — |
+| `Qwen/Qwen3-0.6B` | 4168 | `b066ba71c1b5` | **True** |
+| `unsloth/Qwen3-0.6B` | 4905 | `2006cdc006d3` | **False** |
+
+And TRL's own prefix predicate, applied verbatim to both, answers **False for
+both** — so neither takes the early `return None`. Therefore:
+
+- `Qwen/Qwen3-0.6B` → equality holds → repaired → `tools=` works.
+- `unsloth/Qwen3-0.6B` → equality fails → **`raise ValueError`** inside
+  `GRPOTrainer.__init__`, the moment `tools=` is non-empty.
+
+`smoke.py` loads `unsloth/Qwen3-0.6B` (`MODEL`, line 31; the artifact's
+`config` block records it too). So **co-training this stack under `tools=`
+raises at trainer construction**, and the escape hatch — proxying the model
+call, or supplying a repaired template by hand — IS needed.
+
+**Why no check caught it:** `gate_chat_template.py` defaulted to
+`Qwen/Qwen3-0.6B` while `smoke.py` loads `unsloth/Qwen3-0.6B`, and `KAGGLE.md`
+cell 3 runs the gate with no argument. The gate measured the comfortable repo
+and reported `after TRL patch True`. Same class as the twelve faults in
+`docs/deviations.md`: a green check against the wrong target. The default is
+now `unsloth/Qwen3-0.6B` and a test asserts the two files cannot drift apart
+again.
+
+**Second defect in the same lines, found while fixing the first:** the gate
+read `fixed is None` as "TRL offers no patch" and reported FAIL. TRL returns
+`None` to mean the opposite — *no patch is needed* — and signals "no patch
+available" by **raising**, which the gate did not catch. So on the very repo it
+now checks, the old code would have died with an unhandled `ValueError`
+instead of reporting a verdict. Both paths are now handled and tested.
 
 ### What this leaves for Steps 5-6
 
@@ -60,13 +123,41 @@ proper hardware":
 - **trl ≥ 0.26 without Unsloth** — gains the tool loop and the auto-repair,
   loses Unsloth's fp16-on-Turing work. Fine on rented Ampere, not on a T4.
 - **Proxy the model call** — keeps Unsloth, owns the multi-turn loop.
+- **Unsloth + trl ≥ 0.26** — newly admissible, and not on anyone's list when
+  the two above were written: Unsloth's ceiling moved to `trl<=1.13.0` on
+  2026-10-08, so keeping Unsloth and taking the tool loop is no longer a
+  contradiction. **Unverified on hardware** — nothing says Unsloth's fp16-on-
+  Turing patches still apply to a trl that far forward, and that is exactly
+  the kind of claim this repo does not get to assert without a run.
+
+Which entry point exists where, read from source at each tag rather than from
+the docs (counts are occurrences in `trl/trainer/grpo_trainer.py`):
+
+| | 0.24.0 | 0.25.0 | 0.26.0 |
+|---|---|---|---|
+| `rollout_func` (own the generation) | **0** | 9 | 11 |
+| `self.tools` (native tool loop) | **0** | **0** | 17 |
+| `tool_mask` (tool tokens out of the loss) | **0** | **0** | 19 |
+| `get_training_chat_template` (the repair) | **0** | **0** | 2 |
+| `environment_factory` | **0** | **0** | **0** (lands later; present in 1.13.0) |
+
+0.24's `GRPOTrainer.__init__` takes ten parameters and none of them is a seam
+for externally-driven rollouts. **So the chat-template gate is not what kills a
+co-training run on the Step 2 stack — there is no entry point for the harness
+to attach to in the first place, and the gate sits downstream of one.** The
+minimum for bring-your-own-rollouts is **0.25.0**; the minimum for a native
+tool loop with loss masking and the auto-repair is **0.26.0**.
 
 Deciding this is Step 5's, not Step 2's. Recorded so it is not discovered late.
 
 ## The dependency trap, found before spending a Kaggle slot
 
-`pip install unsloth` on Kaggle resolves `trl==0.24.0` — Unsloth's ceiling, so
-`gc24.py` is validating against the right version. It also resolves
+`pip install unsloth` on Kaggle resolved `trl==0.24.0` **on 2026-09-26, under
+unsloth 2026.9.12, whose ceiling was `trl<=0.24.0`** — so `gc24.py` was
+validating against the right version. That is no longer self-enforcing: unsloth
+2026.10.3 raised the ceiling to `trl<=1.13.0`, and the recipe pins the version
+explicitly instead. What pip resolves inside the Kaggle image is **UNKNOWN**
+from here and is not checkable from a dev machine; see `KAGGLE.md` cell 2. It also resolves
 **`transformers==5.5.0`**, because TRL 0.24 declares `transformers>=4.56.1`
 with no upper bound. That pair does not work:
 
@@ -238,10 +329,17 @@ reported. What survived longest, in order:
 
 ## Known holes
 
-- **`gc24.py` is a vendored snapshot.** If Unsloth lifts its TRL ceiling, the
-  kwarg test validates against a version no longer installed and still passes.
-  The refresh command is in that file's header. The resolve on 2026-09-26 did
-  pick `trl==0.24.0`, so it is currently the right snapshot.
+- **`gc24.py` is a vendored snapshot, and this hole has now FIRED.** The stated
+  risk was: "if Unsloth lifts its TRL ceiling, the kwarg test validates against
+  a version no longer installed and still passes." Unsloth lifted it on
+  2026-10-08 (`trl<=0.24.0` → `trl<=1.13.0`), so an unpinned install is now
+  free to take TRL as far as 1.13.0, where `max_prompt_length` is gone — what
+  Kaggle's resolver actually picks is UNKNOWN from here — and
+  `test_every_grpo_config_kwarg_exists_in_trl_024` stayed green throughout
+  because it reads the snapshot. Closed two ways: the recipe pins the versions
+  the artifact records, and `gate_chat_template.py` now diffs smoke.py's kwargs
+  against the **installed** `GRPOConfig` via `dataclasses.fields`. Only the
+  second is robust — a pin predicts the resolution, the preflight observes it.
 - **The `transformers<5` pin is a ceiling, not a fix.** TRL's unbounded
   `transformers>=4.56.1` is still there; a future TRL that handles the tuple
   return will want the pin lifted, and nothing here notices that.

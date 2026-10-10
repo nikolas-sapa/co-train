@@ -218,6 +218,91 @@ def test_trl_patch_repairs_qwen3(tok):
     assert is_prefix_preserving(tok) is True
 
 
+# ------------------------- the repo TRL's repair is keyed to, vs the one we load
+# TRL dispatches its single Qwen3 repair on `tokenizer.chat_template ==
+# qwen3_chat_template` (chat_template_utils.py:356), an EXACT string equality
+# against a vendored copy. That copy is byte-identical to `Qwen/Qwen3-0.6B` and
+# not to `unsloth/Qwen3-0.6B`, which is what smoke.py loads — so TRL refuses the
+# model we train while repairing the one we do not. The gate defaulted to the
+# comfortable repo and reported `after TRL patch True`. These pin the facts that
+# made that possible, and none of them needs trl installed.
+
+
+def _tokenizer(repo):
+    try:
+        return transformers.AutoTokenizer.from_pretrained(repo)
+    except Exception as e:
+        pytest.skip(f"{repo} tokenizer unavailable: {e}")
+
+
+def test_the_gate_checks_the_model_the_run_actually_loads():
+    """smoke.py's MODEL and the gate's default MODEL must name the same repo.
+    They did not: the gate said `Qwen/Qwen3-0.6B`, smoke.py says
+    `unsloth/Qwen3-0.6B`, and KAGGLE.md cell 3 runs the gate with no argument —
+    so the preflight measured a template the training run never loads."""
+    def model_default(path):
+        tree = ast.parse((STEP2 / path).read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) == "MODEL":
+                for c in ast.walk(node.value):
+                    if isinstance(c, ast.Constant) and isinstance(c.value, str) and "/" in c.value:
+                        return c.value
+        raise AssertionError(f"no MODEL assignment in {path}")
+
+    assert model_default("gate_chat_template.py") == model_default("smoke.py")
+
+
+def test_the_two_qwen3_repos_ship_different_chat_templates():
+    """The premise of the defect. If Unsloth ever syncs its template to Qwen's,
+    TRL's equality dispatch starts working and the hand-repair below becomes
+    unnecessary — this test is what tells you that happened."""
+    a = _tokenizer("Qwen/Qwen3-0.6B").chat_template
+    b = _tokenizer("unsloth/Qwen3-0.6B").chat_template
+    assert a and b
+    assert a != b, "templates now identical — TRL's equality dispatch would cover both"
+
+
+def test_the_model_the_run_loads_is_not_prefix_preserving():
+    """Measured on the repo smoke.py uses, not on Qwen's. False here is what
+    sends execution into TRL's equality dispatch, which is where it refuses."""
+    assert is_prefix_preserving(_tokenizer("unsloth/Qwen3-0.6B")) is False
+
+
+def test_trl_refuses_the_unsloth_repo_but_its_repair_still_fixes_it():
+    """The whole finding, end to end, on the real stack. TRL raises rather than
+    returning None — that is its "no patch available" signal — yet the very
+    template it declined to apply does repair this tokenizer. So the remedy is
+    one explicit assignment, not the proxy rewrite."""
+    ctu = pytest.importorskip("trl.chat_template_utils")
+    tok = _tokenizer("unsloth/Qwen3-0.6B")
+    with pytest.raises(ValueError):
+        ctu.get_training_chat_template(tok)
+    tok.chat_template = ctu.qwen3_training_chat_template
+    assert is_prefix_preserving(tok) is True
+
+
+def test_main_handles_trls_refusal_instead_of_dying_on_it():
+    """`get_training_chat_template` signals "no patch available" by RAISING, and
+    returns None for "no patch needed" — the opposite of how the gate read it.
+    Uncaught, the gate dies with a traceback on the one repo it now checks,
+    which is not a verdict. AST-checked because main() needs network + a GPU-era
+    trl to reach that line."""
+    tree = ast.parse((STEP2 / "gate_chat_template.py").read_text())
+    main = next(n for n in ast.walk(tree)
+                if isinstance(n, ast.FunctionDef) and n.name == "main")
+    guarded = [
+        h for t in ast.walk(main) if isinstance(t, ast.Try)
+        for h in t.handlers
+        if any(isinstance(c, ast.Call)
+               and getattr(c.func, "id", None) == "get_training_chat_template"
+               for c in ast.walk(t))
+    ]
+    assert guarded, "the get_training_chat_template call is not inside a try/except"
+    names = {getattr(h.type, "id", None) for h in guarded}
+    assert names & {"ValueError", "Exception"}, \
+        f"refusal is not caught; handlers catch {names or 'nothing'}"
+
+
 # ------------------------------------------------------------- the reward
 
 def test_reward_is_continuous_and_peaks_at_target():
@@ -541,6 +626,28 @@ def test_no_poisoned_flags_on_the_installed_stack():
     assert poisoned_optional_flags() == []
 
 
+def _install_import_utils(monkeypatch, mod):
+    """Register `mod` so `import trl.import_utils as iu` resolves to it.
+
+    The PARENT package has to be registered too, and that is not a detail.
+    `poisoned_optional_flags()` does `import trl.import_utils as iu`, which
+    imports `trl` FIRST — so with no real trl installed (the dev machine; trl
+    is a Kaggle-side dependency) the import raises ModuleNotFoundError and the
+    detector returns `[]` from its `except ImportError` before it ever reads
+    the stub. A submodule-only stub therefore made the three tests that expect
+    findings fail for an environment reason, and made the two that expect `[]`
+    pass vacuously — green while asserting nothing. Setting the attribute on
+    the parent as well covers both import paths: CPython's `import a.b as c`
+    does `getattr(a, "b")` and only falls back to `sys.modules["a.b"]`.
+    """
+    parent = types.ModuleType("trl")
+    parent.__path__ = []
+    parent.import_utils = mod
+    monkeypatch.setitem(sys.modules, "trl", parent)
+    monkeypatch.setitem(sys.modules, "trl.import_utils", mod)
+    return mod
+
+
 def _stub_import_utils(monkeypatch, **flags):
     """Install a stand-in trl.import_utils. The stub is the detector's INPUT,
     not a stand-in for the thing under test — the real stack is covered by the
@@ -548,8 +655,7 @@ def _stub_import_utils(monkeypatch, **flags):
     mod = types.ModuleType("trl.import_utils")
     for name, value in flags.items():
         setattr(mod, name, lambda v=value: v)
-    monkeypatch.setitem(sys.modules, "trl.import_utils", mod)
-    return mod
+    return _install_import_utils(monkeypatch, mod)
 
 
 def test_detects_the_tuple_return_that_transformers_5_introduces(monkeypatch):
@@ -577,7 +683,7 @@ def test_a_raising_flag_is_not_mistaken_for_poisoning(monkeypatch):
         raise RuntimeError("unrelated")
     mod.is_vllm_available = boom
     mod.is_mergekit_available = lambda: (False, None)
-    monkeypatch.setitem(sys.modules, "trl.import_utils", mod)
+    _install_import_utils(monkeypatch, mod)
     assert poisoned_optional_flags() == ["is_mergekit_available"]
 
 
@@ -590,7 +696,7 @@ def test_non_flag_attributes_are_ignored(monkeypatch):
     mod._mergekit_available = lambda: (False, None)   # endswith, not startswith
     mod.available_is_not_a_flag = lambda: (False, None)
     mod.is_something_else = lambda: (False, None)     # startswith, not endswith
-    monkeypatch.setitem(sys.modules, "trl.import_utils", mod)
+    _install_import_utils(monkeypatch, mod)
     assert poisoned_optional_flags() == ["is_mergekit_available"]
 
 
@@ -612,6 +718,64 @@ def test_preflight_blocks_rather_than_only_reporting():
                 "the poisoned branch returns 0 — smoke.py would run anyway"
             return
     raise AssertionError("main() has no `if poisoned:` guard")
+
+
+# ------------------------------------- the ceiling that moved under the recipe
+# `test_every_grpo_config_kwarg_exists_in_trl_024` validates smoke.py against
+# `gc24.py`, a VENDORED snapshot, and so stays green whatever pip resolved.
+# README listed that as a known hole; on 2026-10-08 Unsloth 2026.10.3 lifted
+# its pin from `trl<=0.24.0` to `trl<=1.13.0` and the hole fired. These check
+# the preflight that reads the INSTALLED class instead.
+
+
+def _fake_trl(monkeypatch, field_names):
+    """Install a `trl` whose GRPOConfig is a dataclass with exactly these fields."""
+    cls = dataclasses.make_dataclass("GRPOConfig", sorted(field_names))
+    mod = types.ModuleType("trl")
+    mod.GRPOConfig = cls
+    mod.__version__ = "0.0.0-fake"
+    monkeypatch.setitem(sys.modules, "trl", mod)
+    return cls
+
+
+def test_a_removed_grpo_config_field_is_caught_before_the_model_download():
+    """`max_prompt_length` is the live example: present in trl 0.24, count 0 in
+    1.13.0's grpo_config.py. Dropping it from the installed surface must be
+    reported, because GRPOConfig otherwise raises after the queue, the install
+    and the weight download."""
+    import gate_chat_template as gate
+
+    with pytest.MonkeyPatch.context() as mp:
+        _fake_trl(mp, _smoke_call("GRPOConfig") - {"max_prompt_length"})
+        assert gate.unknown_grpo_config_kwargs() == ["max_prompt_length"]
+
+
+def test_the_kwarg_preflight_is_quiet_when_the_surface_still_matches():
+    """It must not fire on trl 0.24, or the recipe it is defending becomes
+    unrunnable and the gate gets switched off."""
+    import gate_chat_template as gate
+
+    with pytest.MonkeyPatch.context() as mp:
+        _fake_trl(mp, _smoke_call("GRPOConfig"))
+        assert gate.unknown_grpo_config_kwargs() == []
+
+
+def test_the_kwarg_preflight_blocks_rather_than_only_reporting():
+    """Same shape as the poisoned-flag gate: reporting without gating is the
+    defect Step 1 kept finding, so assert the branch returns non-zero."""
+    tree = ast.parse((STEP2 / "gate_chat_template.py").read_text())
+    main = next(n for n in ast.walk(tree)
+                if isinstance(n, ast.FunctionDef) and n.name == "main")
+    for node in ast.walk(main):
+        if (isinstance(node, ast.If) and isinstance(node.test, ast.Name)
+                and node.test.id == "unknown"):
+            returns = [n.value for n in ast.walk(node) if isinstance(n, ast.Return)]
+            assert returns, "the unknown-kwarg branch does not return at all"
+            assert all(isinstance(r, ast.Constant) and r.value != 0 for r in returns), \
+                "the unknown-kwarg branch returns 0 — smoke.py would run anyway"
+            break
+    else:
+        raise AssertionError("main() does not gate on unknown GRPOConfig kwargs")
 
 
 def test_missing_trl_is_not_an_error(monkeypatch):

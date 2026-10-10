@@ -28,9 +28,22 @@ is broken AND this TRL cannot repair it.
 
 from __future__ import annotations
 
+import ast
+import dataclasses
+import os
+
 import sys
 
-MODEL = sys.argv[1] if len(sys.argv) > 1 else "Qwen/Qwen3-0.6B"
+# Must match `smoke.py`'s MODEL, and that is not cosmetic. TRL's repair
+# (`get_training_chat_template`) does `tokenizer.chat_template ==
+# qwen3_chat_template` — an EXACT string equality against a vendored copy.
+# trl 0.26's copy is byte-identical to `Qwen/Qwen3-0.6B` (4168 chars, sha1
+# b066ba71c1b5) and NOT to `unsloth/Qwen3-0.6B` (4905 chars, sha1
+# 2006cdc006d3), which is what smoke.py loads. Both repos fail
+# prefix-preservation, so the equality check is reached for both: Qwen's gets
+# repaired, Unsloth's raises ValueError. Defaulting to Qwen here measured a
+# model the run does not use and reported the comfortable answer.
+MODEL = sys.argv[1] if len(sys.argv) > 1 else "unsloth/Qwen3-0.6B"
 
 def _probe(arguments):
     """The two conversations TRL's helper renders, built fresh per call.
@@ -112,6 +125,47 @@ def poisoned_optional_flags() -> list[str]:
     return bad  # dir() is documented to return a sorted list; no re-sort needed
 
 
+def unknown_grpo_config_kwargs() -> list[str]:
+    """GRPOConfig kwargs `smoke.py` passes that the INSTALLED trl does not accept.
+
+    `test_step2.py` validates the same kwargs against `gc24.py`, a vendored
+    snapshot of trl 0.24's GRPOConfig, so the suite stays green whatever pip
+    actually resolved. That was a declared hole in `README.md`, and it fired:
+    Unsloth 2026.10.3 (2026-10-08) lifted its ceiling from `trl<=0.24.0` to
+    `trl<=1.13.0`, and trl 1.13.0 requires only `transformers>=4.56.2` — which
+    `transformers<5` satisfies. So `pip install unsloth "transformers<5"` now
+    resolves trl 1.13.0, where `max_prompt_length` is gone (present in 0.24,
+    count 0 in 1.13.0's `grpo_config.py`). GRPOConfig would then raise AFTER
+    the install, the queue and the model download — the failure shape this
+    preflight exists to move to second 20.
+
+    Reads the installed class via `dataclasses.fields`, which includes the
+    TrainingArguments fields it inherits, so it cannot drift from reality the
+    way a vendored snapshot can.
+    """
+    smoke = os.path.join(os.path.dirname(os.path.abspath(__file__)), "smoke.py")
+    if not os.path.exists(smoke):
+        return []  # dev-side invocation without the run script beside it
+    with open(smoke) as f:
+        tree = ast.parse(f.read())
+    passed: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "GRPOConfig":
+            passed = {k.arg for k in node.keywords if k.arg}
+            break
+    if not passed:
+        return []
+    try:
+        from trl import GRPOConfig
+    except Exception:
+        return []  # no trl here; the poisoned-flag gate already reports that
+    try:
+        known = {f.name for f in dataclasses.fields(GRPOConfig)}
+    except TypeError:
+        return []  # not a dataclass on this version; nothing to compare against
+    return sorted(passed - known)
+
+
 def main() -> int:
     import transformers
     from transformers import AutoTokenizer
@@ -140,14 +194,31 @@ def main() -> int:
             f"  fix:      pip install 'transformers<5'   (4.57.6 verified)"
         )
         return 1
+
+    unknown = unknown_grpo_config_kwargs()
+    if unknown:
+        print(
+            f"\nFAIL — smoke.py passes {len(unknown)} GRPOConfig kwarg(s) that trl "
+            f"{trl_version} does not\naccept, so GRPOConfig would raise after the model "
+            f"download.\n"
+            f"  unknown: {', '.join(unknown)}\n"
+            f"  cause:   Unsloth lifted its ceiling to `trl<=1.13.0`, and `transformers<5`\n"
+            f"           does not hold trl down — trl 1.13.0 needs only transformers>=4.56.2.\n"
+            f"  fix:     pip install unsloth \"transformers<5\" \"trl<=0.24\""
+        )
+        return 1
     print("optional flags   bool (not poisoned by the transformers 5 tuple change)")
 
     try:
-        from trl.chat_template_utils import get_training_chat_template
+        from trl.chat_template_utils import (
+            get_training_chat_template,
+            qwen3_training_chat_template,
+        )
 
         gate_present = True
     except ImportError:
         get_training_chat_template = None
+        qwen3_training_chat_template = None
         gate_present = False
     print(f"gate in this trl {gate_present}   (trl/chat_template_utils.py)")
 
@@ -169,9 +240,34 @@ def main() -> int:
         )
         return 0
 
-    fixed = get_training_chat_template(tok)
+    # TRL's contract, `chat_template_utils.py:353-362`, is three branches and
+    # the middle one is an exact string equality:
+    #     prefix-preserving already        -> return None   ("no patch NEEDED")
+    #     template == qwen3_chat_template  -> return the repair
+    #     otherwise                        -> RAISE ValueError ("unsupported")
+    # The old code read None as "no patch available" — the opposite — and did
+    # not catch the raise at all, so the genuine no-patch case exited with a
+    # traceback rather than a verdict. `auto` records whether TRL will apply
+    # the repair by itself when `tools=` is set, because that is the difference
+    # between "nothing to do" and "you must set this or the trainer raises".
+    try:
+        fixed = get_training_chat_template(tok)
+        auto = fixed is not None
+    except ValueError as exc:
+        # TRL declines this template. Its equality dispatch is keyed to
+        # `Qwen/Qwen3-0.6B` (4168 chars) and `unsloth/Qwen3-0.6B` ships 4905,
+        # so the repo this project trains is refused while the one it does not
+        # is repaired. The repair itself still works on it — measured, not
+        # assumed — so try it by hand rather than reporting a dead end.
+        print(f"TRL repair        refused ({exc.__class__.__name__}: {str(exc)[:60]}...)")
+        fixed, auto = qwen3_training_chat_template, False
+
     if fixed is None:
-        print("\nFAIL — not prefix-preserving and TRL offers no patch. Use the proxy hatch.")
+        print(
+            "\nFAIL — TRL's own predicate calls this template prefix-preserving while\n"
+            "the tool-call probe here does not, so no repair is offered and the\n"
+            "disagreement is unresolved. Use the proxy hatch."
+        )
         return 1
 
     tok.chat_template = fixed
@@ -180,9 +276,20 @@ def main() -> int:
     if not repaired:
         print("\nFAIL — TRL's patch did not repair it. Use the proxy hatch.")
         return 1
+    if auto:
+        print(
+            "\nPASS — TRL auto-applies this patch when `tools=` is set. No proxy needed.\n"
+            "Note it is applied to a template copy; the tokenizer on disk stays unfixed."
+        )
+        return 0
     print(
-        "\nPASS — TRL auto-applies this patch when `tools=` is set. No proxy needed.\n"
-        "Note it is applied to a template copy; the tokenizer on disk stays unfixed."
+        "\nPASS, CONDITIONALLY — the repair works on this template but TRL will NOT\n"
+        "apply it: its dispatch is an exact equality against a vendored copy of\n"
+        "`Qwen/Qwen3-0.6B`, and this repo's template differs. Under `tools=` the\n"
+        "trainer raises at construction unless you set it yourself:\n"
+        "    from trl.chat_template_utils import qwen3_training_chat_template\n"
+        "    tokenizer.chat_template = qwen3_training_chat_template\n"
+        "Do that before GRPOTrainer(...), or pass `Qwen/Qwen3-0.6B` instead."
     )
     return 0
 

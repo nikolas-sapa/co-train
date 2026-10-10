@@ -18,7 +18,14 @@ identical mtime AND size, so Python keeps executing the cached .pyc.
 import json, os, pathlib, shutil, subprocess, sys, tempfile
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
-PY = str(REPO.parents[2] / ".venv-tok" / "bin" / "python")
+
+# The repo-local venv, not an absolute path outside the clone. The previous
+# value pointed at `~/.venv-tok/bin/python`, which does not exist here any
+# more, so every invocation died in subprocess with FileNotFoundError before
+# the baseline ran — the exact unfalsifiable green this file's docstring says
+# it exists to prevent. Falls back to the current interpreter.
+_VENV = REPO / ".venv-ptc" / "bin" / "python"
+PY = str(_VENV) if _VENV.exists() else sys.executable
 ENV = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_DISABLE_PROGRESS_BARS": "1"}
 
 
