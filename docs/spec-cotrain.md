@@ -203,6 +203,40 @@ in the `environment_factory` instance — per-rollout state, which is why this n
 `runtime.py`'s existing "a rejection the model reads, not a hang". *Absent: defect 1
 again — a turn-unbounded trained arm against an 8-turn eval arm.*
 
+**4. A note, not a fourth invariant: H4 cannot validate invariant 1.**
+
+Invariant 1 already prevents the flipped arm, so this is not another assertion — it is
+the reason you must not substitute a metric for it. `tool_success_rate = 1.0 -
+tool_failures / tool_calls`, and a failure is a result whose text starts with
+`"rejected:"` or `"error:"` — the strings `ptc/harness.py` emits
+(`ptc/metrics.py:31`). A flipped arm has no PTC harness in the loop; `ledger`'s three
+tools return only JSON, `null` for a bad id rather than an error string. So
+`_is_failure` can never match, failures are 0, and **the rate is pinned at exactly
+1.000 independent of how badly the model performs.**
+
+H4's pre-registered prediction is that co-training *raises* PTC's tool-call success
+from 0.561 toward bash's. So the correct pipeline reads as a modest confirmation and
+**the flipped-arm pipeline reads as a spectacular one** — H4 does not merely fail to
+catch the error, it rewards it, in the direction the project signed in advance. Its
+sensitivity is highest to exactly the error it would be validating.
+
+**This is already in the published numbers, not a hypothetical.** Measured on run 3d:
+the PTC arm is 74 failures in 156 calls (0.5256); the bash arm is **0 in 822**,
+because its tools (`bash`, `ledger_get`, `ledger_ids`, `ledger_links_to`) return JSON
+or shell output and cannot match the predicate. Secondary 3 as reported — "bash
+1.000, PTC 0.561, bash ahead" — therefore compares a **measured rate against an
+unmeasurable one**, and bash's 1.000 is a floor artifact rather than a performance
+figure. `ptc/metrics.py` now flags any arm with zero detected failures over
+`MIN_CALLS_FOR_PERFECT_RATE` (20) calls; it stays quiet on the PTC arm and fires on
+bash.
+
+What *does* validate, cheaply: **stratify the rate per tier** (mode 2 is genuinely
+detectable this way, with 198 full-scan tasks available), **log turn counts
+separately** from H4 (mode 3's signature lives there, and H4's own response to it is
+sign-indeterminate), and **record tool-call success at step 0 before the first
+gradient step** — a flipped arm reads 1.000 immediately, from one generation pass,
+with no training and no working benchmark.
+
 ## Two abort criteria, over metrics the stack already emits
 
 `verdict.py` owns pass criteria; these extend it for a co-training run. **Neither

@@ -35,6 +35,13 @@ from typing import Any
 # tool-call success rate that jumps to 100%.
 FAILURE_PREFIXES = ("rejected:", "error:")
 
+# Above this many calls, a tool-call success rate of exactly 1.000 is reported as an
+# instrument claim rather than a result. The prefixes above are pinned against drift in
+# the STRING; this catches the other way in — strings intact, error channel absent from
+# the loop. At any true failure rate >= 10%, P(0 failures in 20 calls) <= 0.9**20 = 12%,
+# so 20 is where "perfect policy" stops being the likelier explanation.
+MIN_CALLS_FOR_PERFECT_RATE = 20
+
 # Names that denote a general-purpose shell rather than a typed tool.
 SHELL_TOOLS = ("bash", "shell", "sh", "run_shell", "execute_bash")
 
@@ -385,6 +392,25 @@ def render(results: list[ArmResult]) -> str:
             ". Those rollouts scored 0.0 because nothing ran, not because the arm "
             "failed the task. Every number in this table is meaningless until the run "
             "completes — check the endpoint, the key and the provider first.")
+    # A rate of exactly 1.000 over a non-trivial number of calls is far more likely an
+    # absent error channel than a perfect policy. Measured on run 3d: the PTC arm is 74
+    # failures in 156 calls (0.5256), the bash arm 0 in 822 — its tools (`bash`,
+    # `ledger_get`, `ledger_ids`, `ledger_links_to`) return JSON or shell output and can
+    # never match FAILURE_PREFIXES, so its 1.000 is a floor, not a measurement. Secondary
+    # 3 therefore compares a measured rate against an unmeasurable one. Flagged, not
+    # raised, per `2026-10-08-warn-rather-than-raise-a-fail-loud-default`.
+    undetectable = {r.arm: r.tool_calls for r in results
+                    if r.tool_calls >= MIN_CALLS_FOR_PERFECT_RATE and not r.tool_failures}
+    if undetectable:
+        notes.insert(0, "*** NO TOOL FAILURE WAS DETECTABLE: " + ", ".join(
+            f"{arm} 0 of {n} calls" for arm, n in undetectable.items()) +
+            f". `tool_success_rate` is 1.0 - failures/calls, and a failure is a result "
+            f"whose text starts with {' or '.join(repr(p) for p in FAILURE_PREFIXES)} — "
+            f"the strings `ptc/harness.py` emits. An arm whose tools return JSON or shell "
+            f"output cannot produce one, so 1.000 here may mean the error channel is NOT "
+            f"IN THE LOOP rather than that nothing failed. Check what tools the arm was "
+            f"given before reading this as a capability: a tool-call success rate is only "
+            f"comparable between arms whose failures are both visible to this predicate.")
     truncated = {r.arm: r.n_truncated for r in results if r.n_truncated}
     if truncated:
         notes.insert(0, "*** A BUDGET LIMIT BOUND: " + ", ".join(

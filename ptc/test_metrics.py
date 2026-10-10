@@ -612,3 +612,54 @@ def test_an_unpriced_run_is_not_also_flagged_as_underpriced():
                               "ptc", "ledger")])
     assert "PRICED UNDER THE MEASURED RATE" not in table
     assert "cost computed at" not in table
+
+# ------------------- a tool-call success rate of exactly 1.000 is an instrument claim
+# `tool_success_rate = 1.0 - tool_failures / tool_calls`, and failures are detected by
+# prefix-matching the strings `ptc/harness.py` emits (`FAILURE_PREFIXES`). The module
+# docstring already warns that a format drift "shows up as a tool-call success rate
+# that jumps to 100%", and the prefixes are pinned against drift in the STRING. Nothing
+# caught the other way in: the strings intact and the error channel absent from the loop
+# entirely. Measured on run 3d: the PTC arm is 74 failures in 156 calls (0.5256), while
+# the bash arm is 0 in 822 -- its four tools return JSON or shell output and can never
+# match, so its 1.000 is a floor artifact, not a performance figure.
+
+
+def _json_only_arm(n_calls):
+    """An arm whose tool results can never match FAILURE_PREFIXES -- the shape both the
+    bash arm and a mis-wired PTC arm produce."""
+    nodes = []
+    for i in range(n_calls):
+        nodes.append(_msg("assistant", tool_calls=[NS(function=NS(name="ledger_get"))]))
+        nodes.append(_msg("tool", content='{"id": "r00", "kind": "invoice"}'))
+    return [_record([_trace(nodes=nodes)])]
+
+
+def test_a_perfect_tool_call_rate_over_many_calls_is_flagged():
+    """Zero failures in 20+ calls is likelier an absent error channel than a perfect
+    policy: at any true failure rate >= 10%, P(0 in 20) <= 0.9**20 = 12%."""
+    r = summarize(_json_only_arm(40), arm="suspect", taskset="t")
+    assert r.tool_calls == 40 and r.tool_failures == 0
+    assert r.tool_success_rate == 1.0
+    out = render([r])
+    assert "NO TOOL FAILURE WAS DETECTABLE" in out, out[:400]
+
+
+def test_the_flag_stays_quiet_when_the_error_channel_is_live():
+    """The PTC arm on run 3d: 74 failures in 156 calls. A measured rate must not be
+    flagged, or the warning is noise and gets switched off."""
+    nodes = []
+    for i in range(156):
+        nodes.append(_msg("assistant", tool_calls=[NS(function=NS(name="run_program"))]))
+        nodes.append(_msg("tool", content="rejected: name 'foo' is not defined"
+                                          if i < 74 else '{"id": "r00"}'))
+    r = summarize([_record([_trace(nodes=nodes)])], arm="ptc", taskset="t")
+    assert r.tool_failures == 74 and abs(r.tool_success_rate - 0.5256) < 0.001
+    assert "NO TOOL FAILURE WAS DETECTABLE" not in render([r])
+
+
+def test_a_short_run_at_1_000_is_not_flagged():
+    """Below the floor a perfect rate is unremarkable, and flagging it would train the
+    reader to ignore the line that matters."""
+    r = summarize(_json_only_arm(5), arm="short", taskset="t")
+    assert r.tool_success_rate == 1.0
+    assert "NO TOOL FAILURE WAS DETECTABLE" not in render([r])
