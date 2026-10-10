@@ -22,6 +22,7 @@ from ptc.metrics import (  # noqa: E402
     MEASURED_PRICE_PER_CALL_CEILING,
     SHELL_TOOLS,
     ArmResult,
+    _is_failure,
     bootstrap_ci,
     render,
     summarize,
@@ -663,3 +664,27 @@ def test_a_short_run_at_1_000_is_not_flagged():
     r = summarize(_json_only_arm(5), arm="short", taskset="t")
     assert r.tool_success_rate == 1.0
     assert "NO TOOL FAILURE WAS DETECTABLE" not in render([r])
+
+def test_a_trl_wrapped_tool_exception_is_invisible_to_the_predicate():
+    """Pins the fact that sets a requirement on Path C's `run_program`.
+
+    trl 1.13.0's tool loop turns any tool exception into `result = {"error": str(e)}`
+    and then `content = str(result)` (`grpo_trainer.py:2029,2050,2058`), so the tool
+    message begins with a BRACE, not with `error:`. The predicate therefore cannot see
+    it. Consequences, both load-bearing:
+
+    - a mis-registered arm whose every call fails ("Tool run_program not found.")
+      still reports a 1.000 success rate, so the rate cannot distinguish it;
+    - a CORRECT arm whose `run_program` raises instead of returning a formatted
+      string is equally invisible, which is why Path C must format its own
+      rejections rather than letting them propagate.
+
+    If a future change makes these visible, this test goes red and the spec note about
+    `run_program` formatting its own failures can be relaxed.
+    """
+    trl_wrapped = [str({"error": "'int' object has no attribute 'strip'"}),
+                   str({"error": "Tool run_program not found."})]
+    assert not any(_is_failure(c) for c in trl_wrapped), trl_wrapped
+    # what the PTC harness emits, for contrast — these must stay visible
+    assert _is_failure("rejected: attribute access is not permitted")
+    assert _is_failure("error: KeyError: r99")

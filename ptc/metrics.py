@@ -35,11 +35,18 @@ from typing import Any
 # tool-call success rate that jumps to 100%.
 FAILURE_PREFIXES = ("rejected:", "error:")
 
-# Above this many calls, a tool-call success rate of exactly 1.000 is reported as an
-# instrument claim rather than a result. The prefixes above are pinned against drift in
-# the STRING; this catches the other way in — strings intact, error channel absent from
-# the loop. At any true failure rate >= 10%, P(0 failures in 20 calls) <= 0.9**20 = 12%,
-# so 20 is where "perfect policy" stops being the likelier explanation.
+# A POSITIVE control, not an equality test on the rate: it asserts that the instrument's
+# known fault rate is PRESENT. The prefixes above are pinned against drift in the STRING;
+# this catches the other way in — strings intact, error channel absent from the loop.
+#
+# Two reference rates, because which one applies depends on what you are reading:
+#   untrained correct PTC arm, 70/156 = 44.87% rejected -> P(0 in 20)  = 6.7e-06
+#   a SUCCESSFULLY trained arm at H4's target of 0.921  -> P(0 in 20)  = 19.5%
+#                                                          P(0 in 156) = 3.4e-06
+# So at eval-scale call counts this cannot false-positive on success, but on a 20-call
+# smoke run it can. `render` summarizes a completed eval run and has no step index, so
+# anything computing this PER TRAINING STEP must pin it to step 0, where a correct
+# pipeline cannot yet have learned its way to zero failures.
 MIN_CALLS_FOR_PERFECT_RATE = 20
 
 # Names that denote a general-purpose shell rather than a typed tool.
@@ -410,7 +417,10 @@ def render(results: list[ArmResult]) -> str:
             f"output cannot produce one, so 1.000 here may mean the error channel is NOT "
             f"IN THE LOOP rather than that nothing failed. Check what tools the arm was "
             f"given before reading this as a capability: a tool-call success rate is only "
-            f"comparable between arms whose failures are both visible to this predicate.")
+            f"comparable between arms whose failures are both visible to this predicate. "
+            f"A tool loop that wraps exceptions as {{'error': ...}} (trl 1.13.0 does, at "
+            f"grpo_trainer.py:2029) yields a BRACE-first string this predicate cannot see, "
+            f"so a harness must FORMAT its own rejections rather than raise them.")
     truncated = {r.arm: r.n_truncated for r in results if r.n_truncated}
     if truncated:
         notes.insert(0, "*** A BUDGET LIMIT BOUND: " + ", ".join(
