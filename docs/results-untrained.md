@@ -17,18 +17,37 @@ independent routes, unreplicated) reports +6.8 to +22.0 pp across four arms.
 
 Run 2h, 2026-10-03. `ledger`, n=14 paired tasks, one rollout each, `deepseek-v4-flash`
 via VyceAI, `--max-concurrent 1`, `max_turns 80`. All 28 rollouts `agent_completed`, zero
-errors, zero 504s, zero 429s, zero truncations, billed tokens present on both arms.
+errors, zero 504s, zero 429s, zero truncations, relay-reported usage on both arms.
 
 | outcome (pre-registered) | bash | ptc | |
 |---|---|---|---|
 | **score** (primary) | 0.857 (12/14) | **1.000 (14/14)** | PTC ahead |
-| **cost / solved** (co-primary 1) | $0.0051 | **$0.0006** | PTC **8.5x** cheaper |
+| **cost / solved** (co-primary 1) | $0.0126 | **$0.0017** | PTC **7.53x** cheaper |
 | **stability** (co-primary 2) | 12/14, 0 errors | **14/14, 0 errors** | PTC ahead |
 | tool-call success rate (secondary 3) | 1.000 | 0.561 | bash ahead |
 | shell-call share (secondary 4) | 0.023 | 0.000 | — |
-| billed prompt tokens | 660,842 | **82,664** | PTC **8x** fewer |
+| relay-reported prompt tokens | 660,842 | **82,664** | PTC **7.99x** fewer |
 | tool calls | 266 | **66** | PTC 4x fewer |
 | assistant turns | 280 | **80** | PTC 3.5x fewer |
+
+**⚠ CORRECTED 2026-10-10 — the cost row was published as `$0.0051` / `$0.0006` / `8.5x`.**
+Three faults, none of which touch the token counts or the score:
+
+1. **The rates were never measured.** Every run was launched `--price-in 0.09 --price-out
+   0.18`. The relay charges **$0.2186/M input and $0.670/M output**, measured from
+   `x-balance-remaining` deltas (derivation in `ptc/metrics.py`; `ptc/relay_audit.py` for the
+   endpoint itself). Independent corroboration: `docs/deviations.md`'s run-1 entry recorded
+   **$0.16 billed**, which is 1.07x the measured-rate re-derivation of that run ($0.1502) and
+   2.65x the figure the rig computed at the assumed rates ($0.0603).
+2. **`8.5x` was two rounded cells divided.** $0.0051/$0.0006 = 8.5 only at 4 dp. At the rates
+   originally used the ratio is **8.05x**; at the measured rates it is **7.53x**.
+3. **"billed" was false.** The counts are the relay's own: `usage.prompt_tokens` equals
+   `cl100k_base` over the raw message content exactly on short prompts, carries no
+   chat-template overhead, returns the identical value for one prompt under two different
+   model ids, and exceeds every standard tokenizer by 43-56% above ~3.8k tokens. They are
+   relay-reported, not provider-billed, and no artifact in this project ever recorded which
+   model answered.
+
 
 Paired, because the arms share the taskset:
 
@@ -54,10 +73,11 @@ the action to be expressed as a program makes the model compute where a free-tex
 lets it guess.
 
 **The cost result is structural, not noise.** bash re-sends the whole transcript on every
-tool call and takes one call per turn, so it billed 8x the prompt tokens for 4x the tool
+tool call and takes one call per turn, so it reported 7.99x the prompt tokens for 4x the tool
 calls. Per pre-registration §2, cost per successful task was declared a co-primary
-*precisely* so this axis could not be chosen after the fact. It favours PTC by 8.5x, and it
-would have favoured PTC even had the scores tied.
+*precisely* so this axis could not be chosen after the fact. It favours PTC by **7.53x** at
+the relay's measured rates (8.05x at the rates originally used, and published as 8.5x only
+because two 4-dp cells were divided), and it would have favoured PTC even had the scores tied.
 
 ## What this does not show
 
@@ -149,8 +169,8 @@ arms.**
 | full-scan tier (n=18) | bash **−5.6** pp, CI [−38.9, +27.8] | bash **−5.6** pp, CI [−33.3, +22.2] |
 | interaction | **−23.7** pp, CI [−64.1, +15.2] | **−14.6** pp, CI [−49.5, +16.7] |
 | exact McNemar, marginal | p=1.0000 | p=1.0000 |
-| cost / solved | $0.0099 vs **$0.0013** | $0.0090 vs **$0.0010** |
-| billed prompt tokens | 2,245,429 vs **241,561** | 2,229,481 vs **208,780** |
+| cost / solved | $0.0243 vs **$0.0035** | $0.0222 vs **$0.0027** |
+| relay-reported prompt tokens | 2,245,429 vs **241,561** | 2,229,481 vs **208,780** |
 | tool calls / turns | 836 / 864 vs **150 / 179** | 822 / 851 vs **156 / 185** |
 
 ## The finding on the extended taskset
@@ -170,12 +190,44 @@ winning on accuracy does not survive the extended taskset.
 
 ## What has never wavered, in any run
 
-Cost. bash re-sends its entire transcript on every turn and takes one tool call per turn, so
-it billed **8.0 to 10.7 times** the prompt tokens for the same work across every run: **$0.0071
-to $0.0099 per solved task against PTC's $0.0010 to $0.0013.** Pre-registration §2 declared
-cost per successful task a co-primary *precisely* so this axis could not be chosen after the
-fact. It is structural rather than incidental, and it holds at an exact score tie — which run
-3d is.
+Cost. bash re-sends its entire transcript on every turn and takes one tool call per turn. Two
+distinct ratios follow, and they must not be merged:
+
+- **Token ratio** (relay-reported prompt tokens, bash/ptc): **7.99x** on 2h, **9.30x** on 3c,
+  **10.68x** on 3d — the published **8.0 to 10.7 times**, which reproduces exactly from the
+  traces. Corrected for the relay's token counter (below) the floor of that range is
+  **6.9 to 8.9x**.
+- **Cost ratio** (dollars per *solved* task, bash/ptc): **7.53x**, **7.01x**, **8.21x** at the
+  relay's measured rates, i.e. **$0.0126 to $0.0243 per solved task against PTC's $0.0017 to
+  $0.0035**. The honest floor is **6.1x**, reached on 3c under the worst assumption about the
+  token counter.
+
+**So the defensible claim is a range with a floor — 6.1x to 8.2x on cost per solved task —
+not a single multiple.** Pre-registration §2 declared cost per successful task a co-primary
+*precisely* so this axis could not be chosen after the fact. It is structural rather than
+incidental, and it holds at an exact score tie — which run 3d is.
+
+**⚠ CORRECTED 2026-10-10 — this section published `$0.0071 to $0.0099 per solved task
+against PTC's $0.0010 to $0.0013`, on "8.0 to 10.7 times the prompt tokens".** The token
+ratio was right. The dollar range was wrong three ways:
+
+1. **Its lower bound was a different quantity.** `$0.0071` is run 3d's bash cost divided by
+   the **29 tasks attempted** (0.2067/29 = $0.00713), not by the 23 solved ($0.00899). The
+   co-primary is defined on *successful* tasks, and PTC's companion range was purely
+   per-solved, so the published interval was a ratio of two different denominators.
+2. **It omitted run 2h**, whose bash cost per solved task is **$0.0051** — below the floor the
+   range published — on the very run this report is built from. The correct per-solved range
+   at the rates then in use is **$0.0051 to $0.0099**.
+3. **The rates were never measured.** See the corrected table above: $0.2186/M in and
+   $0.670/M out, not $0.09/$0.18.
+
+The floor's construction, stated so it can be checked: the relay's `usage.prompt_tokens`
+matches `cl100k_base` exactly on short prompts and exceeds every standard tokenizer by
+43-56% on prompts above ~3.8k, which is where 38.7% of bash's tokens sit against 1.9% of
+PTC's. De-inflating the affected band by the measured 1.4313 at the divergence onset that
+hurts most (~2,000 tokens) gives the 6.1x floor. At onset 200 the distortion cancels exactly
+and the ratio returns to its as-reported value, which is the proof that the threat is the
+*asymmetry* between the arms' prompt sizes and not the inflation itself.
 
 **The defensible finding of this study is the cost structure, not the accuracy ordering.**
 

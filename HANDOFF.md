@@ -25,8 +25,16 @@ See `docs/superpowers/specs/` and `docs/superpowers/plans/` for Step 1's spec an
 > - **Run 3d is the cleanest: zero voids, zero truncations, 29/29 completed on both arms, and
 >   an exact 23/23 tie.** Launched `--max-turns 150 --max-retries 20 --max-concurrent 1`.
 > - **The defensible finding is cost, not accuracy.** bash re-sends its transcript once per
->   turn, billing 8.0-10.7x the prompt tokens: $0.0071-0.0099 per solved task against PTC's
->   $0.0010-0.0013. Structural, on a co-primary declared in advance, and it holds at a tie.
+>   turn, so it reports **8.0-10.7x the prompt tokens** (**6.9-8.9x** once the relay's own
+>   token counter is corrected for). Cost per solved task is **6.1-8.2x** higher:
+>   **$0.0126-0.0243** against PTC's **$0.0017-0.0035** at the relay's measured rates.
+>   Structural, on a co-primary declared in advance, and it holds at a tie.
+>   **⚠ CORRECTED 2026-10-10.** The token ratio reproduces exactly; the dollars did not. They
+>   were computed at $0.09/$0.18 per M against a measured $0.2186/$0.670, and the published
+>   range `$0.0071-0.0099` mixed cost-per-task-*attempted* (3d, 0.2067/29 = $0.0071) into a
+>   per-*solved* range that also omitted run 2h, whose bash per-solved is $0.0051 — below the
+>   floor it published. **Keep the token ratio and the cost ratio separate; merging them is
+>   how the error happened.** Audit and derivation: `ptc/relay_audit.py`, `docs/deviations.md`.
 > - **The tier pattern is consistent and never significant.** bash +18.2 then +9.1 pp on the
 >   11 cheap tasks, PTC -5.6 pp on the 18 full-scan tasks in both clean runs, interaction
 >   -23.7 then -14.6 pp, both CIs including zero, against a signed -25 pp threshold missed

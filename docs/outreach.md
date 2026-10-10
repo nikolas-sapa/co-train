@@ -40,7 +40,7 @@ about your setup
 > I tried to reproduce the untrained bash-over-PTC gap as a premise check for a co-training
 > experiment. On a small self-authored taskset (40-record ledger, 14 tasks,
 > deepseek-v4-flash, one rollout each) the ordering came out inverted: PTC 14/14 against
-> bash 12/14, with PTC at roughly 8x fewer billed prompt tokens. It is not statistically
+> bash 12/14, with PTC at roughly 8x fewer relay-reported prompt tokens. It is not statistically
 > separable at that n, two discordant pairs, exact McNemar p=0.50, so I am treating it as a
 > failure to reproduce rather than a reversal.
 >
@@ -121,7 +121,7 @@ in the adjudication tools, per the ledger in `docs/deviations.md`.)*
 > measures.
 >
 > After the harness corrections the ordering inverted on the original 14 tasks (PTC 14/14
-> against the shell arm's 12/14, at 8x fewer billed prompt tokens), though not separably at
+> against the shell arm's 12/14, at 8x fewer relay-reported prompt tokens), though not separably at
 > n=14. Reported as a non-reproduction, not a reversal. The shell arm's only failures were
 > arithmetic on data it had retrieved correctly, with a shell available and used on 2.3% of
 > its calls.
@@ -138,12 +138,24 @@ in the adjudication tools, per the ledger in `docs/deviations.md`.)*
 > statistically separable at these sample sizes, and the pre-registered prediction for the
 > interaction (-25 pp) was missed on both occasions.
 >
-> The one result that has never wavered is cost. Because the shell arm re-sends its entire
-> transcript on every turn and takes one call per turn, it billed 8.0 to 10.7 times the prompt
-> tokens for the same work: $0.0071 to $0.0099 per solved task against PTC's $0.0010 to
-> $0.0013. That is structural rather than incidental, it favours PTC under a co-primary
-> declared in advance, and it holds even at an exact score tie. The defensible finding of
-> this study is the cost structure, not the accuracy ordering.
+> The one result that has never wavered is cost, and it is two ratios rather than one. Because
+> the shell arm re-sends its entire transcript on every turn and takes one call per turn, it
+> reported 8.0 to 10.7 times the prompt tokens for the same work — 6.9 to 8.9 times after
+> correcting for the relay's own token counter. Cost per solved task is 6.1 to 8.2 times
+> higher: $0.0126 to $0.0243 against PTC's $0.0017 to $0.0035, at rates measured against the
+> relay rather than assumed. That is structural rather than incidental, it favours PTC under a
+> co-primary declared in advance, and it holds even at an exact score tie. The defensible
+> finding of this study is the cost structure, not the accuracy ordering — as a range with a
+> stated floor, not as a single multiple.
+>
+> One disclosure belongs with those numbers. The endpoint is a third-party relay, and its
+> reported token counts are computed relay-side: they match `cl100k_base` over the raw message
+> content exactly on short prompts, carry no chat-template overhead, return the identical
+> count for one prompt under two different model ids, and exceed every standard tokenizer by
+> 43 to 56 percent above roughly 3,800 tokens. Nothing in our artifacts records which model
+> actually answered. The token counts are therefore relay-reported rather than
+> provider-billed, which is why the cost ratio is quoted with a floor: the divergence falls on
+> the shell arm's long prompts and not on PTC's short ones, so it does not cancel in the ratio.
 >
 > The extension is a post-hoc instrument change, disclosed as an append-only amendment and
 > carrying the handicap that the harder tasks were written after observing which shape the
