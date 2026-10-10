@@ -1,0 +1,63 @@
+{
+ "model": "deepseek-v4-flash",
+ "recorded": "2026-10-09T12:33:40Z",
+ "listing": {
+  "status": 200,
+  "listed": true,
+  "owned_by": "vyce",
+  "n_listed": 7,
+  "ids": [
+   "agnes-3.0-flash",
+   "claude-sonnet-4-6",
+   "deepseek-v4-flash",
+   "deepseek-v4-flash-lr",
+   "deepseek-v4.1",
+   "gpt-6-luna",
+   "grok-imagine-2"
+  ]
+ },
+ "probes": [
+  {
+   "name": "english",
+   "status": 200,
+   "served_model": "deepseek-v4-flash",
+   "prompt_tokens": 38,
+   "completion_tokens": 137,
+   "cl100k": 38,
+   "ratio": 1.0,
+   "system_fingerprint": "fp_3dea096b24ca",
+   "answer_prefix": "that's quite a vivid scene you've painted! a fox making its ",
+   "expect_met": null,
+   "seconds": 2.02,
+   "error": null
+  },
+  {
+   "name": "cjk",
+   "status": 200,
+   "served_model": "deepseek-v4-flash",
+   "prompt_tokens": 86,
+   "completion_tokens": 327,
+   "cl100k": 86,
+   "ratio": 1.0,
+   "system_fingerprint": "fp_1bf00326a549",
+   "answer_prefix": "是的，这是正确的。在中文等需要细粒度切分的语言中，分词器（tokenizer）会将文本切分为不同的标记（tokens），",
+   "expect_met": null,
+   "seconds": 3.77,
+   "error": null
+  },
+  {
+   "name": "bulk",
+   "status": 200,
+   "served_model": "deepseek-v4-flash",
+   "prompt_tokens": 5519,
+   "completion_tokens": 2,
+   "cl100k": 3856,
+   "ratio": 1.4313,
+   "system_fingerprint": "fp_96a4113c0681",
+   "answer_prefix": "ack",
+   "expect_met": true,
+   "seconds": 3.65,
+   "error": null
+  }
+ ]
+}
