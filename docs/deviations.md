@@ -140,6 +140,15 @@ turn.** All twelve were invisible to a green test suite.
 `deepseek-v4-flash` via VyceAI `/v1/chat/completions`, prices 0.09/0.18 $/M, $0.16 billed.
 Traces `~/scratch/ptc-real/traces/`, log `~/scratch/ptc-real/stdout.log`.
 
+**That `$0.16` is the most load-bearing number in this file, and nobody noticed for nine
+days.** It is the only *observed* charge recorded anywhere in the project; every other dollar
+figure here is arithmetic the rig performed at prices nobody had checked. Run 1's traces carry
+638,627 prompt and 15,773 completion tokens, so at the assumed 0.09/0.18 the rig computes
+**$0.0603** — 2.65x below what was actually charged. At the rates measured on 2026-10-10
+($0.2186/M in, $0.670/M out) the same traces give **$0.1502**, within 7% of the $0.16. It is
+an independent corroboration of the corrected rates, from a route that had nothing to do with
+the measurement, and it was sitting in this file the whole time. **Do not edit this line.**
+
 **Result as measured.** bash 0.8571 (12/14), PTC 0.2143 (3/14), gap **+64.3 pp**. CIs
 disjoint. All 28 rollouts real (non-zero `num_total_tokens`), zero error stops, zero
 truncations *reported*.
