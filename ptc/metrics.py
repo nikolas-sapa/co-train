@@ -38,6 +38,31 @@ FAILURE_PREFIXES = ("rejected:", "error:")
 # Names that denote a general-purpose shell rather than a typed tool.
 SHELL_TOOLS = ("bash", "shell", "sh", "run_shell", "execute_bash")
 
+# What the relay actually charges, measured 2026-10-09/10. Every real-mode run so far was
+# launched with `--price-in 0.09 --price-out 0.18` and nothing had ever checked those two
+# numbers against the endpoint; both are low. Derivation, all from `x-balance-remaining`
+# deltas on `deepseek-v4-flash` (`ptc/relay_audit.py` holds the rest of what that endpoint
+# turned out to be):
+#
+#   input      three large-prompt calls with 2-3 token completions, so the output term is
+#              negligible: $0.2207, $0.2174, $0.2177 per M reported prompt tokens.
+#   output     six calls at a fixed 15-17 token prompt with completions of 340-2,284
+#              tokens; OLS over (completion_tokens, charge) gives the slope below.
+#   per call   six calls at 8 prompt + 2 completion tokens did not move the balance at
+#              all, so any per-call fee is under $1.7e-5; the same OLS puts the intercept
+#              at $2e-6. There is no material per-call component, which matters because a
+#              per-call fee would NOT have favoured the arm that makes fewer calls: bash
+#              bills 10.7x the prompt tokens on only 4.6x the calls, so a fee lands
+#              relatively harder on PTC and shrinks the cost gap rather than widening it.
+#
+# These are the RELAY's rates on one date, not a provider price list, and the quantity
+# they multiply is the relay's own token count (see `prompt_tokens` below). Re-measure
+# with `ptc/relay_audit.py`'s probes before trusting them on a later run.
+MEASURED_PRICE_IN = 0.2186
+MEASURED_PRICE_OUT = 0.670
+MEASURED_PRICE_PER_CALL_CEILING = 1.7e-5
+MEASURED_PRICE_ENDPOINT = "vyceai.com/v1 deepseek-v4-flash 2026-10-10"
+
 
 def bootstrap_ci(values: list[float], iters: int = 2000, alpha: float = 0.05,
                  seed: int = 0) -> tuple[float, float] | None:
@@ -76,22 +101,38 @@ class ArmResult:
     score_ci: tuple[float, float] | None = None
     n_solved: int = 0
 
-    # Co-primary 1 — cost. Billed tokens, NOT the deduplicated count: a provider
-    # charges the whole prompt on every call, and `Trace.num_input_tokens` reports
-    # only each call's increment over the previous one. See `summarize`.
+    # Co-primary 1 — cost. The provider-reported per-call count, NOT the deduplicated
+    # one: a provider charges the whole prompt on every call, and `Trace.num_input_tokens`
+    # reports only each call's increment over the previous one. See `summarize`.
+    #
+    # "Provider-reported" is as strong as this gets, and on the endpoint every real-mode
+    # run used it is weaker than it sounds. Measured 2026-10-09: the relay's
+    # `usage.prompt_tokens` equals `cl100k_base` over the raw message content *exactly*
+    # on short prompts, carries no chat-template overhead at all, returns the identical
+    # count for the same prompt under two different model ids, and exceeds every standard
+    # tokenizer by 43-56% above ~3.8k tokens. It is computed relay-side and it is not
+    # internally consistent. It is still the only count anyone bills from here, so it
+    # stays the basis of the co-primary — but the table must not call it "billed".
     prompt_tokens: int = 0
     cached_tokens: int = 0
     completion_tokens: int = 0
     reasoning_tokens: int = 0
     new_input_tokens: int = 0
     """The deduplicated count (`Trace.num_input_tokens`). Reported because it is the
-    training-relevant number, and kept apart from the billed figure above so the two
+    training-relevant number, and kept apart from the reported figure above so the two
     can never be confused again."""
     usage_reported: bool = False
     cost_total: float | None = None
     cost_per_solved: float | None = None
     cost_from_provider: bool = False
     cost_is_upper_bound: bool = False
+    price_in: float = 0.0
+    price_out: float = 0.0
+    """The rates the cost above was computed at, carried so the table can name them.
+    Every run to date priced itself at the launch flags and the table printed a dollar
+    figure without recording what rate produced it, which is how `$0.0051 per solved
+    task` came to be quoted with no way to tell it was computed at 41% of the real
+    input rate."""
 
     # Co-primary 2 — stability
     n_completed: int = 0
@@ -150,18 +191,25 @@ def summarize(records: list[Any], arm: str, taskset: str,
     pre-reg §1 records untrained PTC already *beating* bash. The wrong field would have
     muddied the one co-primary PTC wins on.
 
-    `Trace.usage` (`Usage.aggregate`) sums provider-reported usage per call, which is
-    the billed figure. Two further traps in that model: `prompt_tokens` **excludes**
+    `Trace.usage` (`Usage.aggregate`) sums provider-reported usage per call, which is the
+    figure anyone bills from. Two further traps in that model: `prompt_tokens` **excludes**
     cache reads, which live in `cached_input_tokens` and are usually billed at a
     discount, and `reasoning_tokens` are already a subset of `completion_tokens` and
-    must not be added again.
+    must not be added again. A third, found 2026-10-09 and recorded on `prompt_tokens`
+    above: on a relay the reported count need not come from the model's tokenizer at all.
 
     Prices are dollars per million tokens and must be supplied. Absent them, cost is
     reported as unknown rather than as zero -- a run whose provider reported no usage
     would otherwise print `$0.00`, which reads as "free" instead of "not measured".
-    A provider-reported `cost` is preferred over any arithmetic here.
+    A provider-reported `cost` is preferred over any arithmetic here. Whatever rates are
+    passed are recorded on the result and named in the table, and `render` says so when
+    they sit under `MEASURED_PRICE_IN`/`_OUT`: the dollar figures in this project were
+    quoted for three weeks at 41% of the input rate and 27% of the output rate the
+    endpoint turned out to charge, and nothing in the table showed it.
     """
     result = ArmResult(arm=arm, taskset=taskset)
+    result.price_in = price_in
+    result.price_out = price_out
     scores: list[float] = []
 
     provider_cost = 0.0
@@ -290,7 +338,7 @@ def render(results: list[ArmResult]) -> str:
         ("completed", "n_completed"), ("TRUNCATED (budget)", "n_truncated"),
         ("  of which stopped by turn budget", "n_budget_exhausted"),
         ("stop conditions", "stop_conditions"),
-        ("errors", "error_types"), ("prompt tokens (billed)", "prompt_tokens"),
+        ("errors", "error_types"), ("prompt tokens (relay-reported)", "prompt_tokens"),
         ("cached tokens", "cached_tokens"),
         ("completion tokens", "completion_tokens"),
         ("reasoning tokens", "reasoning_tokens"),
@@ -306,7 +354,25 @@ def render(results: list[ArmResult]) -> str:
         lines.append(label.ljust(width) +
                      "".join(cell(getattr(r, attr)).rjust(22) for r in results))
     notes = ["* new input tokens is the DEDUPLICATED count (training-relevant). "
-             "Cost uses billed prompt tokens above it."]
+             "Cost uses the relay-reported prompt tokens above it."]
+    # The rate is part of the result, not a launch detail. A dollar figure with no rate
+    # beside it was quotable for three weeks at 41% of what the endpoint charges, and the
+    # table gave no way to notice. Named on every run, flagged when it is under the
+    # measured rate, and the flag names the measurement so it can be re-checked.
+    priced = [r for r in results if r.price_in or r.price_out]
+    if priced:
+        r0 = priced[0]
+        notes.append(f"cost computed at ${r0.price_in:g}/M in, ${r0.price_out:g}/M out "
+                     f"(supplied at launch).")
+        if (r0.price_in < MEASURED_PRICE_IN * 0.99
+                or r0.price_out < MEASURED_PRICE_OUT * 0.99):
+            under = (f"{MEASURED_PRICE_IN / r0.price_in:.1f}x on input"
+                     if r0.price_in else "unmeasurable on input, which was passed as 0")
+            notes.insert(0, (
+                f"*** PRICED UNDER THE MEASURED RATE: {MEASURED_PRICE_ENDPOINT} charges "
+                f"${MEASURED_PRICE_IN:g}/M in and ${MEASURED_PRICE_OUT:g}/M out, so "
+                f"every cost figure below is low by roughly {under}. The arm-to-arm "
+                f"RATIO survives a uniform rate; the absolute dollars do not."))
     # An errored rollout is NOT a zero score -- nothing ran. An unreachable endpoint, a
     # rejected key or a provider fault lands here as a table of zeros that reads exactly
     # like a model that solved nothing, which is the shape this project keeps getting

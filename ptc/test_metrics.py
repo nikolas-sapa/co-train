@@ -17,6 +17,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ptc.metrics import (  # noqa: E402
     FAILURE_PREFIXES,
+    MEASURED_PRICE_IN,
+    MEASURED_PRICE_OUT,
+    MEASURED_PRICE_PER_CALL_CEILING,
     SHELL_TOOLS,
     ArmResult,
     bootstrap_ci,
@@ -36,7 +39,7 @@ def _usage(prompt=0, completion=0, cached=None, reasoning=None, cost=None):
 
 def _trace(reward=1.0, nodes=(), completed=True, stop="complete", usage=None,
            new_input=0, truncated=False):
-    """`usage` is the BILLED figure (`Trace.usage`); `new_input` is the deduplicated
+    """`usage` is the provider-REPORTED figure (`Trace.usage`); `new_input` is the deduplicated
     `Trace.num_input_tokens`. They are deliberately separate arguments because
     conflating them is the bug these tests exist to prevent."""
     return NS(reward=reward, nodes=[NS(message=m) for m in nodes],
@@ -554,3 +557,58 @@ def test_cost_is_flagged_as_an_upper_bound_when_cache_pricing_is_unknown():
     discounted = _cost(1_000_000, 0, cached=1_000_000, price_cached=0.009)
     assert full > discounted
     assert full == pytest.approx(0.18)
+
+
+# ------------------------------------------- the price itself, measured not assumed
+
+def test_the_measured_relay_rates_are_pinned_against_silent_drift():
+    """The rates are a measurement, so they get pinned like one.
+
+    Every real-mode run in this project was launched at 0.09 in / 0.18 out and nothing
+    had checked either number against the endpoint. Both are low: measured 2026-10-09/10
+    from `x-balance-remaining` deltas, input is $0.2186/M (three large-prompt calls with
+    2-3 token completions: 0.2207, 0.2174, 0.2177) and output is $0.670/M (OLS over six
+    calls with completions of 340-2,284 tokens at a fixed 15-17 token prompt). A silent
+    edit to either constant moves every re-derived dollar figure, so the multipliers
+    against the launch defaults are pinned too.
+    """
+    assert MEASURED_PRICE_IN == pytest.approx(0.2186, abs=5e-4)
+    assert MEASURED_PRICE_OUT == pytest.approx(0.670, abs=5e-3)
+    assert MEASURED_PRICE_IN / 0.09 == pytest.approx(2.43, abs=0.02)
+    assert MEASURED_PRICE_OUT / 0.18 == pytest.approx(3.72, abs=0.02)
+    # Six calls at 8 prompt + 2 completion tokens did not move the balance at all, and
+    # the same OLS puts the intercept at $2e-6. No material per-call fee exists, which
+    # is load-bearing in the opposite direction to the obvious guess: bash bills 10.7x
+    # the prompt tokens on 4.6x the calls, so a per-call fee would land relatively
+    # harder on PTC and SHRINK the cost gap rather than widening it.
+    assert MEASURED_PRICE_PER_CALL_CEILING < 2e-5
+
+
+def test_a_table_priced_under_the_measured_rate_says_so_in_the_table():
+    """The drift guard that fires at run time rather than in CI.
+
+    A dollar figure with no rate beside it is what made `$0.0051 per solved task`
+    quotable for three weeks at 41% of the real input rate. The table now names the rate
+    it used and flags the gap, so the next person to read a run output cannot miss it.
+    """
+    at_launch = summarize([_record([_trace(usage=_usage(1_000_000, 1_000))])],
+                          "bash", "ledger", price_in=0.09, price_out=0.18)
+    assert at_launch.price_in == 0.09 and at_launch.price_out == 0.18
+    flagged = render([at_launch])
+    assert "PRICED UNDER THE MEASURED RATE" in flagged
+    assert "2.4x on input" in flagged
+    assert "$0.09/M in, $0.18/M out" in flagged
+
+    at_measured = summarize([_record([_trace(usage=_usage(1_000_000, 1_000))])],
+                            "bash", "ledger", price_in=MEASURED_PRICE_IN,
+                            price_out=MEASURED_PRICE_OUT)
+    assert "PRICED UNDER THE MEASURED RATE" not in render([at_measured])
+
+
+def test_an_unpriced_run_is_not_also_flagged_as_underpriced():
+    """Cost is already reported as unknown without a price (§2), and a second loud note
+    about a rate nobody supplied would bury the first."""
+    table = render([summarize([_record([_trace(usage=_usage(1_000, 10))])],
+                              "ptc", "ledger")])
+    assert "PRICED UNDER THE MEASURED RATE" not in table
+    assert "cost computed at" not in table
