@@ -86,8 +86,11 @@ remains is the one irreversible step: flip the node public and mint the DOI.
 
 **Title and description were replaced 2026-10-11** from the derived block below, and
 `results-untrained.md` and `deviations.md` were re-uploaded on 2026-10-10 and again on
-2026-10-11 as the audit corrected them. `pre-registration.md` is unchanged since upload and
-its md5 still matches. The node has never been public.
+2026-10-11 as the audit corrected them. **`pre-registration.md` was re-uploaded 2026-10-11
+after §A7 was appended** (md5 `63967cfb1a291fdd1658ab3d2a5f952e` →
+`553fc0ebbe7c32997e478747c21db6b5`, verified against the API's reported hash on upload); the
+sentence here previously read that it was unchanged since upload, which stopped being true
+the moment A7 landed. All three files now match the repo. The node has never been public.
 
 **The clock is running: §1 went out 2026-10-07, so the hard date is 2026-10-17.** Post on
 her reply or on that date, whichever comes first. If she answers that her bash condition was
@@ -184,8 +187,8 @@ here.)*
 
 **Files to upload:** `docs/results-untrained.md`, `docs/deviations.md`,
 `docs/pre-registration.md`. **Uploaded 2026-10-07; `results-untrained.md` and
-`deviations.md` replaced 2026-10-10 and 2026-10-11**, md5 verified against the repo copies on
-each upload. `pre-registration.md` is untouched and still matches.
+`deviations.md` replaced 2026-10-10 and 2026-10-11, `pre-registration.md` replaced
+2026-10-11 for §A7**, md5 verified against the repo copies on each upload. All three match.
 Re-upload if any of the three changes before publication — the node holds a snapshot, not a
 reference, and this instruction has now been needed twice.
 

@@ -312,3 +312,61 @@ question should be retired rather than pursued.
 failed on (A5), n is 11 and 18, there is one model behind one unaudited relay, and no run
 repeats. A confirmed N1 on this instrument is a reason to build a better instrument, not a
 result to publish.
+
+---
+
+### A7 — 2026-10-11, after the relay and pricing audit: A4's cost claim is restated as two ratios
+
+**This amendment corrects numbers this document published. A4's text above is left
+verbatim and is not edited** — the convention in this repo is to correct visibly, so the
+wrong figure stays readable next to the right one. A4's final sentence reads *"took 8.5x
+less cost per solved task on 8x fewer billed prompt tokens"*. Three faults, none of which
+touch run 2h's score, its void count or its stability:
+
+1. **The rates were never measured.** Every real-mode run was launched `--price-in 0.09
+   --price-out 0.18`. The relay charges **$0.2186/M in and $0.670/M out**, measured from
+   three `x-balance-remaining` deltas and now carried as named constants
+   (`ptc/metrics.py:75-78`). Every dollar figure this document and its deliverable ever
+   published is therefore **~2.4x low**. Independent corroboration, nine days apart on an
+   unrelated route: `docs/deviations.md`'s run-1 entry recorded **$0.16 billed** — the only
+   *observed* charge in this project — against $0.1502 re-derived at the measured rates
+   (within 7%) and $0.0603 at the assumed ones (2.65x low).
+2. **`8.5x` was two rounded cells divided.** $0.0051/$0.0006 = 8.5 only at 4 dp. At the
+   rates then in use the ratio is **8.05x**; at the measured rates run 2h's cost per solved
+   task is **$0.0126 against $0.0017, i.e. 7.53x** (`docs/results-untrained.md:25`).
+3. **"billed" was false, and the word did the damage.** The counts are the relay's own
+   `usage.prompt_tokens`, which matches `cl100k_base` over raw content exactly on short
+   prompts, carries zero chat-template overhead, returns the **identical** count for one
+   prompt under two different model ids, and exceeds every standard tokenizer by **43-56%
+   above ~3,800 tokens**. They are relay-reported, not provider-billed. Run 2h's ratio is
+   **7.99x** (660,842 / 82,664) as reported. No artifact in this repo ever recorded which
+   model answered (`ptc/relay_audit.py` pins stability, because identity is not available).
+
+**The claim is restated as two ratios and a floor, never one multiple:**
+
+| quantity | as reported | de-inflated | note |
+|---|---|---|---|
+| prompt tokens, bash/ptc | **8.0-10.7x** | **6.9-8.9x** | 7.99x on 2h, 9.30x on 3c, 10.68x on 3d |
+| dollars per solved task | **6.1-8.2x** | — | $0.0126-0.0243 bash against $0.0017-0.0035 PTC |
+
+**Keep the token ratio and the cost ratio separate; merging them is how the error
+happened.** The previously published `$0.0071-0.0099` range is withdrawn: `$0.0071` is run
+3d's bash total over **29 tasks attempted** (0.2067/29), a per-*attempted* figure paired
+with a per-*solved* bound, and the range omitted run 2h, whose bash per-solved is $0.0051 —
+below its own published floor.
+
+**Secondary 3 is withdrawn outright, not restated.** `_is_failure` prefix-matched
+`"rejected:"` and `"error:"`, strings only `ptc/harness.py` emits, so **0 of 1,924 bash tool
+calls ever registered a failure** and bash's 1.000 was a floor artifact. The reported gap was
+an instrument asymmetry on one arm, so there is no corrected number to put in its place.
+
+**What this does not fix.** The order of magnitude and the sign of the cost result survive;
+the single multiple does not. The mechanism is unchanged and structural — bash re-sends its
+transcript once per turn — and it still holds at an exact score tie (run 3d, 23/23). But the
+rates are one relay on one date, not a provider price list, and the de-inflated band rests on
+a tokenizer comparison rather than an invoice. **Treat the ratio as the result and the dollars
+as an estimate with a stated floor.**
+
+Signed 2026-10-11 under the owner's standing instruction this session that non-spending
+decisions are the agent's to take; the owner's delegation is recorded here rather than
+implied, because every other amendment in this file was signed by him directly.
