@@ -6,7 +6,7 @@ to overwrite.
 
 ---
 
-## Current state — 2026-10-08
+## Current state — 2026-10-11
 
 Steps 1 and 2 are done, the PTC arm is built, and the untrained premise check has met a real
 model fourteen times. **It is decided: the premise did not hold.** Nothing in the History
@@ -47,8 +47,22 @@ section below describes any of that.
   twice. Point estimates on this n, not demonstrated effects.
 - **Co-training was never run and H2-H5 are unadjudicated.** Step 3 stays unstarted.
 - **Outreach:** author email sent 2026-10-07. OSF node `2hfzt` private, loaded and
-  md5-verified; public + DOI held to a reply or 2026-10-17. Harness-Bench licence request
+  md5-verified; public + DOI held to a reply or 2026-10-17. Its title and description were
+  replaced 2026-10-11 from `docs/outreach.md`'s derived block, and two of its three files
+  have been re-uploaded twice as the audit corrected them. Harness-Bench licence request
   open, zero comments.
+- **This repository is public as of 2026-10-11** (`nikolas-sapa/co-train`), by the owner's
+  decision, before the OSF node. The node is still private and the 2026-10-17 hold stands,
+  so the findings are readable here first and carry no DOI.
+- **A relay and pricing audit on 2026-10-10/11 corrected published numbers.** Cost per
+  solved task was priced at an assumed $0.09/M against a measured $0.2186/M, so every
+  dollar figure was ~2.4x low; the published `$0.0071` floor was a cost-per-task-*attempted*
+  figure in a per-*solved* range; `8.5x` was two rounded cells divided; and the cost claim
+  is now two ratios, not one — tokens 8.0-10.7x (6.9-8.9x de-inflated) and dollars 6.1-8.2x
+  with a stated floor. Secondary 3 is **withdrawn**: its failure predicate only ever matched
+  one arm's error strings, so bash's 1.000 was a floor artifact. Defect count 13, eleven
+  fixed, one structural, one withdrawn — all derived from the ledger tables by
+  `tests/test_defect_ledger.py`, which also pins the run count and the repair states.
 - `ptc/paired.py` adjudicates (paired CI, exact McNemar, required n, tier split, and a
   refusal to read a partial run). `ptc/audit.py` answers whether an arm computes or
   guesses. **Run the suite as `.venv-ptc/bin/python -m pytest`** — the system interpreter

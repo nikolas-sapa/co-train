@@ -84,6 +84,11 @@ description (abstract plus the limitations paragraph) and tags are set; all thre
 uploaded and md5-verified against the repo copies. **Everything reversible is done.** What
 remains is the one irreversible step: flip the node public and mint the DOI.
 
+**Title and description were replaced 2026-10-11** from the derived block below, and
+`results-untrained.md` and `deviations.md` were re-uploaded on 2026-10-10 and again on
+2026-10-11 as the audit corrected them. `pre-registration.md` is unchanged since upload and
+its md5 still matches. The node has never been public.
+
 **The clock is running: §1 went out 2026-10-07, so the hard date is 2026-10-17.** Post on
 her reply or on that date, whichever comes first. If she answers that her bash condition was
 shell-only, the title changes from a non-reproduction to a different-setup report — so read
@@ -102,8 +107,8 @@ from the trace artifacts rather than remembered: **fourteen** arm-pairs carry da
 on disk, of which three (2h, 3c, 3d) are admissible. See `docs/deviations.md` for why the
 run *labels* read as twelve while the artifacts number fourteen.)*
 
-*(⚠ The title set on OSF node `2hfzt` says "twelve" and is now stale — the count moved to
-thirteen on 2026-10-10 and the node needs a pass before it goes public. The earlier draft said
+*(⚠ **Set on the node 2026-10-11**, together with the description below, and verified by
+read-back. The node carried a "twelve" title from 2026-10-07 until then. The earlier draft said
 "six", which was the harness count as of run 2h and stopped being true at run 3b. Current
 split: nine harness faults plus four in the adjudication tools, per the ledger in
 `docs/deviations.md`. Derive the number from that ledger's tables; do not quote it from
@@ -178,9 +183,11 @@ here.)*
 > shell arm failed on.
 
 **Files to upload:** `docs/results-untrained.md`, `docs/deviations.md`,
-`docs/pre-registration.md`. **Uploaded 2026-10-07**, md5 verified against the repo copies.
+`docs/pre-registration.md`. **Uploaded 2026-10-07; `results-untrained.md` and
+`deviations.md` replaced 2026-10-10 and 2026-10-11**, md5 verified against the repo copies on
+each upload. `pre-registration.md` is untouched and still matches.
 Re-upload if any of the three changes before publication — the node holds a snapshot, not a
-reference.
+reference, and this instruction has now been needed twice.
 
 **State the limitations in the OSF description, not only in the paper:** n=11 and n=18 within
 tier, one model, one provider (an unaudited third-party relay, so model identity is not

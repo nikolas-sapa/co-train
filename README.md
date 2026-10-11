@@ -167,9 +167,14 @@ Expensive to rediscover. Full table in `HANDOFF.md`.
 
 | Branch | Holds |
 |---|---|
-| `main` | Step 1 only — **currently behind.** |
-| `step2-kaggle-smoke` | Research `08`, pre-registration, licence requests, Step 2 scaffolding. |
-| `step2-run` | The above plus the `transformers<5` fix and the Kaggle runbook. |
+| `main` | Everything. The current state of the project. |
+
+Six branches were deleted 2026-10-11 after `git rev-list main..<branch>` showed zero unique
+commits on each: `step1-nonsolver-gate`, `step2-kaggle-smoke`, `step2-run`,
+`fix/ptc-instrument-defects`, `docs/settle-step3-ordering`,
+`fix/ptc-real-mode-control-and-error-exit`. Every commit they held is an ancestor of `main`.
+This table previously described two of them as holding work `main` lacked, which stopped being
+true when they merged and was never corrected.
 
 Two sessions have worked this repo concurrently. If you run more than one, **give each its own
 `git worktree`** — a shared checkout already caused one branch switch under a live session and one
