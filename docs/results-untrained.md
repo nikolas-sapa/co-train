@@ -24,7 +24,7 @@ errors, zero 504s, zero 429s, zero truncations, relay-reported usage on both arm
 | **score** (primary) | 0.857 (12/14) | **1.000 (14/14)** | PTC ahead |
 | **cost / solved** (co-primary 1) | $0.0126 | **$0.0017** | PTC **7.53x** cheaper |
 | **stability** (co-primary 2) | 12/14, 0 errors | **14/14, 0 errors** | PTC ahead |
-| tool-call success rate (secondary 3) | 1.000 | 0.561 | bash ahead |
+| tool-call success rate (secondary 3) | **not measured** | 0.561 | **withdrawn** |
 | shell-call share (secondary 4) | 0.023 | 0.000 | — |
 | relay-reported prompt tokens | 660,842 | **82,664** | PTC **7.99x** fewer |
 | tool calls | 266 | **66** | PTC 4x fewer |
@@ -47,6 +47,17 @@ Three faults, none of which touch the token counts or the score:
    model ids, and exceeds every standard tokenizer by 43-56% above ~3.8k tokens. They are
    relay-reported, not provider-billed, and no artifact in this project ever recorded which
    model answered.
+
+**⚠ CORRECTED 2026-10-10 — secondary 3 was published as `bash 1.000 vs ptc 0.561, bash
+ahead`. It is withdrawn as an arm comparison.** A tool failure is counted by prefix-matching
+a result against `"rejected:"` / `"error:"`, which are the strings `ptc/harness.py` emits.
+The bash arm's tools return JSON or shell output and cannot match, so bash scored **0
+detected failures in 1,924 tool calls across all three admissible runs** and its 1.000 is a
+floor artefact of the predicate. PTC's 0.561 is measured and stands. bash's failures are not
+absent, merely unmatched — 2h carries `bash: ledger_get: command not found`, 3d carries two
+Python tracebacks and a `{"error": …}` that misses the predicate by the two characters `{"` —
+which puts bash's rate at **at most 0.9962** on 2h and still a floor. The thirteenth entry in
+`docs/deviations.md`'s defect ledger, with the full derivation and what it does not reach.
 
 
 Paired, because the arms share the taskset:
@@ -252,15 +263,21 @@ with* the score would mean the mechanism is tool availability rather than channe
 framing should be retired. Availability rose. The solve rate did not. The mechanism is not
 availability.
 
-## Nine more defects, three of them in the tools that read the result
+## Seven more defects, four of them in the tools that read the result
 
-The report above counts six. The ledger at the top of `docs/deviations.md` now counts twelve:
-nine in the harness and three in `ptc/paired.py` and its callers — a partial-run guard that
-only fired on an empty overlap, a reader that scored an errored rollout 0.0 and so could not
-distinguish a crash from a wrong answer, and an interaction interval computed on the reverse
-difference. The last was caught because the point estimate sat outside its own confidence
-interval, which a correct percentile bootstrap cannot do.
+The report above counts six. The ledger at the top of `docs/deviations.md` now counts
+**thirteen**: nine in the harness and four in the adjudication tools — a partial-run guard
+that only fired on an empty overlap, a reader that scored an errored rollout 0.0 and so could
+not distinguish a crash from a wrong answer, an interaction interval computed on the reverse
+difference, and a tool-call success rate instrumented on only one of the two arms. The
+interval was caught because the point estimate sat outside its own confidence interval, which
+a correct percentile bootstrap cannot do. The one-armed rate was caught by asking what text
+the failure predicate could possibly match on the bash arm: nothing it ever emits.
 
-**The instrument has been the problem at least as often as the thing it measures**, and three
-of the twelve faults were in the code that decides what the numbers mean rather than in the
+**The instrument has been the problem at least as often as the thing it measures**, and four
+of the thirteen faults were in the code that decides what the numbers mean rather than in the
 code that produces them. That is the part of this project most worth generalising.
+
+**⚠ CORRECTED 2026-10-10 — this section said twelve, nine and three.** The count is derived
+from the ledger's own tables and moved when the thirteenth was filed; quote it from there, not
+from here.

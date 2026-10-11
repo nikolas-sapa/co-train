@@ -12,10 +12,14 @@ Steps 1 and 2 are done, the PTC arm is built, and the untrained premise check ha
 model twelve times. **It is decided: the premise did not hold.** Nothing in the History
 section below describes any of that.
 
-- **Start with `docs/deviations.md`'s defect ledger** (new, at the top of that file). Twelve
-  distinct faults — nine in the harness, three in the tools that adjudicate the result —
-  each with the run that exposed it and the observation that caught it. Every one was
-  invisible to a green test suite. Read it before believing any number in this repo.
+- **Start with `docs/deviations.md`'s defect ledger** (new, at the top of that file).
+  **Thirteen** distinct faults — nine in the harness, **four** in the tools that adjudicate
+  the result — each with the run that exposed it and the observation that caught it. Every
+  one was invisible to a green test suite, and the thirteenth was worse: the suite pinned the
+  two failure-prefix strings against drift and so locked in the blindness it was meant to
+  guard. Read it before believing any number in this repo. **The count moved 12 → 13 on
+  2026-10-10; it is derived from the ledger's own tables, so derive it rather than quote
+  this line.**
 - **`docs/results-untrained.md` is the pre-committed output.** §6 fired: run 2h measured
   PTC 14/14 against bash 12/14 on the original 14 tasks, so H1 is wrong on **sign**. Not
   separable at n=14 — a non-reproduction, not a reversal.

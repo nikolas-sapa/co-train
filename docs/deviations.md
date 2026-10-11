@@ -92,12 +92,15 @@ trustworthy.
 
 ## The defect ledger (added 2026-10-08, because the count kept being asserted)
 
-**Twelve distinct faults: nine in the harness, three in the adjudication tools.** Written
+**Thirteen distinct faults: nine in the harness, four in the adjudication tools.** Written
 down because three totals were in circulation and none had been derived. The vault index
 says "six", which was correct as of run 2h and stopped being correct at run 3b. An OSF
 abstract drafted on 2026-10-07 asserted nine with a "six harness, three tools" split, which
 sums to nine and describes the wrong nine. A number in a published abstract has to be
 derived, not remembered.
+
+**The total moved 12 → 13 on 2026-10-10**, on the one-armed tool-success rate below. Any
+text asserting twelve — including the OSF abstract — is now stale.
 
 **Counting convention, stated so the total reproduces:** one row per fault that made a run
 inadmissible, however it was numbered in the prose below. This file numbers seven of them
@@ -119,18 +122,21 @@ defect 4's fix — which is why the numbered total and the true total differ by 
 | the arms name the same transport fault differently, so retryability was decided by which arm's code owned the socket | "defect 6" | a relay timeout fatal on one arm and retried on the other | 2g |
 | full-scan rollouts die on a per-account request-rate limit, confounding the tier comparison it was meant to produce | "the seventh defect" | 10 of 10 void rollouts being the 40-call tasks | 3b |
 
-### Adjudication tools — three
+### Adjudication tools — four
 
 | fault | found by |
 |---|---|
 | `paired.py` intersected arm task names and only errored on an empty overlap, so a partial run reported `n=12` on a 29-task taskset | pre-flight before reading a live run |
 | `paired.py` scored off `rewards` alone, so an errored rollout summed to 0.0 and was indistinguishable from a wrong answer — ten crashes would have read as ten failures | reading 3b's own output |
 | the interaction interval was computed on the reverse difference; an estimate sat outside its own CI | the number looking impossible |
+| `tool_success_rate` was only ever instrumented on one arm: a failure is a result whose text starts with `rejected:`/`error:`, which only the PTC harness emits, so bash printed 1.000 on 822 calls by construction and secondary 3 compared a measured rate against an unmeasurable one | the training lane testing a guard, 2026-10-10 |
 
 **Five of the nine harness faults penalised the PTC arm, one penalised bash (defect 6), two
 were symmetric (the two knock-ons), and one — the rate limit — is symmetric in principle but
 falls roughly three times harder on bash per unit of work, because bash makes one request per
-turn.** All twelve were invisible to a green test suite.
+turn.** All thirteen were invisible to a green test suite, and the thirteenth is worse than
+invisible: `test_metrics.py` pinned the two failure prefixes against drift *in the strings*,
+so the suite actively locked in the blindness it was meant to guard.
 
 ---
 
@@ -889,3 +895,86 @@ Score-wise the project now has: a premise that failed to reproduce, an inverted 
 the original 14 tasks that did not survive extension to 29, and on the extended set a tier
 interaction that points consistently one way and has never cleared significance or the signed
 threshold. **The defensible finding is the cost structure, not the accuracy ordering.**
+
+
+---
+
+## The thirteenth defect — tool-call success was only ever measured on one arm
+
+Found 2026-10-10 by the training lane while testing an unrelated guard, and derived here
+from the traces rather than from the report that surfaced it.
+
+`tool_success_rate` is `1.0 - tool_failures / tool_calls`, and `tool_failures` counts tool
+results whose text starts with one of `FAILURE_PREFIXES` — `"rejected:"` or `"error:"`.
+**Those are the strings `ptc/harness.py` emits.** The bash arm's tools are `bash`,
+`ledger_get`, `ledger_ids` and `ledger_links_to`; they return JSON or shell output, so no
+bash tool result can match the predicate. Read straight out of the trace nodes, across all
+three admissible runs:
+
+| run | arm | tool calls | results matching the predicate | rate as published |
+|---|---|---|---|---|
+| 2h | bash | 266 | **0** | **1.0000** |
+| 2h | ptc | 66 | 29 | 0.5606 |
+| 3c | bash | 836 | **0** | **1.0000** |
+| 3c | ptc | 150 | 78 | 0.4800 |
+| 3d | bash | 822 | **0** | **1.0000** |
+| 3d | ptc | 156 | 74 | 0.5256 |
+
+Zero in 1,924 bash tool calls, across three runs, on a predicate bash cannot satisfy.
+**Secondary 3 as published therefore compares a measured rate against an unmeasurable one.**
+bash's 1.000 is a floor artefact of the predicate, not a performance figure, and the
+direction of the published comparison — bash ahead — is an artefact of the same shape as
+defect 2: the instrument asserting its own soundness falsely.
+
+**And bash's failures are not absent, only unmatched — which is the part that makes this a
+measurement fault rather than a definitional one.** Grepping the same results for
+failure-shaped text that the predicate misses:
+
+- 2h: `bash: ledger_get: command not found` (1)
+- 3c: `bash: ledger_ids: command not found`, plus bulk outputs carrying `Error or no result`
+  for individual records (3)
+- 3d: two Python `Traceback (most recent call last):` blocks, a JSON-wrapped
+  `{"error": "No module named 'ledgers'"}`, plus two partial bulk outputs (5)
+
+The JSON one is the sharpest illustration: `{"error": ...` misses `error:` by the two
+characters `{"`. Counting only those, bash's rate is at most **0.9962 / 0.9964 / 0.9939** —
+and that is still a floor, because it was found by searching for failure words in English
+rather than by an error channel the rig can see.
+
+**The defect is wider than one uninstrumented arm: the predicate is blind to an entire error
+channel.** The training lane established that TRL wraps a tool exception as
+`{"error": str(e)}` and then `str()`s it, so the text arriving at the predicate is
+brace-first and cannot match `error:` — the same two characters as the `{"error": "No module
+named 'ledgers'"}` above, from a different source. The consequence is not historical: a
+**correct** PTC arm under the planned Path C would also print 1.000 if `run_program` ever
+raised instead of returning a formatted string, because the raise would arrive wrapped. So
+`FAILURE_PREFIXES` is not merely missing the bash arm's dialect, it is missing the dialect
+that any exception-based tool failure speaks. A test pins this and goes red if TRL changes
+the wrapping.
+
+**What this does and does not reach.**
+
+- **Secondary 3 is withdrawn as an arm comparison** on all three runs. PTC's own rate
+  (0.4800-0.5606) is measured and stands; bash's is not measured at all.
+- **H4 needs qualifying, and it was the project's best-powered hypothesis.** The benchmark
+  lane had just assessed it as the strongest available test — per call, 7.8 pp half-width at
+  n=29 against a 26.9 pp pre-registered target. That assessment assumed both arms were
+  instrumented. The source paper's 65.2% vs 92.1% gap is untouched; **this project cannot
+  measure its own version of it** until bash's failures are visible to the predicate.
+- **The cost co-primary is NOT affected, by derivation rather than by assumption.** Cost is
+  computed only from `Trace.usage` — `prompt_tokens`, `cached_input_tokens`,
+  `completion_tokens` — in `summarize`'s pricing block. `tool_failures` has exactly two
+  readers in the whole repo: `tool_success_rate` and the table row that prints it. Neither
+  `ptc/paired.py` nor `ptc/audit.py` reads either field, so nothing in the primary, the
+  cost co-primary, the stability co-primary or the tier split depends on it. Secondary 4,
+  shell-call share, is computed from `SHELL_TOOLS` name matching on the *call* side and is
+  also unaffected.
+- **Score is unaffected.** A tool failure is data the model reads, not a scored event; the
+  grader reads the final answer.
+
+`ptc/metrics.py` now refuses to print a perfect rate quietly: any arm with at least
+`MIN_CALLS_FOR_PERFECT_RATE` calls and zero detected failures raises a `*** NO TOOL FAILURE
+WAS DETECTABLE` note naming the predicate, and `ptc/test_metrics.py` covers the channel
+being absent rather than only the strings being intact. The fix for the measurement itself —
+giving the bash arm a failure channel the predicate can see — is not done, and secondary 3
+stays withdrawn until it is.
