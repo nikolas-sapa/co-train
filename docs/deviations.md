@@ -102,6 +102,31 @@ derived, not remembered.
 **The total moved 12 → 13 on 2026-10-10**, on the one-armed tool-success rate below. Any
 text asserting twelve — including the OSF abstract — is now stale.
 
+**The `state` column was added 2026-10-11, and it is not a boolean.** The abstract said
+"twelve of them fixed", which was the only count in any of these documents that nothing could
+derive: the tables recorded what each fault was and what caught it, never whether it had been
+repaired. Forcing it to a boolean would have lied in two places, so there are three states and
+the honest total is **eleven fixed, one not fixable, one withdrawn**:
+
+- **fixed** (11) — a code change exists and a test covers it. Verified per row against the
+  implementation, not from memory: the turn budget reaching `PTCHarness`, `n_budget_exhausted`
+  in the metrics, `render_catalog` in the system prompt, `"stream": True`, the
+  empty-`choices` guard, `stream_options.include_usage`, the typed MCP catalog, and
+  `"HarnessError"` in the retry include-list.
+- **not fixable** (1) — the per-account rate limit. Its own section below is titled *"the
+  seventh defect, and it is structural rather than fixable"*: bash issues 475 tool calls
+  across 494 turns against PTC's 138, so it meets a request-rate limit roughly three times as
+  hard, `--max-concurrent 1` cannot help because the limit is rate over time rather than
+  parallelism, and raising the retry budget further would be measuring the relay. It is
+  survived per-run, not repaired.
+- **withdrawn** (1) — the one-armed `tool_success_rate`. The outcome it produced is retracted
+  rather than the instrument corrected, because correcting it means giving the bash arm an
+  error channel the predicate can see *and* widening the predicate to catch wrapped
+  exceptions on both arms. Secondary 3 stays withdrawn until both exist.
+
+So "twelve fixed" was wrong on its own terms even before the thirteenth was filed: the rate
+limit has never been fixed and the ledger has said so since 2026-10-08.
+
 **Counting convention, stated so the total reproduces:** one row per fault that made a run
 inadmissible, however it was numbered in the prose below. This file numbers seven of them
 (1-7, of which "Defect 5" and "defect 6" appear literally, and 7 is titled "the seventh
@@ -110,26 +135,26 @@ defect 4's fix — which is why the numbered total and the true total differ by 
 
 ### Harness — nine
 
-| fault | file's label | found by | run |
-|---|---|---|---|
-| turn budget of 8 never reached the PTC harness, so the cap bound 11 of 14 PTC rollouts while bash used up to 80 | 1, in `Deviation 01` | run 1's own turn counts | 1 |
-| the rig reported that binding cap as `TRUNCATED (budget) 0` — the instrument asserted its own soundness falsely | 2, in `Deviation 01` | the trace contradicting the table | 1 |
-| PTC's system prompt advertised bare tool names at a keyword-only bridge; 34 of 54 tool failures were this one mismatch | 3, in `Deviation 01` | tool-failure breakdown | 1 |
-| PTC posted `stream: False` into a relay whose gateway timeout applies only to non-streaming requests — 504 on every attempt, so a larger retry budget changed nothing | 4, `Deviation 02` | measuring the endpoint directly | 2d |
-| the SSE parser indexed `choices[0]` on the final usage chunk, which carries `choices: []` — `KeyError` on 2 PTC rollouts, surfacing as a task failure | unnumbered, `Deviation 02a` | the fix's own side effect | 2e |
-| the request omitted `stream_options.include_usage`, so PTC's cost per solved task printed as unknown while bash's did not — a co-primary silently lost on one arm only | unnumbered, `Deviation 02a` | the empty column | 2e |
-| the catalog was not typed and the sandbox denied every parser: same three tools both arms, but bash's action space was a strict superset | "Defect 5" | reading what each arm actually received | 2f |
-| the arms name the same transport fault differently, so retryability was decided by which arm's code owned the socket | "defect 6" | a relay timeout fatal on one arm and retried on the other | 2g |
-| full-scan rollouts die on a per-account request-rate limit, confounding the tier comparison it was meant to produce | "the seventh defect" | 10 of 10 void rollouts being the 40-call tasks | 3b |
+| fault | file's label | found by | run | state |
+|---|---|---|---|---|
+| turn budget of 8 never reached the PTC harness, so the cap bound 11 of 14 PTC rollouts while bash used up to 80 | 1, in `Deviation 01` | run 1's own turn counts | 1 | fixed |
+| the rig reported that binding cap as `TRUNCATED (budget) 0` — the instrument asserted its own soundness falsely | 2, in `Deviation 01` | the trace contradicting the table | 1 | fixed |
+| PTC's system prompt advertised bare tool names at a keyword-only bridge; 34 of 54 tool failures were this one mismatch | 3, in `Deviation 01` | tool-failure breakdown | 1 | fixed |
+| PTC posted `stream: False` into a relay whose gateway timeout applies only to non-streaming requests — 504 on every attempt, so a larger retry budget changed nothing | 4, `Deviation 02` | measuring the endpoint directly | 2d | fixed |
+| the SSE parser indexed `choices[0]` on the final usage chunk, which carries `choices: []` — `KeyError` on 2 PTC rollouts, surfacing as a task failure | unnumbered, `Deviation 02a` | the fix's own side effect | 2e | fixed |
+| the request omitted `stream_options.include_usage`, so PTC's cost per solved task printed as unknown while bash's did not — a co-primary silently lost on one arm only | unnumbered, `Deviation 02a` | the empty column | 2e | fixed |
+| the catalog was not typed and the sandbox denied every parser: same three tools both arms, but bash's action space was a strict superset | "Defect 5" | reading what each arm actually received | 2f | fixed |
+| the arms name the same transport fault differently, so retryability was decided by which arm's code owned the socket | "defect 6" | a relay timeout fatal on one arm and retried on the other | 2g | fixed |
+| full-scan rollouts die on a per-account request-rate limit, confounding the tier comparison it was meant to produce | "the seventh defect" | 10 of 10 void rollouts being the 40-call tasks | 3b | **not fixable** |
 
 ### Adjudication tools — four
 
-| fault | found by |
-|---|---|
-| `paired.py` intersected arm task names and only errored on an empty overlap, so a partial run reported `n=12` on a 29-task taskset | pre-flight before reading a live run |
-| `paired.py` scored off `rewards` alone, so an errored rollout summed to 0.0 and was indistinguishable from a wrong answer — ten crashes would have read as ten failures | reading 3b's own output |
-| the interaction interval was computed on the reverse difference; an estimate sat outside its own CI | the number looking impossible |
-| `tool_success_rate` was only ever instrumented on one arm: a failure is a result whose text starts with `rejected:`/`error:`, which only the PTC harness emits, so bash printed 1.000 on 822 calls by construction and secondary 3 compared a measured rate against an unmeasurable one | the training lane testing a guard, 2026-10-10 |
+| fault | found by | state |
+|---|---|---|
+| `paired.py` intersected arm task names and only errored on an empty overlap, so a partial run reported `n=12` on a 29-task taskset | pre-flight before reading a live run | fixed |
+| `paired.py` scored off `rewards` alone, so an errored rollout summed to 0.0 and was indistinguishable from a wrong answer — ten crashes would have read as ten failures | reading 3b's own output | fixed |
+| the interaction interval was computed on the reverse difference; an estimate sat outside its own CI | the number looking impossible | fixed |
+| `tool_success_rate` was only ever instrumented on one arm: a failure is a result whose text starts with `rejected:`/`error:`, which only the PTC harness emits, so bash printed 1.000 on 822 calls by construction and secondary 3 compared a measured rate against an unmeasurable one | the training lane testing a guard, 2026-10-10 | **withdrawn** |
 
 **Five of the nine harness faults penalised the PTC arm, one penalised bash (defect 6), two
 were symmetric (the two knock-ons), and one — the rate limit — is symmetric in principle but
@@ -226,6 +251,59 @@ signatures). PTC's prompt-token column therefore moves between run 1 and run 2 f
 reason unrelated to model behaviour, and billed cost per successful task is a
 co-primary. Run 2 must report PTC's prompt tokens as not comparable to run 1's on
 this axis; the comparison that stays valid is bash-vs-PTC *within* run 2.
+
+## Run inventory (added 2026-10-11, because the count was asserted in two places and disagreed)
+
+**Fourteen arm-pairs carry dated rollouts on disk. The run *labels* run to twelve. Both
+numbers are right, and the gap is the point.**
+
+The OSF abstract said *"across ten runs"* until 2026-10-11 — written on 2026-10-08 at commit
+`9ae53f8`, which was itself a correction of an earlier "seven", and made stale within hours by
+3c and 3d landing the same day. `HANDOFF.md` said the premise *"met a real model twelve
+times"*. Neither was derived. Dated from each rollout's own `timing.start`:
+
+| # | first rollout (UTC) | rollouts | `max_turns` | artifact | label |
+|---|---|---|---|---|---|
+| 1 | 2026-10-01 12:46 | 28 | 80 | `ptc-real/traces-run3-conc1/` | **unlabelled** |
+| 2 | 2026-10-01 13:05 | 28 | 80 | `ptc-real/traces/` | run 1 |
+| 3 | 2026-10-01 14:30 | 28 | 80 | `ptc-real-run2/traces-attempt-conc4/` | 2a |
+| 4 | 2026-10-01 14:34 | 24 | 80 | `ptc-real-run2/traces/` | 2b |
+| 5 | 2026-10-02 03:38 | 28 | 80 | `ptc-real-run2c/` | 2c |
+| 6 | 2026-10-02 11:05 | 28 | 80 | `ptc-real-run2d/` | 2d |
+| 7 | 2026-10-02 11:59 | 28 | 80 | `ptc-real-run2e/` | 2e |
+| 8 | 2026-10-02 12:40 | 28 | 80 | `ptc-real-run2f/` | 2f |
+| 9 | 2026-10-03 04:57 | 28 | 80 | `ptc-real-run2g/` | 2g |
+| 10 | 2026-10-03 05:16 | 28 | 80 | `ptc-real-run2h/` | 2h — **admissible** |
+| 11 | 2026-10-07 12:06 | 58 | 80 | `co-train-run3a/` | 3a |
+| 12 | 2026-10-07 12:46 | 58 | 80 | `co-train-run3b/` | 3b |
+| 13 | 2026-10-08 04:24 | 58 | 80 | `co-train-run3c/` | 3c — **admissible** |
+| 14 | 2026-10-08 05:19 | 58 | 150 | `co-train-run3d/` | 3d — **admissible** |
+
+**Three things this resolves.**
+
+**There is no missing 2b.** `~/scratch/` has no `ptc-real-run2b` directory, so the label
+sequence "1, 2a-2h, 3a-3d" reads as thirteen directories where only twelve exist. Both 2a and
+2b live inside `ptc-real-run2/` as sibling subdirectories — 2a at `traces-attempt-conc4/`, 2b
+at `traces/` — exactly as the attempt log below records. Counting directories undercounts;
+counting labels is right at twelve.
+
+**Row 1 is an arm-pair that no document had ever counted.** `ptc-real/` also holds two
+subdirectories, and `traces-run3-conc1/` precedes the run-1 traces by nineteen minutes. Its
+name belongs to a numbering scheme abandoned before run 1 was written up. It is 28 rollouts of
+real spend against the relay, and it is why the artifact count is fourteen and not thirteen.
+It is not admissible and changes no result; it is counted here because a run that happened is
+a run that happened.
+
+**Only three runs are admissible, and that has not changed:** 2h on the original 14 tasks, 3c
+and 3d on the extended 29. Runs 1 through 2g carry instrument defects, 2g is unreadable
+(defect 6), and 3a and 3b are void — 3a on a `--max-retries 0` launch error, 3b on the rate
+limit that flag exists to survive.
+
+**Which number to publish:** *fourteen measured runs, of which three are admissible.* Quoting
+a bare count invites exactly the staleness corrected here, because the admissible count and
+the attempt count have never been equal and the attempt count only ever grows.
+
+---
 
 ### Run 2 attempt log
 

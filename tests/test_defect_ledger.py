@@ -1,4 +1,4 @@
-"""The defect count is derived by a written convention and asserted in ten places.
+"""Two derived counts — defects and runs — asserted across four documents.
 
 `docs/deviations.md` installed the convention (commit `deac6e4`, "derive the defect count
 instead of asserting it") because three different totals had been in circulation and none
@@ -89,6 +89,28 @@ def derive() -> dict[str, int]:
     return {**counts, "total": sum(counts.values()), "headings": headings}
 
 
+RUN_LEDGER_HEADING = "## Run inventory"
+
+
+def derive_runs() -> dict[str, int]:
+    """Count the rows of the run inventory table, and the admissible subset.
+
+    Same failure mode as the defect count, different number: the OSF abstract said "ten
+    runs" for three days while fourteen arm-pairs sat on disk, because the sentence was
+    written the morning two more runs landed. The table is dated from each rollout's own
+    `timing.start`, so it is the derived source and this reads it.
+    """
+    lines = LEDGER.read_text().splitlines()
+    start = next(i for i, l in enumerate(lines)
+                 if l.startswith(RUN_LEDGER_HEADING))
+    end = next(i for i, l in enumerate(lines[start + 1:], start + 1)
+               if l.startswith("## "))
+    rows = [l for l in lines[start:end]
+            if re.match(r"^\|\s*\d+\s*\|", l)]
+    admissible = [l for l in rows if "admissible" in plain(l)]
+    return {"runs": len(rows), "admissible": len(admissible)}
+
+
 # Every sentence in the repo that states a defect count, with the pattern that reads it and
 # the derived key each captured group must equal. `None` skips a group -- used once, for
 # "twelve of them fixed", which is not derivable from the tables: they record what the
@@ -122,6 +144,47 @@ CLAIMS: tuple[tuple[str, str, tuple[str | None, ...]], ...] = (
     ("docs/results-untrained.md", r"(\w+) of the (\w+) faults were in the code",
      ("tools", "total")),
 )
+
+
+RUN_CLAIMS: tuple[tuple[str, str, tuple[str | None, ...]], ...] = (
+    ("docs/outreach.md",
+     r"Across (\w+) measured runs on a 40-record ledger taskset .*?"
+     r"of which (\w+) are admissible",
+     ("runs", "admissible")),
+    # NB: patterns are matched against `plain(...)`, which strips `*` and backticks, so
+    # they must not contain markdown emphasis themselves.
+    ("docs/outreach.md", r"(\w+) arm-pairs carry dated rollouts\s+on disk", ("runs",)),
+    ("HANDOFF.md", r"met a real\s*\n?\s*model (\w+) times", ("runs",)),
+    ("docs/deviations.md",
+     r"(\w+) arm-pairs carry dated rollouts on disk. The run labels run to (\w+)",
+     ("runs", None)),
+    ("docs/deviations.md", r"Only (\w+) runs are admissible", ("admissible",)),
+    ("docs/deviations.md", r"(\w+) measured runs, of which (\w+) are admissible",
+     ("runs", "admissible")),
+)
+
+
+def test_the_run_inventory_agrees_with_every_sentence_that_states_a_run_count():
+    """The second derived count. `Across ten runs` survived three days and two further
+    runs in the text that was about to become a DOI."""
+    d = derive_runs()
+    problems: list[str] = []
+    for rel, pattern, keys in RUN_CLAIMS:
+        text = plain((ROOT / rel).read_text())
+        found = re.search(pattern, text)
+        if not found:
+            problems.append(f"{rel}: no sentence matching {pattern!r} — reworded or "
+                            f"deleted, so the run count there is now unchecked")
+            continue
+        for group_text, key in zip(found.groups(), keys):
+            if key is None:
+                continue
+            got = number(group_text)
+            if got != d[key]:
+                problems.append(f"{rel}: says {group_text} ({got}) for {key}, "
+                                f"inventory derives {d[key]}")
+    assert not problems, "run count drifted from the inventory table:\n  " + \
+        "\n  ".join(problems)
 
 
 def test_the_ledger_tables_agree_with_their_own_group_headings():

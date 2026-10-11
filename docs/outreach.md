@@ -95,6 +95,13 @@ gatekeeper. There is no arXiv mechanism for commenting on someone else's paper.
 **Title:** Failure to reproduce the bash-over-PTC ordering, and thirteen instrument defects
 that produced it
 
+*(⚠ **The abstract said "ten runs" until 2026-10-11.** It was written at commit `9ae53f8`
+on 2026-10-08, which itself corrected an earlier "seven" — and runs 3c and 3d landed hours
+later the same day, so it was stale within the day it was written. The count is now derived
+from the trace artifacts rather than remembered: **fourteen** arm-pairs carry dated rollouts
+on disk, of which three (2h, 3c, 3d) are admissible. See `docs/deviations.md` for why the
+run *labels* read as twelve while the artifacts number fourteen.)*
+
 *(⚠ The title set on OSF node `2hfzt` says "twelve" and is now stale — the count moved to
 thirteen on 2026-10-10 and the node needs a pass before it goes public. The earlier draft said
 "six", which was the harness count as of run 2h and stopped being true at run 3b. Current
@@ -106,16 +113,18 @@ here.)*
 
 > A premise check for a co-training experiment attempted to reproduce the untrained
 > bash-over-programmatic-tool-calling (PTC) gap reported in arXiv:2609.11999 (+6.8 to
-> +22.0 pp in favour of a shell interface). Across ten runs on a 40-record ledger taskset
-> with a single small model, the gap reproduced only while the measuring instrument was
-> defective.
+> +22.0 pp in favour of a shell interface). Across fourteen measured runs on a 40-record
+> ledger taskset with a single small model, of which three are admissible, the gap
+> reproduced only while the measuring instrument was defective.
 >
-> Thirteen faults were found, twelve of them fixed, each invisible to a passing test suite
+> Thirteen faults were found, eleven of them fixed, each invisible to a passing test suite
 > and detectable only against a live endpoint or against its own output read carefully: nine
-> in the measurement harness and four in the tools that adjudicate the result. The
-> thirteenth — a tool-call success rate instrumented on only one of the two arms — is
-> recorded and its outcome withdrawn rather than repaired, because repairing it requires
-> giving the shell arm an error channel the rig can see. Five of the nine
+> in the measurement harness and four in the tools that adjudicate the result. Of the two not
+> fixed, one is structural — a per-account request-rate limit that falls three times harder on
+> the shell arm, which issues one tool call per turn — and one is a measurement fault whose
+> outcome is withdrawn rather than repaired: a tool-call success rate instrumented on only one
+> of the two arms, where the failure predicate matched only the PTC harness's own error
+> strings. Five of the nine harness faults
 > penalised the PTC arm, one the shell arm, two were introduced by a fix and were symmetric,
 > and one is the rate limit described below. The largest single fault was an action-space
 > asymmetry, where both arms received identical tools but the shell arm read tool output as
@@ -131,7 +140,7 @@ here.)*
 > against the shell arm's 12/14, at 8x fewer relay-reported prompt tokens), though not separably at
 > n=14. Reported as a non-reproduction, not a reversal. The shell arm's only failures were
 > arithmetic on data it had retrieved correctly, with a shell available and used on 2.3% of
-> its calls.
+> its calls on the tier where those failures occurred.
 >
 > That ceiling prompted 15 harder tasks (14 to 29), each a second-order read of the same
 > records: a rank, a mean, a link-walk or a set, rather than a single filter-and-sum pass.

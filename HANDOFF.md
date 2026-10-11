@@ -9,7 +9,7 @@ to overwrite.
 ## Current state — 2026-10-08
 
 Steps 1 and 2 are done, the PTC arm is built, and the untrained premise check has met a real
-model twelve times. **It is decided: the premise did not hold.** Nothing in the History
+model fourteen times. **It is decided: the premise did not hold.** Nothing in the History
 section below describes any of that.
 
 - **Start with `docs/deviations.md`'s defect ledger** (new, at the top of that file).
