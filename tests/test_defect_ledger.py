@@ -86,7 +86,40 @@ def derive() -> dict[str, int]:
             counts[group] += 1
 
     assert set(counts) == {"harness", "tools"}, f"expected two groups, got {set(counts)}"
-    return {**counts, "total": sum(counts.values()), "headings": headings}
+    return {**counts, "total": sum(counts.values()), "headings": headings,
+            **derive_states()}
+
+
+def derive_states() -> dict[str, int]:
+    """Count each repair state from the tables' last column.
+
+    Added 2026-10-11 because "twelve of them fixed" was the one count in these documents
+    that nothing could derive -- the tables recorded what each fault was and what caught
+    it, never whether it had been repaired -- and it was wrong: the rate limit has never
+    been fixed and this file has said so since 2026-10-08.
+
+    **Three states, not a boolean.** `fixed` means a code change exists and a test covers
+    it; `not fixable` is the structural rate limit, survived per-run; `withdrawn` is the
+    one-armed success rate, whose OUTCOME is retracted rather than the instrument
+    corrected. A boolean would have had to lie about two of thirteen rows, and the
+    abstract makes a claim about each state separately, so each is counted separately.
+    """
+    lines = LEDGER.read_text().splitlines()
+    start = next(i for i, l in enumerate(lines) if l.startswith("## The defect ledger"))
+    end = next(i for i, l in enumerate(lines[start + 1:], start + 1)
+               if l.startswith("## "))
+    states = {"fixed": 0, "not fixable": 0, "withdrawn": 0}
+    for line in lines[start:end]:
+        if not line.startswith("|") or "---" in line or line.startswith("| fault"):
+            continue
+        cells = [plain(c).strip() for c in line.strip().strip("|").split("|")]
+        last = cells[-1].lower()
+        assert last in states, (
+            f"unknown repair state {cells[-1]!r} -- every ledger row needs one of "
+            f"{sorted(states)}, so a new row cannot be filed without declaring it")
+        states[last] += 1
+    return {"fixed": states["fixed"], "not_fixable": states["not fixable"],
+            "withdrawn": states["withdrawn"]}
 
 
 RUN_LEDGER_HEADING = "## Run inventory"
@@ -132,7 +165,7 @@ CLAIMS: tuple[tuple[str, str, tuple[str | None, ...]], ...] = (
      r"split: (\w+) harness faults plus (\w+) in the adjudication tools",
      ("harness", "tools")),
     ("docs/outreach.md", r"(\w+) faults were found, (\w+) of them fixed",
-     ("total", None)),
+     ("total", "fixed")),
     ("docs/outreach.md",
      r"(\w+) in the measurement harness and (\w+) in the tools that adjudicate",
      ("harness", "tools")),
@@ -234,6 +267,32 @@ def test_every_sentence_that_states_a_defect_count_matches_the_tables():
                                 f"tables derive {d[key]}")
     assert not problems, "defect count drifted from the ledger tables:\n  " + \
         "\n  ".join(problems)
+
+
+def test_the_fixed_count_matches_the_table():
+    """The claim this column was added to make checkable.
+
+    The OSF abstract states a repair count, and the node is days from a DOI that cannot be
+    edited. Before the column existed the number was unverifiable; it was also wrong. All
+    three states are pinned, not just `fixed`, because the abstract now makes a separate
+    claim about each and the sum has to close against the ledger total.
+    """
+    d = derive()
+    assert d["fixed"] + d["not_fixable"] + d["withdrawn"] == d["total"], (
+        "every fault has exactly one state, so the three must sum to the total")
+    assert d["not_fixable"] >= 1, (
+        "the per-account rate limit is structural -- its own section is titled "
+        "'structural rather than fixable'. A ledger with nothing unfixable means that row "
+        "was silently reclassified")
+    assert d["withdrawn"] >= 1, (
+        "secondary 3's outcome is withdrawn, not repaired: fixing it needs an error "
+        "channel on the bash arm AND a predicate that catches wrapped exceptions")
+
+    # The abstract's sentence, read back from the document rather than restated here.
+    abstract = plain((ROOT / "docs" / "outreach.md").read_text())
+    found = re.search(r"(\w+) faults were found, (\w+) of them fixed", abstract)
+    assert found, "the abstract no longer states a repair count"
+    assert number(found.group(2)) == d["fixed"]
 
 
 def test_the_append_only_pre_registration_is_not_policed():
