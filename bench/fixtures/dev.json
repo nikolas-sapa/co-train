@@ -1,0 +1,66 @@
+[
+  {
+    "question_id": 0,
+    "db_id": "campus",
+    "question": "List the names of all charter schools.",
+    "evidence": "Charter school refers to charter = 1",
+    "SQL": "SELECT name FROM school WHERE charter = 1",
+    "difficulty": "simple"
+  },
+  {
+    "question_id": 1,
+    "db_id": "campus",
+    "question": "How many schools are in Alameda county?",
+    "evidence": "Alameda county refers to county.name = 'Alameda'",
+    "SQL": "SELECT COUNT(*) FROM school WHERE county_id = 1",
+    "difficulty": "simple"
+  },
+  {
+    "question_id": 2,
+    "db_id": "campus",
+    "question": "What are the names of the schools in the Bay Area region?",
+    "evidence": "Bay Area region refers to county.region = 'Bay Area'",
+    "SQL": "SELECT T1.name FROM school AS T1 INNER JOIN county AS T2 ON T1.county_id = T2.county_id WHERE T2.region = 'Bay Area'",
+    "difficulty": "moderate"
+  },
+  {
+    "question_id": 3,
+    "db_id": "campus",
+    "question": "Which county has the most schools? Give the county name.",
+    "evidence": "The most schools refers to MAX(COUNT(school_id))",
+    "SQL": "SELECT T2.name FROM school AS T1 INNER JOIN county AS T2 ON T1.county_id = T2.county_id GROUP BY T2.name ORDER BY COUNT(T1.school_id) DESC LIMIT 1",
+    "difficulty": "moderate"
+  },
+  {
+    "question_id": 4,
+    "db_id": "campus",
+    "question": "What is the free meal rate across schools in Fresno county?",
+    "evidence": "Free meal rate = SUM(free_meals) / SUM(enrollment); Fresno county refers to county_id = 2",
+    "SQL": "SELECT CAST(SUM(free_meals) AS REAL) / SUM(enrollment) FROM school WHERE county_id = 2",
+    "difficulty": "moderate"
+  },
+  {
+    "question_id": 5,
+    "db_id": "campus",
+    "question": "Name the schools whose enrollment is above the average enrollment of all schools.",
+    "evidence": "Above the average enrollment refers to enrollment > AVG(enrollment)",
+    "SQL": "SELECT name FROM school WHERE enrollment > (SELECT AVG(enrollment) FROM school)",
+    "difficulty": "challenging"
+  },
+  {
+    "question_id": 6,
+    "db_id": "campus",
+    "question": "Which counties have no schools at all?",
+    "evidence": "A county with no schools has no matching row in the school table",
+    "SQL": "SELECT name FROM county EXCEPT SELECT T2.name FROM school AS T1 INNER JOIN county AS T2 ON T1.county_id = T2.county_id",
+    "difficulty": "challenging"
+  },
+  {
+    "question_id": 7,
+    "db_id": "campus",
+    "question": "For each region, how many charter schools does it contain, counting only regions with more than one?",
+    "evidence": "Charter school refers to charter = 1",
+    "SQL": "SELECT T2.region, COUNT(*) FROM school AS T1 INNER JOIN county AS T2 ON T1.county_id = T2.county_id WHERE T1.charter = 1 GROUP BY T2.region HAVING COUNT(*) > 1",
+    "difficulty": "challenging"
+  }
+]

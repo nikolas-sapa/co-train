@@ -6,6 +6,82 @@ to overwrite.
 
 ---
 
+## Current state — 2026-10-12
+
+**A8 is signed and the instrument is replaced.** `ledger` is retired; BIRD-SQL dev is the
+taskset; the paired SQL arms exist with parity measured rather than asserted; and the
+co-training pipeline is built with its gate shut. 482 tests. Nothing has been measured on
+the new instrument and no money has been spent.
+
+- **`docs/pre-registration.md` gained A7 and A8, both appended, neither an edit.** A7
+  restates A4's cost claim as two ratios and a floor and withdraws secondary 3 outright.
+  A8 replaces the taskset. Both were signed under the owner's standing instruction this
+  session that every decision not costing money is the agent's; that delegation is
+  recorded in each amendment rather than implied. The file's md5 moved twice and the OSF
+  node's copy was re-uploaded to match both times.
+- **BIRD cannot test A6's mechanism, and that is the session's load-bearing finding.**
+  N1's interaction needs the one-program-versus-forty-calls contrast; a BIRD task is one
+  query, one call on either arm. BIRD's simple/moderate/challenging labels are a human
+  annotation and 20 clause skeletons appear in all three tiers, so they are not even
+  structural. **BIRD is admitted for H3/H4/H5 only and is inadmissible on N1.** Do not
+  place a BIRD number beside an N1 prediction.
+- **BIRD's numbers, measured against the real downloaded corpus:** 1534 questions, 277
+  fine clause-skeleton shapes (25 coarse) against `ledger`'s 9. Gold validity 1530/1534
+  clean; of the four rejected only **two** are genuine defects, the other two legitimately
+  return 228,765 and 278,230 rows in ~1s. +25 pp needs 59 paired tasks and is reachable at
+  any rho; +6.8 pp needs 859 and is reachable only below rho 0.164/0.179/0.101 per tier,
+  so BIRD raises shapes 31x and still misses the project's own retired headline target.
+- **`compare="set"` is the default and the headline; multiset is a sensitivity check.**
+  Official BIRD `evaluation.py` uses `set()`, and comparability to the published sub-1B
+  numbers is why a self-authored taskset was abandoned. Until 2026-10-12 nothing pinned
+  the default: every comparison test passed `compare=` explicitly, so the one value a
+  caller gets by saying nothing was the one value nothing checked.
+- **`ptc/paired.py`'s `power_pairs` was crashing, and the band was invisible from both
+  sides.** `comb(d, i) * p ** (d - i)` converts an exact big integer to float, which
+  raises past d≈1030, so every delta in 0.02-0.04 died. delta ≥ 0.05 answers below that d
+  and delta < 0.02 stops at d=1000 on the lower `hi` bound, so all four published figures
+  -- 59, 398, 859, 1571 -- sat outside it and nine runs never touched it. Now computed in
+  log space; the four values are unchanged and pinned. `_attained` deliberately did NOT
+  get the same fix: it is demo()'s independent check, so it uses exact `Fraction`
+  arithmetic instead, and an AST test keeps it from being routed through the helper.
+- **The parity guard is twelve executable probes, not a claim.** Each capability carries a
+  bash probe, a PTC probe and the answer both must reach; `expected` is the ANSWER, not
+  the channel's bytes, because demanding byte-identical observations would demand the
+  channels be the same channel. Two probes are run 1's defect 5 as tests. Five asymmetries
+  are declared, four favouring bash. Emptying `SQL_PRIMITIVES` turns two capabilities and
+  the one-sided check red, verified and restored byte-identical.
+- **The pipeline gate is shut and says why.** `train/guards.py` requires a signed
+  amendment (A8 now reads as signed; A7 deliberately does not), a per-task solve-rate band
+  inside (0.120, 0.880), and `n_tasks >= 59` **derived** from `power_pairs` rather than
+  stored. `bench/frontier/manifest.json` does not exist, so `preflight()` raises.
+- **`solve_rate_min` must never be filled from the ~25% estimate.** That is a marginal
+  over a corpus; the gate reads per-task rates. At the same marginal 0.25 and G=4, a suite
+  where every task sits at p=0.25 reads 0.320 dead groups and is trainable, while one
+  where a quarter are always solved and three quarters never are reads **1.000** and is
+  not. Indistinguishable as a marginal.
+- **The next action is the free dead-group probe, and it costs $0.** Free Kaggle T4, 12.59
+  GB peak, `--steps 5`, `pip install "unsloth>=2026.10.3" "trl==1.13.0"`. Below unsloth
+  2026.10.3 this is not a degraded run but another one. Wall-clock is deliberately
+  unmeasured and the probe yields the step time so 20 steps is decided from data. It needs
+  a prompts file from a BIRD draw first. **Download `probe_metrics.jsonl` immediately** --
+  Kaggle's restart wipes `/kaggle/working`, which is how Step 2's metrics were lost once.
+- **The $6.29 / 13.2 h main run is still unauthorised and is not the next thing.** The
+  free probe answers whether a binary reward separates at all, and no taskset fixes a
+  reward that cannot.
+- **Spider is not admitted.** Never downloaded; `load_spider()` is verified against
+  documentation and a layout fixture only. It needs its own amendment.
+- **Contamination replaced self-authorship as the validity threat.** `ledger` could not
+  have been pretrained on; BIRD dev has been public since 2023 and no check has been run.
+  H3 is a within-instrument delta on both arms against the same corpus, which is what
+  keeps BIRD usable, and that argument is written into A8 rather than assumed.
+
+---
+
+## Superseded — current state as of 2026-10-11
+
+**Kept verbatim. Superseded by the section above; read it for what was true on 10-11, not
+for what is true now.**
+
 ## Current state — 2026-10-11
 
 Steps 1 and 2 are done, the PTC arm is built, and the untrained premise check has met a real
