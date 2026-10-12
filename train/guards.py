@@ -37,6 +37,8 @@ from dataclasses import dataclass
 from itertools import takewhile
 from typing import Any
 
+from ptc.paired import power_pairs  # stdlib-only path: pulls no training stack
+
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
@@ -484,16 +486,174 @@ MANIFEST_REQUIRED = (
     "n_tasks",
     "solve_rate_min",
     "solve_rate_max",
+    "measurement",
 )
 """`policy` is in here because the number that sets every expectation in the spec
 is `deepseek-v4-flash`'s 23/29, and the policy being trained is Qwen3-0.6B. A
-solve-rate band measured on the wrong model is not evidence about this one."""
+solve-rate band measured on the wrong model is not evidence about this one.
+
+`measurement` was added 2026-10-11 after the bench lane pointed out that the
+first four keys **cannot fail once the band is produced by discarding
+out-of-band tasks** — which is the only semantics under which they can ever pass,
+because the raw min and max of per-task solve rates over a real suite are 0.0 and
+1.0. A guard that cannot fail is this repo's signature defect, so the teeth moved
+to where the information is: `measurement`.
+"""
+
+MEASUREMENT_REQUIRED = ("g", "dead_ceiling", "trainable_band", "n_candidates", "retention")
+"""The measurement context, and what each one is for.
+
+- **`g` and `dead_ceiling`** must match the values this lane trains at. The
+  trainable band *widens* with `g`, so a subset retained against G=8 contains
+  tasks that are dead at G=4: the retained set is only valid for the parameters
+  it was retained under. This is the completion-cap fault in another costume — a
+  number whose meaning depends on a parameter nobody re-checked — and it is the
+  one check here that a conformant-by-construction band cannot satisfy for free.
+- **`trainable_band`** must equal this lane's own `viable_band(g, ceiling)`. Two
+  independent bisections of the same function; if they disagree, one of them
+  retained the wrong tasks.
+- **`n_candidates` and `retention`** are what carry information after subsetting.
+  `n_tasks > 0` passes on a suite where 197 of 198 drawn tasks were discarded as
+  untrainable, and that suite is not "near the frontier" in any sense §344 means.
+"""
+
+MIN_FRONTIER_TASKS = power_pairs(0.25, 0.5)
+"""Paired tasks the gate requires, DERIVED rather than stored: it is `ptc.paired`'s own
+answer for the +25 pp effect A6 signed, at band-centre discordance 0.500 -- 59 as of
+2026-10-12. Derived because the alternative is a second copy of a number that moves
+whenever the power function is corrected, and the power function was corrected on
+2026-10-12 (an int-to-float OverflowError across delta 0.02-0.04).
+
+This floor exists because the band is a band over the RETAINED subset and so conformant
+by construction: `n_tasks > 0` passes on a suite where 197 of 198 drawn tasks were
+discarded as untrainable, which is not "near the frontier" in any sense §344 means.
+Deliberately no separate retention floor -- retention is reported in the failure text,
+but gating on both it and n double-counts one constraint, and n is the one power depends
+on.
+"""
+
+SOLVE_RATE_SCOPE = "per_task, over the retained frontier subset"
+"""What `solve_rate_min`/`max` are a band *of*, stated because the alternative
+reading is both plausible and useless.
+
+A **marginal** accuracy over a corpus and a **per-task** solve-rate band come
+apart completely: at a marginal 0.25 with G=4, a suite where every task sits at
+p=0.25 has a mean dead-group fraction of 0.320 and every task trainable, while a
+suite where a quarter of tasks are always solved and three quarters never are has
+a mean of **1.000** and nothing trainable. Identical marginals, opposite
+verdicts. The gate reads per-task rates and a marginal must never be substituted
+for them. (Worked out by the bench lane, 2026-10-11.)
+"""
 
 
 @dataclass(frozen=True)
 class Precondition:
     ok: bool
     reasons: tuple[str, ...]
+
+
+def retention_floor(band: tuple[float, float]) -> float:
+    """The retention a difficulty-blind suite would get, which is the floor.
+
+    **Derived, not chosen.** If a suite's per-task solve rates were uniform on
+    [0, 1] — i.e. the tasks were drawn with no regard for the policy at all — the
+    fraction landing inside the trainable band is exactly the band's width, 0.760
+    at G=4. §344 asks for "a taskset whose tasks sit near a 0.6B model's
+    frontier. **Not merely more shapes**", so a suite that retains *less* than a
+    difficulty-blind draw would is positive evidence that its tasks are
+    concentrated in the dead tails, which is the opposite of the requirement.
+
+    This is the strictest defensible floor and it is the one threshold in this
+    gate that the spec does not supply. It is a keyword argument everywhere it is
+    used, so lowering it is a one-line owner decision with a recorded reason
+    rather than an edit to this function. **Expect to revisit it on the first
+    real measurement:** nothing has measured a 0.6B policy's per-task solve rates
+    on anything yet, so whether a genuinely frontier-adjacent suite clears 0.760
+    is unknown.
+    """
+    lo, hi = band
+    return hi - lo
+
+
+def _check_measurement(
+    manifest: Mapping[str, Any], g: int, ceiling: float, band: tuple[float, float],
+    n_tasks: Any, min_retention: float | None,
+) -> list[str]:
+    """The `measurement` block: the half of the manifest that can still fail.
+
+    Split out because `frontier_taskset_status` was already at the length where a
+    reader stops reading, and because every check in here exists for a different
+    reason — see `MEASUREMENT_REQUIRED`.
+    """
+    reasons: list[str] = []
+    block = manifest.get("measurement")
+    if not isinstance(block, Mapping):
+        return [f"measurement is not an object: {block!r}"]
+
+    missing = [k for k in MEASUREMENT_REQUIRED if k not in block]
+    if missing:
+        reasons.append(f"measurement is missing {', '.join(missing)}")
+
+    measured_g = block.get("g")
+    if measured_g != g:
+        reasons.append(
+            f"measurement.g is {measured_g!r} but this lane trains at G={g}. The "
+            "trainable band widens with G, so a subset retained at another G "
+            "contains tasks that are dead at this one — the retained set is only "
+            "valid for the parameters it was retained under."
+        )
+
+    measured_ceiling = block.get("dead_ceiling")
+    if measured_ceiling != ceiling:
+        reasons.append(
+            f"measurement.dead_ceiling is {measured_ceiling!r}, this lane aborts at "
+            f"{ceiling}. Tasks were retained against a different ceiling."
+        )
+
+    declared_band = block.get("trainable_band")
+    if isinstance(declared_band, (list, tuple)) and len(declared_band) == 2:
+        if any(abs(a - b) > 1e-6 for a, b in zip(declared_band, band)):
+            reasons.append(
+                f"measurement.trainable_band {list(declared_band)} disagrees with this "
+                f"lane's own derivation {list(band)} at G={g}, ceiling {ceiling}. Two "
+                "bisections of the same function; one of them retained the wrong tasks."
+            )
+    elif "trainable_band" in block:
+        reasons.append(f"measurement.trainable_band is not a pair: {declared_band!r}")
+
+    candidates = block.get("n_candidates")
+    if not (isinstance(candidates, int) and not isinstance(candidates, bool) and candidates > 0):
+        reasons.append(f"measurement.n_candidates is not a positive int: {candidates!r}")
+    elif isinstance(n_tasks, int) and not isinstance(n_tasks, bool):
+        if n_tasks > candidates:
+            reasons.append(
+                f"n_tasks {n_tasks} exceeds measurement.n_candidates {candidates}: more "
+                "tasks were retained than were measured"
+            )
+        else:
+            realised = n_tasks / candidates
+            declared = block.get("retention")
+            if isinstance(declared, (int, float)) and not isinstance(declared, bool):
+                if abs(declared - realised) > 1e-6:
+                    reasons.append(
+                        f"measurement.retention {declared} does not match n_tasks / "
+                        f"n_candidates = {realised:.6f}; the counts and the rate disagree"
+                    )
+            elif "retention" in block:
+                reasons.append(f"measurement.retention is not a number: {declared!r}")
+
+            floor = retention_floor(band) if min_retention is None else min_retention
+            if realised < floor:
+                reasons.append(
+                    f"retention {realised:.1%} ({n_tasks}/{candidates}) is below the "
+                    f"{floor:.1%} floor, which is the width of the trainable band and so "
+                    "the retention a suite drawn with no regard for the policy would "
+                    "get. §344 asks for tasks that sit near the frontier, not for a thin "
+                    "subset cherry-picked out of a suite that mostly does not. **This is "
+                    "the one threshold the spec does not supply — see "
+                    "guards.retention_floor; lowering it is an owner decision.**"
+                )
+    return reasons
 
 
 def _amendment_is_signed(amendment: str, root: pathlib.Path) -> bool:
@@ -538,6 +698,10 @@ def frontier_taskset_status(
     )
 
     g = NUM_GENERATIONS if num_generations is None else num_generations
+    # Coerced, because a str root raised TypeError from the `/` operator -- a gate whose
+    # job is to explain why it is shut should not fail with an operator error on a
+    # perfectly ordinary argument.
+    root = pathlib.Path(root)
     path = root / FRONTIER_MANIFEST
     reasons: list[str] = []
 
@@ -599,6 +763,18 @@ def frontier_taskset_status(
     n = manifest.get("n_tasks")
     if not (isinstance(n, int) and not isinstance(n, bool) and n > 0):
         reasons.append(f"n_tasks is not a positive int: {n!r}")
+    elif n < MIN_FRONTIER_TASKS:
+        realised = manifest.get("measurement", {})
+        drawn = realised.get("n_candidates") if isinstance(realised, dict) else None
+        kept = realised.get("retention") if isinstance(realised, dict) else None
+        detail = f" (retained {n} of {drawn}, {kept:.1%})" if isinstance(drawn, int) \
+            and isinstance(kept, (int, float)) else ""
+        reasons.append(
+            f"n_tasks {n} is below the {MIN_FRONTIER_TASKS} paired tasks the +25 pp "
+            f"effect needs at band-centre discordance{detail}. A band over a retained "
+            "subset is conformant by construction -- n is where the information is, so "
+            "n is where the floor goes."
+        )
 
     amendment = str(manifest.get("pre_registration_amendment") or "").strip()
     if not amendment:

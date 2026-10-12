@@ -68,6 +68,20 @@ GOOD_MANIFEST = {
     "n_tasks": 198,
     "solve_rate_min": 0.2,
     "solve_rate_max": 0.8,
+    # `measurement` became required when the first four keys turned out to be
+    # conformant by construction. This fixture was not updated in the same change, so
+    # three gate tests were left failing; they are the tests that assert the gate
+    # OPENS, which is the direction a half-finished guard breaks silently in -- a gate
+    # stuck shut looks exactly like a gate doing its job.
+    "measurement": {
+        "g": 4,
+        "dead_ceiling": 0.60,
+        "trainable_band": [0.119964, 0.880036],
+        "n_candidates": 198,
+        "retention": 1.0,
+        "mean_dead_fraction": 0.32,
+        "n_void_tasks": 0,
+    },
 }
 SIGNED = "### A8 — 2026-10-12, BEFORE any run: the frontier taskset, signed\n"
 
@@ -744,3 +758,42 @@ def test_prompts_missing_an_answer_are_refused(tmp_path, body):
     path.write_text(body)
     with pytest.raises(ValueError):
         probe.load_prompts(path)
+
+
+def test_the_gate_refuses_a_frontier_too_small_to_carry_the_effect(tmp_path):
+    """`n_tasks` must clear `MIN_FRONTIER_TASKS`, which is derived from the power
+    function rather than stored.
+
+    The band is a band over the RETAINED subset, so it is conformant by construction:
+    before this floor, a suite that drew 198 tasks and kept 3 passed every band check.
+    n is where the information is.
+    """
+    too_small = {**GOOD_MANIFEST, "n_tasks": guards.MIN_FRONTIER_TASKS - 1,
+                 "measurement": {**GOOD_MANIFEST["measurement"],
+                                 "retention": (guards.MIN_FRONTIER_TASKS - 1) / 198}}
+    write_manifest(tmp_path, too_small, SIGNED)
+    status = guards.frontier_taskset_status(tmp_path)
+    assert not status.ok
+    assert any("below the" in r and "paired tasks" in r for r in status.reasons), \
+        status.reasons
+
+    # and the boundary itself passes, so the floor is not off by one
+    at_floor = {**GOOD_MANIFEST, "n_tasks": guards.MIN_FRONTIER_TASKS}
+    write_manifest(tmp_path, at_floor, SIGNED)
+    assert guards.frontier_taskset_status(tmp_path).ok
+
+
+def test_the_frontier_floor_is_derived_from_the_power_function(tmp_path):
+    """Not a stored 59. The power function was corrected on 2026-10-12 for an
+    int-to-float OverflowError, and a second copy of its output would not have
+    moved with it."""
+    from ptc.paired import power_pairs
+    assert guards.MIN_FRONTIER_TASKS == power_pairs(0.25, 0.5)
+
+
+def test_the_gate_takes_a_string_root(tmp_path):
+    """`root / FRONTIER_MANIFEST` raised TypeError on a str. The gate's entire purpose
+    is to say why it is shut; failing with an operator error on an ordinary argument is
+    not that."""
+    write_manifest(tmp_path, GOOD_MANIFEST, SIGNED)
+    assert guards.frontier_taskset_status(str(tmp_path)).ok
