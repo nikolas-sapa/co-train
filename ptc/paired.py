@@ -14,7 +14,8 @@ from __future__ import annotations
 import json
 import random
 import sys
-from math import comb
+from fractions import Fraction
+from math import comb, exp, inf, lgamma, log, log1p
 
 from ptc.metrics import bootstrap_ci
 
@@ -85,6 +86,38 @@ def bootstrap_interaction(diffs_low: list[float], diffs_high: list[float],
     draws.sort()
     return (draws[int((alpha / 2) * iters)],
             draws[min(iters - 1, int((1 - alpha / 2) * iters))])
+
+
+def _binom_cdf(crit: int, d: int, p: float) -> float:
+    """`sum(comb(d, i) * p**(d-i) * (1-p)**i for i in range(crit+1))`, in log space.
+
+    Computed directly, that sum raises `OverflowError: int too large to convert to
+    float` for any `d` past ~1030: `comb(d, i)` is an exact big integer and
+    multiplying it by a float converts it first, and `comb(10000, 5000)` is ~1e3008
+    against a float ceiling of ~1.8e308. `power_pairs` reached that `d` for `delta`
+    between 0.02 and 0.04 and crashed -- while `delta` of 0.01 returned None, because
+    its lower `hi` bound stopped the search at `d` of 1000 and never got there. The
+    band was invisible because every delta the project had ever asked for sat outside
+    it (0.25 and 0.068 answer at `d` of 30 and 430).
+
+    Term-by-term recurrence does not fix it: `p**d` underflows to exactly 0.0 at that
+    `d`, and a recurrence from 0.0 stays 0.0. Log space with a max-shift is the one
+    form that holds both ends. The shift is what keeps `exp` in range; without it the
+    individual log-terms are around -700 and exponentiate to 0.
+    """
+    if p >= 1.0:
+        # Every discordant pair favours one arm: only the i=0 term is non-zero and it
+        # is 1. Not a degenerate input -- it is the easiest effect to detect, per the
+        # docstring below.
+        return 1.0
+    lp, lq = log(p), log1p(-p)
+    lg = lgamma(d + 1)
+    terms = [lg - lgamma(i + 1) - lgamma(d - i + 1) + (d - i) * lp + i * lq
+             for i in range(crit + 1)]
+    top = max(terms, default=-inf)
+    if top == -inf:
+        return 0.0
+    return exp(top) * sum(exp(t - top) for t in terms)
 
 
 def power_pairs(delta: float, discordance: float, power: float = 0.8,
@@ -158,7 +191,7 @@ def power_pairs(delta: float, discordance: float, power: float = 0.8,
         crit = crit_cache[d]
         if crit < 0:
             continue
-        got = sum(comb(d, i) * p ** (d - i) * (1 - p) ** i for i in range(crit + 1))
+        got = _binom_cdf(crit, d, p)
         if got >= power:
             return n
     return None
@@ -407,7 +440,15 @@ def _attained(delta: float, discordance: float, n: int, alpha: float = 0.05) -> 
             break
     if crit < 0:
         return 0.0
-    return sum(comb(d, i) * p ** (d - i) * (1 - p) ** i for i in range(crit + 1))
+    # Exact rationals, not `_binom_cdf`'s log space. The same int-to-float overflow
+    # lives in this expression, but this function is demo()'s INDEPENDENT check on the
+    # search -- routing it through the helper the search uses would make it agree with
+    # `power_pairs` by construction, which is how a check stops being one. Fraction is
+    # a third method, exact and slow, and demo()'s d stays small enough to afford it.
+    pf = Fraction(p)
+    total = sum(Fraction(comb(d, i)) * pf ** (d - i) * (1 - pf) ** i
+                for i in range(crit + 1))
+    return float(total)
 
 
 if __name__ == "__main__":

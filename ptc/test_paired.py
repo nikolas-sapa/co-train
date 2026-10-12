@@ -20,6 +20,8 @@ from math import comb  # noqa: E402
 import random  # noqa: E402
 
 from ptc.paired import (  # noqa: E402
+    _attained,
+    _binom_cdf,
     bootstrap_interaction,
     mcnemar_exact,
     paired,
@@ -334,3 +336,60 @@ def test_the_interval_reproduces_a_hand_computed_percentile_bootstrap():
 def test_the_interval_needs_at_least_two_samples_on_both_sides():
     assert bootstrap_interaction([1.0], [0.0, 1.0]) is None
     assert bootstrap_interaction([1.0, 0.0], [0.0]) is None
+
+
+def test_power_pairs_answers_the_band_that_used_to_overflow():
+    """`comb(d, i) * p ** (d - i)` raised OverflowError for delta in [0.02, 0.04].
+
+    `comb` returns an exact int and multiplying it by a float converts it first, so
+    once the search reached d past ~1030 the term could not be built. The band was
+    invisible because it is bounded on BOTH sides: delta >= 0.05 answers at a d below
+    the ceiling, and delta < 0.02 takes the lower `hi` bound and stops at d of 1000
+    without reaching it. Every delta this project had asked for -- 0.25, 0.1, 0.068,
+    0.05 -- sits outside the band.
+    """
+    # Tested at the term, not through the search: `power_pairs(0.02, 0.5)` answers at
+    # n=9854, and the walk there costs ~2 minutes of big-integer `comb` -- which is the
+    # "115s to answer, and a redirected stdout at 0 bytes read as a silent failure"
+    # fault this file already records. The overflow lived in the term, so the term is
+    # what gets pinned.
+    assert _binom_cdf(5000, 10000, 0.5) == pytest.approx(0.5, abs=0.01)
+    assert 0.0 <= _binom_cdf(4900, 10000, 0.52) <= 1.0
+    assert _binom_cdf(0, 20000, 0.9) == 0.0          # underflows, does not raise
+
+    # The exact shape that used to be computed, at the d the search reaches in this
+    # band. This is the fault itself, and it costs nothing to pin -- whereas driving
+    # `power_pairs(0.04, 0.5)` to its answer of 2463 costs ~35s of big-integer `comb`.
+    # The search is covered by the published-values test below, which runs it four
+    # times at the deltas this project actually quotes.
+    from math import comb
+    with pytest.raises(OverflowError):
+        comb(10000, 5000) * 0.5 ** 5000
+
+
+def test_power_pairs_published_values_are_unchanged_by_the_overflow_fix():
+    """The four figures this project has published, pinned against the log-space
+    rewrite. `_binom_cdf` replaced an exact big-integer sum with floats; if that
+    changed any of these, the fix moved a number in `docs/`."""
+    assert power_pairs(0.25, 0.5) == 59       # A6/N1's +25 pp
+    assert power_pairs(0.1, 0.5) == 398
+    assert power_pairs(0.068, 0.5) == 859     # pre-registration §3, APEX end
+    assert power_pairs(0.05, 0.5) == 1571
+
+
+def test_attained_does_not_route_through_the_search_s_own_helper():
+    """demo() checks `power_pairs` against `_attained`, so `_attained` must not be
+    computed by the function under test. Pinned because the obvious repair for the
+    same overflow in `_attained` is to call `_binom_cdf`, which would make the check
+    agree by construction."""
+    import ast
+    import inspect
+    tree = ast.parse(inspect.getsource(_attained).strip())
+    called = {n.func.id for n in ast.walk(tree)
+              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    # Substring matching would pass on a source that only MENTIONS the helper in a
+    # comment, and fail on one that mentions it while calling it -- the first version
+    # of this test did exactly that and failed on `_attained`'s own comment. Call
+    # nodes, not text.
+    assert "_binom_cdf" not in called, called
+    assert "Fraction" in called, called
