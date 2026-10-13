@@ -325,7 +325,7 @@ PROBE_STEPS_MIN, PROBE_STEPS_MAX = 5, 20
 """"5-20 steps, aborting" (§279). Fewer than 5 is not a probe; more is a study."""
 
 
-def probe_config(steps: int = PROBE_STEPS_MAX) -> dict[str, Any]:
+def probe_config(steps: int = PROBE_STEPS_MAX, g: int = NUM_GENERATIONS) -> dict[str, Any]:
     """`GRPOConfig` kwargs for the probe. Pure data, so it is checkable offline.
 
     `vllm_mode` is written out rather than inherited **because its default flips
@@ -343,7 +343,7 @@ def probe_config(steps: int = PROBE_STEPS_MAX) -> dict[str, Any]:
     cap = completion_cap(("ptc",))
     return {
         "max_steps": steps,
-        "num_generations": NUM_GENERATIONS,
+        "num_generations": g,
         "max_completion_length": cap.value,
         "mask_truncated_completions": True,
         "beta": BETA,
@@ -421,6 +421,14 @@ def build_parser():
                         "$0.0071 fault again.")
     p.add_argument("--out", type=pathlib.Path, default=pathlib.Path("probe_metrics.jsonl"))
     p.add_argument("--steps", type=int, default=PROBE_STEPS_MAX)
+    p.add_argument("--generations", type=int, default=NUM_GENERATIONS,
+                   help="GRPO group size G. Default is the spec's 4. **Raising it is "
+                        "how a measured solve rate below the viable band is answered**: "
+                        "the band widens with G, so the first real run (p about 0.063 "
+                        "to 0.069 measured) sits OUTSIDE (0.120, 0.880) at G=4 and "
+                        "inside (0.062, 0.938) at G=8. Recorded in the header -- a "
+                        "zero-advantage fraction quoted without its G is meaningless, "
+                        "since G is half of what the metric is a function of.")
     p.add_argument("--reward", choices=("exact", "ex"), default="exact",
                    help="`exact`: binary string match on a tagged <answer> block, for "
                         "a self-contained task. `ex`: execution accuracy -- the model "
@@ -460,8 +468,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise SystemExit("--reward ex needs --db-root: without the databases the "
                          "reward cannot execute anything, and a reward that cannot "
                          "score is indistinguishable from a policy that cannot answer")
-    config = probe_config(args.steps)
-    expectations = probe_expectations()
+    config = probe_config(args.steps, args.generations)
+    expectations = probe_expectations(args.generations)
     prompts = load_prompts(args.prompts)
 
     if args.dry_run:

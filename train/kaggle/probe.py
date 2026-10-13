@@ -95,9 +95,40 @@ assert cap[0] < 8, (
 
 # 4. The probe. 5 steps is the minimum `verdict.py` will adjudicate, and it yields
 #    the per-step wall-clock so 20 can be decided from data instead of guessed.
+# `--reward ex`, not the default. Version 3 ran the scalar-answer prompts and aborted
+# at step 0 with frac_reward_zero_std 1.000 -- which is what p=0 predicts, because
+# those prompts carried the schema and asked for a data value with no rows present.
+# Unanswerable at any skill level, so the probe measured the prompt design.
+#
+# The databases are mounted read-only from a private Kaggle dataset: 77 MB holding the
+# seven smallest BIRD dev databases, 922 of 1534 questions over 207 shapes. Kaggle
+# extracts the uploaded archive, so they sit at <root>/<db_id>/<db_id>.sqlite rather
+# than under dev_databases/; `db_path_for` accepts both and is tested on both.
+DB_ROOT = "/kaggle/input/bird-dev-subset-cotrain"
+assert pathlib.Path(DB_ROOT).is_dir(), (
+    f"{DB_ROOT} is not mounted. Add the dataset to the kernel: a reward that cannot "
+    "execute anything is indistinguishable from a policy that cannot answer, which is "
+    "the confound version 3 died of."
+)
+
 run([sys.executable, "-m", "train.dead_group_probe",
-     "--prompts", "bench/probe_prompts.jsonl",
-     "--taskset-id", "bird-dev-scalar-subset-seed0",
+     "--prompts", "bench/probe_prompts_sql.jsonl",
+     "--taskset-id", "bird-dev-sql-shippable-seed0",
+     "--reward", "ex",
+     "--db-root", DB_ROOT,
+     # G=8, not the spec's 4, and this is the probe answering its own question.
+     # Version 4 measured the realised solve rate at p≈0.063-0.069 (step 0 mean
+     # reward 0.125, step 1 0.0). The viable band is (0.120, 0.880) at G=4, so that
+     # rate sits OUTSIDE it and the abort was correct rather than informative about
+     # the reward. The band widens with G: at G=8 it is (0.062, 0.938) and every
+     # candidate p falls inside -- 0.597 dead at p=0.0625, 0.564 at p=0.069, against
+     # a 0.60 ceiling.
+     #
+     # The margin at p=0.0625 is 0.003. That is thin, so an unlucky batch can still
+     # abort; G=16 (0.356 dead) is the fallback and costs roughly twice the rollouts
+     # again. G is a training hyperparameter, so changing it needs no amendment --
+     # restricting the taskset to easier tiers would be an instrument change and does.
+     "--generations", "8",
      "--steps", "5",
      "--out", OUT], cwd=REPO)
 
