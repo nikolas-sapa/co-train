@@ -30,24 +30,40 @@ more. Do not report it as anything more.
 
 ---
 
-## 2. What the human has to do first (one time, two minutes)
+## 2. Credentials — done, and what was wrong about this section before
 
-An agent cannot do this part — it needs a browser login.
+**⚠ CORRECTED 2026-10-13.** This section originally described a `kaggle.json` holding a
+`{"username", "key"}` pair, because that is the credential the Kaggle CLI used for years.
+It is not what the current client wants. Kaggle now issues a **single prefixed token**
+(`KGAT_...`), with no username, read from `~/.kaggle/access_token` or the
+`KAGGLE_API_TOKEN` environment variable. The old instructions would have sent an agent
+looking for fields that no longer exist.
 
-1. Go to <https://www.kaggle.com/settings>
-2. Under **API**, click **Create New Token**. A file `kaggle.json` downloads.
-3. Run these two commands, replacing the path if the download went elsewhere:
+**Already configured on this machine.** The token lives at `~/.secrets/kaggle_token`
+(mode 600, recorded in `~/.secrets/README.md`), and `~/.kaggle/access_token` is a symlink
+to it, so there is one copy of the secret and the client still finds it where it expects.
+Verified working:
 
-```bash
-mkdir -p ~/.kaggle && mv ~/Downloads/kaggle.json ~/.kaggle/kaggle.json
-chmod 600 ~/.kaggle/kaggle.json
+```
+$ kaggle config view
+- username: nikolassapalidis
+- auth_method: ACCESS_TOKEN
 ```
 
-4. Kaggle requires a **phone-verified** account for GPU and internet access in notebooks.
-   If the account is not verified, do it at <https://www.kaggle.com/settings> — the probe
-   cannot run without internet (it pip-installs and downloads the tokenizer).
+**If that ever stops working**, the token was expired or rotated. Creating a new one at
+kaggle.com/settings → API → Create New Token invalidates the old, and the only human step
+is putting the new value in `~/.secrets/kaggle_token` without it passing through a chat
+transcript:
 
-That is the human's entire involvement until the result comes back.
+```bash
+umask 077; printf '%s\n' 'KGAT_...' > ~/.secrets/kaggle_token
+```
+
+A token pasted into a conversation is compromised — transcripts are retained and session
+tooling copies command text to disk in plaintext. Rotate anything that has been pasted.
+
+Kaggle also requires a **phone-verified** account for GPU and internet inside notebooks.
+This account is verified; a fresh one would not be.
 
 ---
 
@@ -55,19 +71,20 @@ That is the human's entire involvement until the result comes back.
 
 ### 3.1 Local setup
 
+The CLI is installed via pipx (`kaggle 2.2.4`). If it is missing:
+
 ```bash
-pip install --upgrade kaggle
-kaggle config view          # must print a username; if not, step 2 is incomplete
+pipx install kaggle
+kaggle config view          # must print a username and auth_method: ACCESS_TOKEN
 ```
 
-### 3.2 Confirm the prompts exist in the repo
+### 3.2 Confirm the prompts are on main
 
 The repo is **public**, so the notebook clones it directly — no token, no dataset upload.
 
 ```bash
-cd ~/Developer/misc/co-train
-git pull
-wc -l bench/probe_prompts.jsonl
+cd ~/Developer/misc/co-train && git pull
+wc -l bench/probe_prompts.jsonl        # 573
 cat bench/probe_prompts.header.json
 ```
 
@@ -80,85 +97,81 @@ near-uniform failure and abort the probe over the comparison instead of the rewa
 **Carry that caveat into whatever you report:** a solve rate from this subset is not
 BIRD's solve rate.
 
-### 3.3 Create the notebook
+### 3.3 The notebook
 
-Make a working directory and two files.
+**Already written and pushed** — both files are committed at `train/kaggle/`, and kernel version 1
+went up 2026-10-13 as `nikolassapalidis/cotrain-dead-group-probe`. Reproduce it with
+`kaggle kernels init -p .` and the two files below; the metadata template changed in CLI
+2.x and now carries `enable_tpu`, `machine_shape` and `model_sources`, which the first
+version of this runbook omitted.
 
-`kernel-metadata.json` — replace `YOUR_USERNAME` with the `kaggle config view` username:
+`kernel-metadata.json`:
 
 ```json
 {
-  "id": "YOUR_USERNAME/cotrain-dead-group-probe",
+  "id": "nikolassapalidis/cotrain-dead-group-probe",
   "title": "cotrain dead group probe",
   "code_file": "probe.py",
   "language": "python",
   "kernel_type": "script",
-  "is_private": true,
-  "enable_gpu": true,
-  "enable_internet": true,
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "machine_shape": "",
   "dataset_sources": [],
   "competition_sources": [],
-  "kernel_sources": []
+  "kernel_sources": [],
+  "model_sources": []
 }
 ```
 
-`probe.py`:
+`machine_shape` is left empty: the API does not expose the T4 x2 selection the Step 2
+runbook used, so Kaggle assigns the card. **Any pre-Ampere card is fine for this probe** —
+it needs 12.59 GB on one GPU, and P100 (sm_60) and T4 (sm_75) both clear the `sm_ < 8`
+assert and both have 16 GB. The script prints the device it actually got, and that goes in
+the report, because "which card" is a measurement here and not a detail.
 
-```python
-import subprocess, sys, pathlib
+`probe.py` — the pinned stack is the part to leave alone:
 
-def sh(cmd):
-    print("+", cmd, flush=True)
-    subprocess.run(cmd, shell=True, check=True)
+- **`unsloth==2026.10.3` exactly, not `>=`.** Below it unsloth pins `trl<=0.24.0`, where
+  `rollout_func`, `self.tools`, `tool_mask` and `get_training_chat_template` are all at
+  **zero** occurrences. But 2026.10.4 also exists and its pin has never been checked, so
+  floating upward is an unverified stack rather than a safer one.
+- **`trl==1.13.0`**, which is where those four seams are at 13/17/27/2.
+- **`transformers<5`**: at 5.x the chat-template flags invert and the error names neither
+  package.
+- `subprocess.run` takes a **list** and no shell. Every argument is a literal, and a list
+  means a path containing a space cannot silently become two arguments.
 
-# 1. The stack. unsloth 2026.10.3 is a FLOOR, not a preference: below it unsloth pins
-#    trl<=0.24.0, where rollout_func / self.tools / tool_mask /
-#    get_training_chat_template are all at ZERO occurrences. Below this version the run
-#    is not degraded, it is a different run.
-sh('pip install -q "unsloth>=2026.10.3" "trl==1.13.0" "transformers<5"')
-
-# 2. The code. Public repo, no token.
-sh("git clone --depth 1 https://github.com/nikolas-sapa/co-train /kaggle/working/co-train")
-
-# 3. Fail in seconds rather than after a model download.
-import torch
-assert torch.cuda.is_available(), "no GPU: set Accelerator to GPU T4 x2"
-cap = torch.cuda.get_device_capability()
-print("device:", torch.cuda.get_device_name(0), "sm_%d%d" % cap, flush=True)
-assert cap[0] < 8, (
-    f"expected a pre-Ampere GPU for the fp16 question, got sm_{cap[0]}{cap[1]}. "
-    "fp16 is a DECISION here, not a workaround: arXiv:2510.26788 measures bf16's "
-    "training-inference mismatch at ~24x fp16's. On newer hardware this is a new "
-    "stability question, not a settled one. Do not patch past this assert."
-)
-
-sys.path.insert(0, "/kaggle/working/co-train")
-sh("cd /kaggle/working/co-train && python -m train.dead_group_probe "
-   "--prompts bench/probe_prompts.jsonl "
-   "--taskset-id bird-dev-scalar-subset-seed0 "
-   "--steps 5 "
-   "--out /kaggle/working/probe_metrics.jsonl")
-
-# 4. Re-adjudicate in-session, so a failed run is visible in the log and not only in a
-#    file someone has to remember to fetch.
-sh("cd /kaggle/working/co-train && python train/verdict.py /kaggle/working/probe_metrics.jsonl || true")
-print("METRICS BYTES:", pathlib.Path("/kaggle/working/probe_metrics.jsonl").stat().st_size, flush=True)
-```
+The file as pushed is `train/kaggle/probe.py`.
 
 ### 3.4 Push and poll
 
 ```bash
-kaggle kernels push -p .
-kaggle kernels status YOUR_USERNAME/cotrain-dead-group-probe
+cd ~/Developer/misc/co-train/train/kaggle && kaggle kernels push -p .
+kaggle kernels status nikolassapalidis/cotrain-dead-group-probe
 ```
 
-Poll every 60 seconds. Install is 15-20 minutes. **Per-step wall-clock is unknown and
-measuring it is part of the point** — the only generation figure anyone has is 3.2 tok/s
-whole-loop at `use_vllm=False`, where one step exceeds an hour and free hardware is out.
-With vLLM it should be minutes. `--steps 5` is the minimum the verdict script will
-adjudicate, and it yields the step time so 20 is decided from data.
+Status strings come back as `KernelWorkerStatus.QUEUED`, `.RUNNING`, `.COMPLETE` or
+`.ERROR`. Poll on a terminal state rather than sleeping a guessed interval:
 
-If status is `error`, fetch the log and read it — do not re-push blind.
+```bash
+until kaggle kernels status nikolassapalidis/cotrain-dead-group-probe \
+      | grep -qvE 'RUNNING|QUEUED'; do sleep 60; done
+```
+
+Install is 15-20 minutes. **Per-step wall-clock is unknown and measuring it is part of the
+point** — the only generation figure anyone has is 3.2 tok/s whole-loop at
+`use_vllm=False`, where a single step exceeds an hour and free hardware is out. With vLLM
+it should be minutes. `--steps 5` is the minimum `verdict.py` adjudicates, and it yields
+the step time so 20 is decided from data.
+
+On `ERROR`, read the log before re-pushing:
+
+```bash
+kaggle kernels logs nikolassapalidis/cotrain-dead-group-probe -p ~/scratch/probe-out
+```
 
 ### 3.5 Fetch the output IMMEDIATELY on completion
 
