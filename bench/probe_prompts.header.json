@@ -1,0 +1,20 @@
+{
+  "corpus": "BIRD-SQL dev",
+  "subset": "scalar-answer only: gold returns exactly 1 row x 1 column",
+  "why_subset": "the probe's reward is exact string match on a tagged answer, so a gold SQL reference would read as near-uniform failure and abort the probe over the comparison rather than the reward. On a 1x1 result exact match IS execution accuracy.",
+  "not_bird_solve_rate": "a solve rate measured on this subset is NOT BIRD's solve rate, and a frontier manifest written from it must say so",
+  "drawn": 945,
+  "kept": 573,
+  "rejected": {
+    "not_scalar_or_broken": 372
+  },
+  "seed": 0,
+  "max_answer_chars": 60,
+  "max_rows_bound": 500000,
+  "tiers": {
+    "challenging": 81,
+    "moderate": 231,
+    "simple": 261
+  },
+  "distinct_shapes": 182
+}
