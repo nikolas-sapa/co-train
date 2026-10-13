@@ -14,6 +14,7 @@ gains one the other lacks, turns this red without anyone remembering to update a
 
 from __future__ import annotations
 
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -22,16 +23,22 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ptc.sql_arms import (  # noqa: E402
+    BASH_CHANNEL,
     CAPABILITIES,
     DECLARED_ASYMMETRIES,
     PTC_V1,
+    ASYMMETRY_REASONS,
+    PTC_CHANNEL,
+    SECOND_HARNESS_REQUIREMENTS,
     SQL_TOOL,
+    UNREACHABLE_IN_SANDBOX,
     ArmPair,
     Budget,
     TaskView,
     build_probe_db,
     build_sql_arms,
     install_wrapper,
+    prompt_for,
     run_bash_sql,
     run_ptc_program,
 )
@@ -48,12 +55,19 @@ def rig(tmp_path_factory):
     return str(db), bindir
 
 
-def _observe(cap, rig):
-    """Both arms' observations for one capability, each through its own channel."""
+def _observe(cap, rig, backend=PTC_V1):
+    """Both arms' observations for one capability, each through its own channel.
+
+    Routed through `backend.run_bash`/`backend.run_ptc` rather than the module-level
+    functions. `SECOND_HARNESS_REQUIREMENTS` entry 6 promises that a second
+    implementation inherits this whole guard, and while this helper called the
+    module-level functions directly that promise was a manual obligation: every probe
+    exercised `PTC_V1` no matter which backend was passed.
+    """
     db, bindir = rig
-    bash = run_bash_sql(db, "", bindir=bindir, max_rows=cap.max_rows,
-                        command=cap.bash)
-    ptc = run_ptc_program(cap.ptc, db, max_rows=cap.max_rows)
+    view = _view(db)
+    bash = backend.run_bash(cap.bash, view, cap.max_rows, bindir)
+    ptc = backend.run_ptc(cap.ptc, view, cap.max_rows)
     return (bash.stdout + bash.stderr).strip(), ptc.observation.strip()
 
 
@@ -115,6 +129,7 @@ def _view(db: str) -> TaskView:
     class _T:
         db_path = db
         question = "How many employees are there?"
+        evidence = ""
         gold_sql = "SELECT COUNT(*) FROM emp"
         name = "probe-1"
         tier = "simple"
@@ -128,7 +143,12 @@ def test_both_arms_get_one_budget_struct(rig):
     db, _ = rig
     pair = build_sql_arms(_view(db))
     assert isinstance(pair.budget, Budget)
-    assert pair.budget is pair.budget      # one struct, not one per arm
+    # `pair.budget is pair.budget` was here and cannot fail -- an identity check
+    # against itself. What matters is that there is ONE budget on the pair rather than
+    # a per-arm field, so assert the shape that would have to change to break it.
+    assert not any(f.name.startswith(("bash_budget", "ptc_budget"))
+                   for f in dataclasses.fields(pair)), dataclasses.fields(pair)
+    assert pair.budget.max_turns > 0 and pair.budget.max_retries >= 0
     # there is no path that builds a single arm
     assert isinstance(pair, ArmPair) and pair.bash_prompt and pair.ptc_prompt
 
@@ -208,3 +228,134 @@ def test_the_second_harness_requirements_name_the_defect_they_exist_for():
     joined = " ".join(reqs)
     assert "EXACTLY ONE tool" in joined          # spec §156 invariant 1
     assert "defect 5" in joined                  # the fault the seam must not re-ship
+
+
+# ------------------------------------------------------------------------------
+# The four clauses that `ptc/sql_arms.py`'s docstrings claimed were tested and were
+# not. Found 2026-10-13 by the lane writing `docs/harness-parity.md` against the
+# code. A docstring asserting a guard is the thing this file exists to prevent, and
+# one of the three even said so -- "prose asserting otherwise is what let it ship."
+# ------------------------------------------------------------------------------
+
+
+def test_the_two_prompts_differ_only_by_the_channel_paragraph(rig):
+    """Contract clause 1, and the defect-5 confound.
+
+    `SHARED_PROMPT`'s docstring claimed this test rendered both prompts, removed the
+    two channel strings and failed unless the remainders were byte-identical. It did
+    not exist: `test_both_prompts_carry_the_same_schema` only checked that schema and
+    question appear as substrings, so body text present in one arm's prompt and absent
+    from the other passed green. An arm told more about its own channel, its own cap or
+    the task is exactly the confound run 1 turned out to be.
+    """
+    db, _ = rig
+    view = _view(db)
+    bash = prompt_for(view, "bash", max_rows=200)
+    ptc = prompt_for(view, "ptc", max_rows=200)
+
+    assert BASH_CHANNEL.format(tool=SQL_TOOL, max_rows=200) in bash or "sqlite3" in bash
+    stripped_bash = bash.replace(
+        BASH_CHANNEL.format(tool=SQL_TOOL, max_rows=200), "")
+    stripped_ptc = ptc.replace(
+        PTC_CHANNEL.format(tool=SQL_TOOL, max_rows=200), "")
+
+    assert stripped_bash == stripped_ptc, (
+        "the prompts differ outside the channel paragraph\n"
+        f"  bash-only: {set(stripped_bash.split()) - set(stripped_ptc.split())}\n"
+        f"  ptc-only:  {set(stripped_ptc.split()) - set(stripped_bash.split())}"
+    )
+
+
+@pytest.mark.parametrize("asym", [a for a in DECLARED_ASYMMETRIES if a.probe],
+                         ids=lambda a: a.name)
+def test_every_declared_asymmetry_still_exists(asym, rig):
+    """`Asymmetry.probe`/`expect` were inert data -- never run by anything.
+
+    Its own docstring says why that matters: "a declared asymmetry whose limit quietly
+    went away leaves docs/harness-parity.md describing a sandbox that no longer exists,
+    and a declared asymmetry nobody probed is indistinguishable from a guess."
+    """
+    db, _ = rig
+    result = run_ptc_program(asym.probe, db, max_rows=200)
+
+    if asym.expect == "rejected":
+        assert result.rejected, (
+            f"{asym.name} is declared unreachable in the sandbox, but the probe ran. "
+            "Either the sandbox widened and this is no longer an asymmetry, or the "
+            "probe stopped probing it."
+        )
+    elif asym.expect == "partial_loss":
+        assert "seen-before-the-failure" not in result.observation or result.rejected, (
+            f"{asym.name}: output printed before the failure survived, so the declared "
+            "partial-output loss is not happening"
+        )
+    else:
+        pytest.fail(f"unhandled expect {asym.expect!r} on {asym.name}")
+
+
+def test_declared_asymmetries_cover_every_sandbox_limit():
+    """`DECLARED_ASYMMETRIES`'s docstring claimed this was asserted. It was not --
+    `UNREACHABLE_IN_SANDBOX` was not even imported here.
+
+    A sandbox limit declared in `sql_runtime` with no asymmetry entry is a gap nobody
+    measured, which is how five of run 1's nine harness faults stayed invisible.
+    """
+    declared = {a.name for a in DECLARED_ASYMMETRIES}
+    missing = set(UNREACHABLE_IN_SANDBOX) - declared
+    assert not missing, (
+        f"sandbox limits with no declared asymmetry: {sorted(missing)}. Add an entry "
+        "with a probe, or remove the limit."
+    )
+
+
+def test_every_declared_asymmetry_has_a_retrievable_reason():
+    """`Asymmetry.reason` was never accessed, so a name absent from both reason dicts
+    failed at render time rather than test time -- i.e. when someone was reading the
+    document, not when they broke it."""
+    for a in DECLARED_ASYMMETRIES:
+        reason = UNREACHABLE_IN_SANDBOX.get(a.name) or ASYMMETRY_REASONS.get(a.name)
+        assert reason and reason.strip(), (
+            f"{a.name} has no reason in UNREACHABLE_IN_SANDBOX or ASYMMETRY_REASONS"
+        )
+
+
+def test_the_capability_guard_runs_against_a_second_backend(rig):
+    """`SECOND_HARNESS_REQUIREMENTS` entry 6 promises a second implementation inherits
+    this guard. Until `_observe` took a backend, every probe exercised `PTC_V1`
+    whichever backend was passed, so that promise was a manual obligation.
+
+    Also exercises the stub's `model_tools(arm)` for real rather than asserting
+    `callable()`, which proves object acceptance and not conformance.
+    """
+    calls: list[str] = []
+
+    class _Recording:
+        name = "recording-v0"
+
+        def arm_ids(self):
+            return PTC_V1.arm_ids()
+
+        def model_tools(self, arm):
+            calls.append(f"model_tools:{arm}")
+            return PTC_V1.model_tools(arm)
+
+        def catalog(self, *a, **k):
+            return PTC_V1.catalog(*a, **k)
+
+        def run_bash(self, command, view, max_rows, bindir):
+            calls.append("run_bash")
+            return PTC_V1.run_bash(command, view, max_rows, bindir)
+
+        def run_ptc(self, program, view, max_rows):
+            calls.append("run_ptc")
+            return PTC_V1.run_ptc(program, view, max_rows)
+
+    backend = _Recording()
+    cap = next(c for c in CAPABILITIES if c.name == "run_query")
+    bash_obs, ptc_obs = _observe(cap, rig, backend=backend)
+
+    assert "run_bash" in calls and "run_ptc" in calls, calls
+    assert _reaches(bash_obs, cap) and _reaches(ptc_obs, cap)
+    assert len(backend.model_tools("ptc")) == 1
+    assert "model_tools:ptc" in calls
+    assert len(SECOND_HARNESS_REQUIREMENTS) >= 5

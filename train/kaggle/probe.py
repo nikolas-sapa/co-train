@@ -19,13 +19,46 @@ def run(args, cwd=None):
     subprocess.run(args, cwd=cwd, check=True)
 
 
-# 1. The stack, pinned to the versions the spec measured. `unsloth==2026.10.3` is
-#    exact rather than `>=`: below it unsloth pins trl<=0.24.0, where rollout_func,
-#    self.tools, tool_mask and get_training_chat_template are all at ZERO
-#    occurrences -- but 2026.10.4 also exists and its pin was never checked, so
-#    floating up would be an unverified stack rather than a safer one.
+# 1. The stack.
+VLLM_WHEEL = (
+    "https://github.com/vllm-project/vllm/releases/download/v0.23.0/"
+    "vllm-0.23.0+cu129-cp38-abi3-manylinux_2_28_x86_64.whl"
+)
+
+# vLLM goes FIRST, from a CUDA-specific wheel, because it carries the hard torch pin
+# and the PyPI default is built for the wrong CUDA.
+#
+# Version 2 installed `vllm==0.23.0` from PyPI and died on:
+#   ImportError: Unsloth: vLLM was built for CUDA 13 but this system has CUDA 12.8.
+# Kaggle's T4 image is CUDA 12.8 and PyPI's vllm 0.23.0 wheel is a CUDA 13 build.
+# The v0.23.0 GitHub release carries six wheels and **only cu129 covers CUDA 12.x** --
+# there is no cu128 build -- so this is the one option, and it is the one unsloth's own
+# error message recommends.
+#
+# `--extra-index-url` for cu129 is not decoration: without it pip resolves
+# `torch==2.11.0` to the cu128 build (verified: version 2 ended at 2.11.0+cu128), and a
+# cu129 vLLM extension against a cu128 torch is the same mismatch one layer down.
+# torch 2.11.0+cu129 exists on that index, checked before pushing.
+run([sys.executable, "-m", "pip", "install", "-q", VLLM_WHEEL,
+     "--extra-index-url", "https://download.pytorch.org/whl/cu129"])
+
+# Then the rest, pinned. `unsloth==2026.10.3` is exact rather than `>=`: below it
+# unsloth pins trl<=0.24.0, where rollout_func, self.tools, tool_mask and
+# get_training_chat_template are all at ZERO occurrences -- but 2026.10.4 also exists
+# and its pin was never checked, so floating up buys an unverified stack.
+#
+# transformers<5 is the experiment, not a preference: at 5.x the chat-template flags
+# invert and the error names neither package (measured, step2/README.md). It is also
+# why vLLM is pinned to 0.23.0 -- trl 1.13.0's vllm extra allows <=0.28.0, but every
+# vLLM from 0.24.0 up requires transformers>=5.5.3, so the usable window is one
+# release wide. Relaxing transformers<5 to reach a newer vLLM changes the experiment
+# rather than fixing the install.
+#
+# unsloth allows torch 2.4-2.15, so none of these should move the torch installed
+# above. The resolved versions are printed below so that assumption is checked rather
+# than trusted.
 run([sys.executable, "-m", "pip", "install", "-q",
-     "unsloth==2026.10.3", "trl==1.13.0", "transformers<5"])
+     "unsloth==2026.10.3", "trl==1.13.0", "transformers>=4.56.2,<5"])
 
 # 2. The code. Public repo, so no token in a cell.
 run(["git", "clone", "--depth", "1",
@@ -40,6 +73,18 @@ name = torch.cuda.get_device_name(0)
 total_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
 print(f"device: {name} sm_{cap[0]}{cap[1]} {total_gb:.2f} GB "
       f"count={torch.cuda.device_count()}", flush=True)
+
+# Version 1 measured this: Tesla T4, sm_75, 15.64 GB, count=2 -- the same hardware
+# Step 2 used. Printed every run because `machine_shape` is empty and Kaggle assigns
+# the card, so which card this was is a measurement and not a detail. sm_75 also
+# clears vLLM's sm_70 floor; a P100 (sm_60) would pass the fp16 assert below and
+# then fail inside vLLM, which is why the card is logged before anything loads.
+for mod in ("torch", "transformers", "trl", "vllm", "unsloth"):
+    try:
+        import importlib.metadata as md
+        print(f"resolved {mod}: {md.version(mod)}", flush=True)
+    except Exception as exc:                      # noqa: BLE001
+        print(f"resolved {mod}: MISSING ({exc})", flush=True)
 
 assert cap[0] < 8, (
     f"expected a pre-Ampere GPU for the fp16 question, got sm_{cap[0]}{cap[1]}. "
