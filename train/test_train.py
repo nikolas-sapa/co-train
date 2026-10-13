@@ -838,3 +838,34 @@ def test_the_execution_reward_refuses_to_score_a_missing_database(tmp_path):
     reward = make_execution_reward(tmp_path)
     with _pytest.raises(FileNotFoundError, match="not mounted"):
         reward(["```sql\nSELECT 1\n```"], ["SELECT 1"], ["toxicology"])
+
+
+def test_the_metric_has_enough_groups_to_reach_its_own_ceiling():
+    """`frac_reward_zero_std` is a fraction OVER GROUPS, so groups-per-step is its
+    resolution -- and nothing checked it until 2026-10-13.
+
+    At TRL's default total batch of 8 sequences, G=4 gives 2 groups and G=8 gives 1.
+    Both were run on free hardware: v4 (G=4) logged exactly 0.5 then 1.0, v5 (G=8)
+    logged exactly 1.0. With one group the statistic is a Bernoulli draw and the 0.60
+    ceiling is unreachable, so the comparison was a coin flip against its own mean --
+    and at p=0.0625 a lone group is uniform about 60% of the time, meaning the probe
+    aborted at the rate a HEALTHY configuration predicts.
+    """
+    from train.dead_group_probe import (ABORT_CEILING, MIN_GROUPS_PER_STEP,
+                                        batch_for, probe_config)
+
+    for g in (4, 8):
+        config = probe_config(5, g)
+        total = (config["per_device_train_batch_size"]
+                 * config["gradient_accumulation_steps"])
+        groups = total // g
+        assert total % g == 0, (g, total)
+        assert groups >= MIN_GROUPS_PER_STEP, (g, groups)
+        # the ceiling must sit strictly inside the attainable levels, not on an edge
+        levels = [i / groups for i in range(groups + 1)]
+        assert min(levels) < ABORT_CEILING < max(levels), (groups, levels)
+
+    with pytest.raises(ValueError, match="attainable levels"):
+        batch_for(8, 1)
+    with pytest.raises(ValueError, match="attainable levels"):
+        batch_for(4, MIN_GROUPS_PER_STEP - 1)
