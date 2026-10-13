@@ -325,6 +325,51 @@ PROBE_STEPS_MIN, PROBE_STEPS_MAX = 5, 20
 """"5-20 steps, aborting" (§279). Fewer than 5 is not a probe; more is a study."""
 
 
+# Groups per step, and why it is a declared quantity rather than whatever TRL defaults
+# to. `frac_reward_zero_std` is a FRACTION OVER GROUPS, so the number of groups in a
+# step is the metric's resolution. At TRL's default total batch of 8 sequences:
+#
+#     G=4 -> 2 groups -> the metric can only be 0, 0.5 or 1
+#     G=8 -> 1 group  -> the metric can only be 0 or 1
+#
+# Both were run. v4 (G=4) logged exactly 0.5 then 1.0; v5 (G=8) logged exactly 1.0.
+# Neither was measuring a fraction -- with one group the statistic is a Bernoulli draw,
+# and comparing it to a 0.60 ceiling compares a single coin flip to its own mean. At
+# p=0.0625 a lone group is uniform about 60% of the time, so the probe aborted at the
+# rate the configuration predicted *for a healthy run*, and the abort carried no
+# information.
+#
+# A guard whose threshold the metric cannot approach is a guard reporting on an
+# unreachable target. MIN_GROUPS_PER_STEP=4 gives five attainable levels (0, .25, .5,
+# .75, 1) so 0.60 sits inside the range, and a 1.0 draw at p=0.0625 needs all four
+# groups uniform -- probability 0.597**4, about 0.13, instead of 0.60.
+MIN_GROUPS_PER_STEP = 4
+GROUPS_PER_STEP = 4
+
+
+def batch_for(g: int, groups: int = GROUPS_PER_STEP) -> tuple[int, int]:
+    """(per_device_train_batch_size, gradient_accumulation_steps) for `groups` groups.
+
+    Returned as a pair and derived from G rather than written as two constants,
+    because the invariant is their PRODUCT divided by G and two independent numbers
+    cannot carry an invariant between them.
+    """
+    if groups < MIN_GROUPS_PER_STEP:
+        raise ValueError(
+            f"{groups} groups per step gives the metric {groups + 1} attainable "
+            f"levels; the {ABORT_CEILING} ceiling needs at least "
+            f"{MIN_GROUPS_PER_STEP}, or the comparison is a coin flip against its "
+            "own mean"
+        )
+    total = g * groups
+    # One optimiser step per logged step, so accumulation carries the whole batch
+    # when it will not fit on the card at once. 8 sequences per forward is what the
+    # T4 ran at a 3,072-token completion cap.
+    per_device = min(8, total)
+    accum = total // per_device
+    return per_device, accum
+
+
 def probe_config(steps: int = PROBE_STEPS_MAX, g: int = NUM_GENERATIONS) -> dict[str, Any]:
     """`GRPOConfig` kwargs for the probe. Pure data, so it is checkable offline.
 
@@ -341,9 +386,12 @@ def probe_config(steps: int = PROBE_STEPS_MAX, g: int = NUM_GENERATIONS) -> dict
             "fewer is not a probe and more is a study the spec does not authorise"
         )
     cap = completion_cap(("ptc",))
+    per_device, accum = batch_for(g)
     return {
         "max_steps": steps,
         "num_generations": g,
+        "per_device_train_batch_size": per_device,
+        "gradient_accumulation_steps": accum,
         "max_completion_length": cap.value,
         "mask_truncated_completions": True,
         "beta": BETA,
