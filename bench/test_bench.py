@@ -552,3 +552,59 @@ def test_the_row_ceiling_clears_the_two_large_bird_golds():
     tasks, which is the instrument penalising valid work."""
     from bench.score import MAX_ROWS
     assert MAX_ROWS > 278_230
+
+
+def test_a_nonterminating_gold_times_out_instead_of_hanging(tmp_path, monkeypatch):
+    """The gold filter needs a deadline that actually fires.
+
+    The first version of `scalar_answer`'s progress handler closed over a flag nothing
+    ever set, so it returned 0 forever and the two BIRD dev golds that never terminate
+    hung the entire draw with no output -- a timeout that cannot fire, which is the
+    defect class this repo exists to catch, committed while writing the tool.
+    """
+    import sqlite3
+    import time
+
+    from bench import make_probe_prompts as mpp
+
+    db = tmp_path / "t.sqlite"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE t (x INTEGER)")
+    con.execute("INSERT INTO t VALUES (1)")
+    con.commit()
+    con.close()
+
+    class _Task:
+        db_path = str(db)
+        # an unbounded recursive CTE: correct SQL, never terminates
+        gold_sql = ("WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) "
+                    "SELECT count(*) FROM c")
+
+    monkeypatch.setattr(mpp, "GOLD_TIMEOUT_S", 0.5)
+    start = time.monotonic()
+    assert mpp.scalar_answer(_Task()) is None
+    elapsed = time.monotonic() - start
+    assert elapsed < 10.0, f"took {elapsed:.1f}s: the deadline did not fire"
+
+
+def test_a_scalar_gold_is_kept_and_a_wide_one_is_not(tmp_path):
+    """The filter's whole job: 1 row x 1 column in, everything else out."""
+    import sqlite3
+
+    from bench import make_probe_prompts as mpp
+
+    db = tmp_path / "t.sqlite"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE t (a INTEGER, b TEXT)")
+    con.executemany("INSERT INTO t VALUES (?, ?)", [(1, "x"), (2, "y")])
+    con.commit()
+    con.close()
+
+    def task(sql):
+        return type("T", (), {"db_path": str(db), "gold_sql": sql})()
+
+    assert mpp.scalar_answer(task("SELECT count(*) FROM t")) == "2"
+    assert mpp.scalar_answer(task("SELECT a, b FROM t LIMIT 1")) is None   # two columns
+    assert mpp.scalar_answer(task("SELECT a FROM t")) is None              # two rows
+    assert mpp.scalar_answer(task("SELECT nope FROM t")) is None           # broken gold
+    assert mpp.scalar_answer(task("SELECT NULL")) is None                  # no answer
