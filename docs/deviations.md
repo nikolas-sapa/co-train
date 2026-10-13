@@ -92,27 +92,70 @@ trustworthy.
 
 ## The defect ledger (added 2026-10-08, because the count kept being asserted)
 
-**Thirteen distinct faults: nine in the harness, four in the adjudication tools.** Written
-down because three totals were in circulation and none had been derived. The vault index
-says "six", which was correct as of run 2h and stopped being correct at run 3b. An OSF
-abstract drafted on 2026-10-07 asserted nine with a "six harness, three tools" split, which
-sums to nine and describes the wrong nine. A number in a published abstract has to be
-derived, not remembered.
+**Twenty-two distinct faults: nine in the harness, six in the adjudication tools, seven in
+the instruments built after run 3d.** Written down because three totals were in
+circulation and none had been derived. The vault index says "six", which was correct as of
+run 2h and stopped being correct at run 3b. An OSF abstract drafted on 2026-10-07 asserted
+nine with a "six harness, three tools" split, which sums to nine and describes the wrong
+nine. A number in a published abstract has to be derived, not remembered.
 
 **The total moved 12 → 13 on 2026-10-10**, on the one-armed tool-success rate below. Any
 text asserting twelve — including the OSF abstract — is now stale.
+
+**It moved 13 → 22 on 2026-10-12/13, and not one of the nine was exposed by a run.** They
+were exposed by building the next instrument: the BIRD-SQL taskset, the paired SQL arms, the
+frontier gate and the probe's prompt draw. Two of the nine are in `ptc/paired.py` and join
+the adjudication tools; the other seven are in `bench/`, `train/` and the new `ptc/sql_arms.py`,
+which is neither of the two locations this ledger was built with, so they get a third group
+rather than a home that flatters the split. **No run id is invented for them.** The honest
+entry in a "run that exposed it" column is that there was no run: the instrument had not
+run anything yet, and eight of the nine were found by writing the tests the instrument
+needed in order to be trusted. The ninth was found differently and worse: the brief
+commissioning this section asserted a count of eight, and the commit it cited for one of
+them recorded a third fix nobody had filed. An asserted total hid a defect from the ledger
+whose subject is asserted totals.
+
+**Seven of the nine are this project's own, introduced while building that instrument
+rather than inherited** (every row in the third table, including a timeout that could not
+fire inside the tool written to avoid one, and a guard that could not fail inside the gate
+written to make the band mean something). The two `ptc/paired.py` rows are inherited: that
+expression dates to 2026-10-03, and every delta asked for between then and now sat outside
+the band. The near-miss inside the second row's *fix* is this session's own too — the AST
+test written to keep `_attained` independent matched the helper's name as a substring and
+failed on `_attained`'s comment about it, which is the same fault class as the row it was
+guarding.
+
+**Three summary documents still state the submitted thirteen**, and they are the owner's to
+amend, not this file's: `HANDOFF.md`, `docs/outreach.md` (the OSF title, note and abstract)
+and `docs/results-untrained.md`.
+
+The `submitted` column exists so that both numbers stay derivable from one table: the
+thirteen those documents describe, frozen on 2026-10-11, and the twenty-two the ledger holds
+now. `tests/test_defect_ledger.py` reads each of their sentences against the submitted
+subset, so none of them can drift to a third number while waiting for the amendment, and
+whichever of them is still on the submitted value has to be named in the list above — the
+paragraph is parsed, not read. **A fifth document was unpoliced entirely until 2026-10-13:**
+`docs/harness-parity.md` said "every one of the thirteen was invisible to a green test suite"
+in a sentence no pattern parsed, so the 12 → 13 move had already passed it by and it was
+still three days stale when the count moved again. It is tracked as of `04575d4`, corrected
+to the live total, and read by the guard now. A guard over ten sites and a guard over eleven
+look identical from the ten, which is the whole reason the sites are enumerated in code
+rather than remembered.
 
 **The `state` column was added 2026-10-11, and it is not a boolean.** The abstract said
 "twelve of them fixed", which was the only count in any of these documents that nothing could
 derive: the tables recorded what each fault was and what caught it, never whether it had been
 repaired. Forcing it to a boolean would have lied in two places, so there are three states and
-the honest total is **eleven fixed, one not fixable, one withdrawn**:
+the honest total is **20 fixed, 1 not fixable, 1 withdrawn**:
 
-- **fixed** (11) — a code change exists and a test covers it. Verified per row against the
+- **fixed** (20) — a code change exists and a test covers it. Verified per row against the
   implementation, not from memory: the turn budget reaching `PTCHarness`, `n_budget_exhausted`
   in the metrics, `render_catalog` in the system prompt, `"stream": True`, the
-  empty-`choices` guard, `stream_options.include_usage`, the typed MCP catalog, and
-  `"HarnessError"` in the retry include-list.
+  empty-`choices` guard, `stream_options.include_usage`, the typed MCP catalog,
+  `"HarnessError"` in the retry include-list, `_binom_cdf`'s log space with a max-shift,
+  `Fraction` in `_attained`, `compare: str = "set"`, `MAX_ROWS = 500_000`, a defined
+  `SECOND_HARNESS_REQUIREMENTS`, `MIN_FRONTIER_TASKS`, a progress handler that reads a
+  deadline rather than a flag nothing sets, and `root = pathlib.Path(root)` at the gate.
 - **not fixable** (1) — the per-account rate limit. Its own section below is titled *"the
   seventh defect, and it is structural rather than fixable"*: bash issues 475 tool calls
   across 494 turns against PTC's 138, so it meets a request-rate limit roughly three times as
@@ -132,36 +175,70 @@ inadmissible, however it was numbered in the prose below. This file numbers seve
 (1-7, of which "Defect 5" and "defect 6" appear literally, and 7 is titled "the seventh
 defect"). `Deviation 02a` contributes two more that are unnumbered — knock-ons introduced by
 defect 4's fix — which is why the numbered total and the true total differ by exactly two.
+**Extended 2026-10-12:** one row per fault that would have made a run inadmissible had the
+instrument it lives in ever been run, which is the only form the convention can take for a
+fault found before the first rollout. Admissibility is the test, not whether a rollout
+happened to be burned proving it.
 
 ### Harness — nine
 
-| fault | file's label | found by | run | state |
-|---|---|---|---|---|
-| turn budget of 8 never reached the PTC harness, so the cap bound 11 of 14 PTC rollouts while bash used up to 80 | 1, in `Deviation 01` | run 1's own turn counts | 1 | fixed |
-| the rig reported that binding cap as `TRUNCATED (budget) 0` — the instrument asserted its own soundness falsely | 2, in `Deviation 01` | the trace contradicting the table | 1 | fixed |
-| PTC's system prompt advertised bare tool names at a keyword-only bridge; 34 of 54 tool failures were this one mismatch | 3, in `Deviation 01` | tool-failure breakdown | 1 | fixed |
-| PTC posted `stream: False` into a relay whose gateway timeout applies only to non-streaming requests — 504 on every attempt, so a larger retry budget changed nothing | 4, `Deviation 02` | measuring the endpoint directly | 2d | fixed |
-| the SSE parser indexed `choices[0]` on the final usage chunk, which carries `choices: []` — `KeyError` on 2 PTC rollouts, surfacing as a task failure | unnumbered, `Deviation 02a` | the fix's own side effect | 2e | fixed |
-| the request omitted `stream_options.include_usage`, so PTC's cost per solved task printed as unknown while bash's did not — a co-primary silently lost on one arm only | unnumbered, `Deviation 02a` | the empty column | 2e | fixed |
-| the catalog was not typed and the sandbox denied every parser: same three tools both arms, but bash's action space was a strict superset | "Defect 5" | reading what each arm actually received | 2f | fixed |
-| the arms name the same transport fault differently, so retryability was decided by which arm's code owned the socket | "defect 6" | a relay timeout fatal on one arm and retried on the other | 2g | fixed |
-| full-scan rollouts die on a per-account request-rate limit, confounding the tier comparison it was meant to produce | "the seventh defect" | 10 of 10 void rollouts being the 40-call tasks | 3b | **not fixable** |
+| fault | file's label | found by | run | submitted | state |
+|---|---|---|---|---|---|
+| turn budget of 8 never reached the PTC harness, so the cap bound 11 of 14 PTC rollouts while bash used up to 80 | 1, in `Deviation 01` | run 1's own turn counts | 1 | yes | fixed |
+| the rig reported that binding cap as `TRUNCATED (budget) 0` — the instrument asserted its own soundness falsely | 2, in `Deviation 01` | the trace contradicting the table | 1 | yes | fixed |
+| PTC's system prompt advertised bare tool names at a keyword-only bridge; 34 of 54 tool failures were this one mismatch | 3, in `Deviation 01` | tool-failure breakdown | 1 | yes | fixed |
+| PTC posted `stream: False` into a relay whose gateway timeout applies only to non-streaming requests — 504 on every attempt, so a larger retry budget changed nothing | 4, `Deviation 02` | measuring the endpoint directly | 2d | yes | fixed |
+| the SSE parser indexed `choices[0]` on the final usage chunk, which carries `choices: []` — `KeyError` on 2 PTC rollouts, surfacing as a task failure | unnumbered, `Deviation 02a` | the fix's own side effect | 2e | yes | fixed |
+| the request omitted `stream_options.include_usage`, so PTC's cost per solved task printed as unknown while bash's did not — a co-primary silently lost on one arm only | unnumbered, `Deviation 02a` | the empty column | 2e | yes | fixed |
+| the catalog was not typed and the sandbox denied every parser: same three tools both arms, but bash's action space was a strict superset | "Defect 5" | reading what each arm actually received | 2f | yes | fixed |
+| the arms name the same transport fault differently, so retryability was decided by which arm's code owned the socket | "defect 6" | a relay timeout fatal on one arm and retried on the other | 2g | yes | fixed |
+| full-scan rollouts die on a per-account request-rate limit, confounding the tier comparison it was meant to produce | "the seventh defect" | 10 of 10 void rollouts being the 40-call tasks | 3b | yes | **not fixable** |
 
-### Adjudication tools — four
+### Adjudication tools — six
 
-| fault | found by | state |
-|---|---|---|
-| `paired.py` intersected arm task names and only errored on an empty overlap, so a partial run reported `n=12` on a 29-task taskset | pre-flight before reading a live run | fixed |
-| `paired.py` scored off `rewards` alone, so an errored rollout summed to 0.0 and was indistinguishable from a wrong answer — ten crashes would have read as ten failures | reading 3b's own output | fixed |
-| the interaction interval was computed on the reverse difference; an estimate sat outside its own CI | the number looking impossible | fixed |
-| `tool_success_rate` was only ever instrumented on one arm: a failure is a result whose text starts with `rejected:`/`error:`, which only the PTC harness emits, so bash printed 1.000 on 822 calls by construction and secondary 3 compared a measured rate against an unmeasurable one | the training lane testing a guard, 2026-10-10 | **withdrawn** |
+| fault | found by | submitted | state |
+|---|---|---|---|
+| `paired.py` intersected arm task names and only errored on an empty overlap, so a partial run reported `n=12` on a 29-task taskset | pre-flight before reading a live run | yes | fixed |
+| `paired.py` scored off `rewards` alone, so an errored rollout summed to 0.0 and was indistinguishable from a wrong answer — ten crashes would have read as ten failures | reading 3b's own output | yes | fixed |
+| the interaction interval was computed on the reverse difference; an estimate sat outside its own CI | the number looking impossible | yes | fixed |
+| `tool_success_rate` was only ever instrumented on one arm: a failure is a result whose text starts with `rejected:`/`error:`, which only the PTC harness emits, so bash printed 1.000 on 822 calls by construction and secondary 3 compared a measured rate against an unmeasurable one | the training lane testing a guard, 2026-10-10 | yes | **withdrawn** |
+| `power_pairs` built each binomial term as `comb(d, i) * p ** (d - i)`, which converts the exact big integer to float first and raises `OverflowError` past d of ~1030, so every delta between 0.02 and 0.04 crashed instead of answering. Bounded on *both* sides, which is why no run ever touched it: delta >= 0.05 answers at a d below the ceiling and delta < 0.02 takes the lower `hi` bound and stops at d of 1000. All four published figures (59, 398, 859, 1571) sit outside the band | the bench lane siting the new taskset's power at a delta nobody had asked for before, 2026-10-12 | no | fixed |
+| `_attained` carried the same overflowing expression, and it is `demo()`'s *independent* check on the search, so the obvious repair (route it through the fixed helper) would have made the check agree by construction. Given exact `Fraction` arithmetic instead, a third method, and pinned by an AST test on call nodes | repairing the row above; the AST test's own first version matched the helper's name as a substring and failed on `_attained`'s comment about it | no | fixed |
+
+### Instruments built after run 3d — seven
+
+Same columns as the table above, and the same counting rule, but no `run` column: none of
+these seven was exposed by a run. They were exposed by building the instrument the next runs
+will use, before it had run anything. Each fault names its own file, because "the harness"
+and "the adjudication tools" are the two locations the project had when the ledger was
+written and these are in neither.
+
+| fault | found by | submitted | state |
+|---|---|---|---|
+| nothing pinned `bench/score.py`'s comparison default: every comparison test passed `compare=` explicitly, so the one value a caller gets by saying nothing was the one value nothing checked, and it was `multiset` — which makes an EX number incomparable to the published sub-1B figures that site this project's frontier band | reading BIRD's published `evaluation.py` against a lane brief that called multiset its convention, 2026-10-12 | no | fixed |
+| `MAX_ROWS` at 100,000 rejected two valid BIRD dev golds that legitimately return 228,765 and 278,230 rows in about a second, classifying them as defective tasks. The instrument penalising valid work is defect 5's shape | measuring the cap against all 1534 dev golds instead of assuming it, 2026-10-12 | no | fixed |
+| `SECOND_HARNESS_REQUIREMENTS` was listed in `ptc/sql_arms.py`'s `__all__` and never defined, so `from ptc.sql_arms import *` raised `AttributeError` and three docstrings pointed at nothing | exercising the module's own export list, 2026-10-12 | no | fixed |
+| three gate tests in `train/test_train.py` were left failing when `measurement` became a required manifest key without the fixture being updated in the same change. They are the tests asserting the gate *opens*, which is the direction a half-finished guard breaks silently in: a gate stuck shut looks exactly like a gate doing its job | running the whole train suite rather than the file under edit, 2026-10-12 | no | fixed |
+| `train/guards.py`'s `n_tasks > 0` was conformant by construction: the solve-rate band is a band over the *retained* subset, so it cannot fail once out-of-band tasks are discarded, and a suite that drew 198 tasks and kept 3 passed every band check. The floor that replaced it is `power_pairs(0.25, 0.5)`, derived at import rather than stored, so it moves when the power function is corrected | the bench lane asking what the band could still reject, 2026-10-12 | no | fixed |
+| `bench/make_probe_prompts.py`'s gold-query timeout could never fire: its `sqlite3` progress handler closed over a flag nothing ever set, so it returned 0 forever and the two non-terminating BIRD golds hung the entire draw with no output. A timeout that cannot fire, written into the very tool built to avoid one | the draw producing no output at all, then a test driving an unbounded recursive CTE through the handler, 2026-10-13 | no | fixed |
+| `train/guards.py`'s gate accepted only a `Path`: `root / FRONTIER_MANIFEST` raised `TypeError` on a `str`, so the one function whose entire purpose is explaining why the pipeline is shut failed with an operator error on an ordinary argument instead of a reason | not by the code and not by a run: this row exists because the brief commissioning the eight rows above was wrong about the count, and the commit it cited recorded a third fix, 2026-10-13 | no | fixed |
 
 **Five of the nine harness faults penalised the PTC arm, one penalised bash (defect 6), two
 were symmetric (the two knock-ons), and one — the rate limit — is symmetric in principle but
 falls roughly three times harder on bash per unit of work, because bash makes one request per
-turn.** All thirteen were invisible to a green test suite, and the thirteenth is worse than
-invisible: `test_metrics.py` pinned the two failure prefixes against drift *in the strings*,
-so the suite actively locked in the blindness it was meant to guard.
+turn.** The ledger holds twenty-two rows, and the suite was green over all of them but the
+gate tests. The one-armed `tool_success_rate` is worse than invisible: `test_metrics.py`
+pinned the two failure prefixes against drift *in the strings*, so the suite actively locked
+in the blindness it was meant to guard.
+
+**"Invisible to a green suite" needs splitting after 2026-10-12, because the nine new rows
+got past it two different ways.** Three of them are the harder case — a guard that could not
+fail, a timeout that could not fire, and a default nothing pinned — where the suite was green
+*because* the check could never try, and a check that cannot fail is indistinguishable from
+one that passes. The gate tests are the opposite route, and the only row here the suite did
+report: they were left *failing*, so it was red and nobody had run it. A red suite nobody
+reads and a green suite that cannot fail produce the same silence, and only one of them looks
+like a problem.
 
 ---
 

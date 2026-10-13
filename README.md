@@ -17,7 +17,7 @@ with; read the one file, not the pile.
 | If you arrived asking | Read |
 |---|---|
 | **What is the result?** | **`docs/results-untrained.md`** — the pre-committed report on the untrained premise check. Read it before the framing below on this page, which was written before the run. |
-| **What went wrong with the instrument?** | **`docs/deviations.md`** — defect ledger at the top of the file, each fault with the run that exposed it and the observation that caught it. |
+| **What went wrong with the instrument?** | **`docs/deviations.md`** — defect ledger at the top of the file, each fault with the observation that caught it and, where one exists, the run that exposed it. This line read "each fault with the run that exposed it" until 2026-10-13, when a third table arrived for the faults found while building the next instrument: no run could have exposed those, because it had not run yet. |
 | **What is the state, and what is next?** | **`HANDOFF.md`** — current state first, then the dated history below it. |
 | **How do I run the suite?** | [Quick start](#quick-start), below. **`.venv-ptc` is required** — the system interpreter cannot collect two of the suites. |
 | **What was fixed before the run, so the result stays falsifiable?** | `docs/pre-registration.md` (append-only, owner-signed); every amendment to it is in `docs/deviations.md`. |

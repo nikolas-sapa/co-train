@@ -37,10 +37,13 @@ anyway: the one task PTC won and bash lost. bash's action space was a strict **s
 PTC's, which is not a harness comparison at all. Five of the nine harness faults in the
 defect ledger (`docs/deviations.md`) penalised PTC, one penalised bash, two were symmetric,
 and one is symmetric in principle but falls roughly three times harder on bash per unit of
-work. **Every one of the thirteen was invisible to a green test suite**, and in the
-thirteenth's case worse than invisible: `test_metrics.py` pinned the two failure prefixes
+work. **Every one of the twenty-two was invisible to a green test suite, bar one**, and in
+the thirteenth's case worse than invisible: `test_metrics.py` pinned the two failure prefixes
 against drift in the strings, so the suite locked in the blindness it was meant to guard
-against. Nothing in the suite compared what the two arms could *do*.
+against. (It read "every one of the thirteen" until 2026-10-13. The count was stated in a
+sentence no guard parsed, so the 12 → 13 move had already passed it by; it is parsed now. The
+exception is the gate tests, which a *red* suite caught and nobody had run.) Nothing in the
+suite compared what the two arms could *do*.
 
 ---
 
