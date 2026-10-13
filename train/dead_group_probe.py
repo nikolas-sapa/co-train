@@ -394,7 +394,15 @@ def load_prompts(path: pathlib.Path) -> list[dict[str, str]]:
         missing = [k for k in ("prompt", "answer") if not str(row.get(k) or "").strip()]
         if missing:
             raise ValueError(f"{path}:{n} is missing {', '.join(missing)}")
-        rows.append({"prompt": row["prompt"], "answer": row["answer"]})
+        # Extra columns are preserved, not dropped. TRL passes every dataset column
+        # into the reward as a kwarg, and the execution reward needs `db_id` to find
+        # the database. Dropping them here is what forced `answer` to carry a baked
+        # scalar in the first place, and that is the design that read 1.000.
+        kept = {"prompt": row["prompt"], "answer": row["answer"]}
+        for extra in ("db_id",):
+            if row.get(extra):
+                kept[extra] = row[extra]
+        rows.append(kept)
     if not rows:
         raise ValueError(f"{path} has no prompts")
     return rows
@@ -413,16 +421,45 @@ def build_parser():
                         "$0.0071 fault again.")
     p.add_argument("--out", type=pathlib.Path, default=pathlib.Path("probe_metrics.jsonl"))
     p.add_argument("--steps", type=int, default=PROBE_STEPS_MAX)
+    p.add_argument("--reward", choices=("exact", "ex"), default="exact",
+                   help="`exact`: binary string match on a tagged <answer> block, for "
+                        "a self-contained task. `ex`: execution accuracy -- the model "
+                        "writes SQL, the database executes it, result sets are "
+                        "compared. Use `ex` for BIRD: the first real run proved the "
+                        "scalar-answer prompts were unanswerable (schema but no rows), "
+                        "so the solve rate was structurally 0 and the probe read 1.000 "
+                        "and aborted on its own prompt design.")
+    p.add_argument("--db-root", type=pathlib.Path, default=None,
+                   help="Required with --reward ex. Holds dev_databases/<db_id>/. On "
+                        "Kaggle this is the mounted dataset directory.")
     p.add_argument("--dry-run", action="store_true",
                    help="Print the config, the derived expectations and the resolved "
                         "stack, then exit. No GPU, no model download, no cost.")
     return p
 
 
+def _reward_for(args: Any) -> Any:
+    """Pick the reward, and record which one in the metrics header.
+
+    Both are binary, so `assert_binary_reward` and `zero_advantage_fraction`'s
+    `p**G + (1-p)**G` model hold either way. Which one ran is not a detail: a
+    zero-advantage fraction quoted without its reward is the same class of fault as one
+    quoted without its taskset.
+    """
+    if args.reward == "exact":
+        return exact_match_reward
+    from train.ex_reward import make_execution_reward  # noqa: PLC0415
+    return make_execution_reward(args.db_root)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     from train.guards import check_stack, require_stack, resolved_versions
 
     args = build_parser().parse_args(argv)
+    if args.reward == "ex" and args.db_root is None:
+        raise SystemExit("--reward ex needs --db-root: without the databases the "
+                         "reward cannot execute anything, and a reward that cannot "
+                         "score is indistinguishable from a policy that cannot answer")
     config = probe_config(args.steps)
     expectations = probe_expectations()
     prompts = load_prompts(args.prompts)
@@ -433,6 +470,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "expectations": expectations,
             "prompts": len(prompts),
             "taskset_id": args.taskset_id,
+            "reward": args.reward,
             "resolved_stack": resolved_versions(),
             "stack_faults": check_stack(resolved_versions()),
         }, indent=2, default=str))
@@ -467,7 +505,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     trainer = GRPOTrainer(
         model=model,
         processing_class=tokenizer,
-        reward_funcs=[exact_match_reward],
+        reward_funcs=[_reward_for(args)],
         args=GRPOConfig(**config, output_dir="probe_out"),
         train_dataset=Dataset.from_list(prompts),
         callbacks=[make_callback(monitor)],

@@ -1,0 +1,25 @@
+{
+  "corpus": "BIRD-SQL dev",
+  "task": "sql_generation, scored by execution accuracy (set comparison)",
+  "why": "the scalar-answer variant was unanswerable: schema in the prompt, a data value as the answer, no rows. Solve rate structurally 0, so frac_reward_zero_std read 1.000 at step 0 and the probe aborted on its own prompt design. SQL generation is also the task the ~25% frontier estimate describes (SLM-SQL measures generation judged by execution).",
+  "question_position": "first, before the schema, so truncation costs schema detail and never the question",
+  "databases_required": true,
+  "db_ids": [
+    "california_schools",
+    "debit_card_specializing",
+    "formula_1",
+    "student_club",
+    "superhero",
+    "thrombosis_prediction",
+    "toxicology"
+  ],
+  "drawn": 800,
+  "kept": 800,
+  "seed": 0,
+  "tiers": {
+    "challenging": 106,
+    "moderate": 294,
+    "simple": 400
+  },
+  "distinct_shapes": 207
+}

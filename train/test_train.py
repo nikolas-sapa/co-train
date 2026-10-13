@@ -797,3 +797,44 @@ def test_the_gate_takes_a_string_root(tmp_path):
     not that."""
     write_manifest(tmp_path, GOOD_MANIFEST, SIGNED)
     assert guards.frontier_taskset_status(str(tmp_path)).ok
+
+
+def test_the_execution_reward_finds_a_database_in_either_layout(tmp_path):
+    """BIRD nests databases under `dev_databases/`; a Kaggle dataset does not.
+
+    Uploading with `--dir-mode zip` makes Kaggle extract the archive and mount its
+    contents at the dataset root, so the same file lands one directory shallower.
+    Hard-coding either layout turns a mount-path detail into an aborted run, because a
+    missing database is the one thing the execution reward refuses to score as a
+    policy failure.
+    """
+    from train.ex_reward import db_path_for
+
+    nested = tmp_path / "bird" / "dev_databases" / "toxicology"
+    nested.mkdir(parents=True)
+    (nested / "toxicology.sqlite").write_bytes(b"")
+    assert db_path_for(tmp_path / "bird", "toxicology") == str(
+        nested / "toxicology.sqlite")
+
+    flat = tmp_path / "kaggle" / "toxicology"
+    flat.mkdir(parents=True)
+    (flat / "toxicology.sqlite").write_bytes(b"")
+    assert db_path_for(tmp_path / "kaggle", "toxicology") == str(
+        flat / "toxicology.sqlite")
+
+    # absent in both: returns the canonical path so the caller's error names the
+    # layout the corpus is meant to have
+    assert "dev_databases" in db_path_for(tmp_path / "empty", "toxicology")
+
+
+def test_the_execution_reward_refuses_to_score_a_missing_database(tmp_path):
+    """Scoring 0 for an unmounted corpus reads as a policy that cannot answer -- the
+    exact confound that made the first probe run unreadable (schema-only prompts,
+    structurally zero solve rate, frac_reward_zero_std 1.000 at step 0)."""
+    import pytest as _pytest
+
+    from train.ex_reward import make_execution_reward
+
+    reward = make_execution_reward(tmp_path)
+    with _pytest.raises(FileNotFoundError, match="not mounted"):
+        reward(["```sql\nSELECT 1\n```"], ["SELECT 1"], ["toxicology"])
