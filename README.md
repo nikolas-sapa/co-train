@@ -4,8 +4,13 @@
 bash-over-PTC ordering that arXiv 2609.11999 measured on untrained models — and does the winner
 survive a harness swap?**
 
-Both halves have published baselines. Neither has been run. A negative result is publishable and
-cheap, which is the point: this is a falsification-first research repo, not a product.
+Both halves have published baselines. **Neither trained half has been run — but the untrained
+premise check has, and it falsified the premise.** Across 14 measured runs on the now-retired
+`ledger` taskset, 3 of them admissible, the bash-over-PTC gap did not reproduce: it inverted
+(run 2h, PTC 14/14 against bash 12/14, not statistically separable at n=14). The durable
+finding is cost rather than accuracy — 6.1 to 8.2x cost per solved task, quoted as a floor.
+Full report in `docs/results-untrained.md`. A negative result is publishable and cheap, which
+is the point: this is a falsification-first research repo, not a product.
 
 ---
 
@@ -43,7 +48,7 @@ reversed** in one untrained arm — so the metric is chosen before the run, not 
 |---|---|---|
 | **1 — adversarial non-solvers + the gate** | ✅ done, 51 tests | `src/cotrain/`, `tests/` |
 | **2 — prove the loop on free hardware** | ✅ done — **`STEP 2 PASS`, fp16 stable on T4** | `step2/`, result in `step2/results/` |
-| 3 — verifier before environment | not started | — |
+| **3 — verifier before environment** | ✅ **built** — BIRD-SQL eval harness + co-training pipeline, probe run, gate shut | `bench/`, `train/` |
 | 4 — environment + escalation channel | not started | — |
 | 5 — two harnesses, measure untrained first | not started | — |
 | 6 — co-train, then cross-harness eval | not started | — |
@@ -53,9 +58,18 @@ positive throughout, `reward_std` > 0 every step, `kl` rising across three order
 a curve no public run had. Numbers, caveats and stack in `step2/results/`; re-checkable with no
 GPU via `python step2/verdict.py step2/results/step2_metrics.jsonl`.
 
-> **Step 3 is now unblocked.** It was deliberately deferred because every hour spent on it would
-> have been wasted if fp16 GRPO on Qwen3/T4 turned out unstable. It did not, and **the free path
-> holds — rented Ampere is not required.** Note the other session argues in `docs/spike-verifiers.md`
+> **Step 3 is built.** The free path held — fp16 GRPO on Qwen3/T4 is stable, so rented Ampere is
+> not required. PR #11 landed the BIRD-SQL eval harness and the co-training pipeline; PRs #12-#17
+> followed with the probe and its defect fixes. `ledger` is retired and **BIRD-SQL dev is the
+> taskset: 1534 questions over 277 fine clause-skeleton shapes** (25 coarse), against `ledger`'s 9.
+>
+> **The probe has run — free Kaggle T4, $0 — and what it produced were instrument defects rather
+> than a result:** the defect ledger moved from 13 to 25, the most recent being `extract_sql`
+> taking the *first* fenced block when the prompt's own fence shifts every pairing. The pipeline
+> gate is still shut by design — `train/guards.py` requires a signed amendment, a per-task
+> solve-rate band and `n_tasks >= 59` derived rather than stored, and
+> `bench/frontier/manifest.json` does not exist, so `preflight()` raises. **No co-training run
+> has started.** Note the other session argues in `docs/spike-verifiers.md`
 > that the PTC arm should come before the verifier; reconcile the two orderings first.
 
 ---
@@ -86,9 +100,10 @@ No GPU needed for any of it. Step 1's suite is stdlib-only and offline; Step 2's
 
 A bare `pytest` is now safe to type: `pytest.ini`'s `testpaths` covers all three default
 suites. It used to read `testpaths = tests`, so `pytest` collected 51 and silently skipped
-`ptc` and `ledger` — the two suites that adjudicate the result. **Expect 266 passed** from the
-default suite (measured 2026-10-10); a sharply lower number means collection is being skipped
-again, which is a failure this config has already had once.
+`ptc` and `ledger` — the two suites that adjudicate the result. **Expect 528 passed** from the
+default suite (measured 2026-10-14; it read 266 on 2026-10-10, before `bench` and `train`
+landed); a sharply lower number means collection is being skipped again, which is a failure
+this config has already had once.
 
 `step2/` is deliberately left out of `testpaths` so the default suite stays offline.
 
