@@ -66,7 +66,13 @@ MAX_ROWS = 500_000
 INVALID_STATUSES = frozenset({"gold_error", "gold_timeout", "gold_truncated",
                               "db_missing"})
 
+# Any fenced block, tag or no tag. Used for the content-based tier below.
 _FENCE = re.compile(r"```(?:sql)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
+
+# A fence the model explicitly tagged as SQL. `\b` after the tag so a ```sqlite
+# block is not read as a ```sql one with "ite" as its first line of SQL -- it falls
+# through to the content-based tier instead, which is the safer place for it.
+_SQL_FENCE = re.compile(r"```sql\b\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -101,6 +107,11 @@ _SQL_LEAD = re.compile(r"\b(?:select|with|values)\b", re.IGNORECASE)
 # mixes into a SQL task.
 _ANSWER_TAGS = re.compile(r"<answer>(.*?)</answer>", re.IGNORECASE | re.DOTALL)
 
+# The same keywords anchored at the START of a string: a fenced block whose content
+# OPENS with a statement is a query, whereas one that merely mentions "select"
+# somewhere in a paragraph is reasoning about one.
+_SQL_START = re.compile(r"\A(?:select|with|values)\b", re.IGNORECASE)
+
 
 def extract_sql(text: str) -> str:
     """Pull a SQL statement out of model output.
@@ -112,32 +123,64 @@ def extract_sql(text: str) -> str:
     and understate the model, which looks exactly like a frontier-band problem and is
     not one.
 
-    Order: a fenced block if there is one; else the text from the first SQL leading
-    keyword onward; else the whole string. Then a trailing semicolon and anything after
-    it is dropped.
+    Order, strongest signal of the model's intent first:
 
-    **The prose case is not a nicety.** Until 2026-10-14 this returned the whole string
-    whenever no fence was present, so a completion reading "The answer is:\nSELECT
-    count(*) FROM frpm" came back with the prose attached, failed to execute, and scored
-    0 -- with the SQL inside it correct. A small model explains itself constantly, so
-    this understated the policy in exactly the way the docstring above warns about, and
-    it did so during five free GPU runs that were read as capability measurements.
-    `<answer>` wrappers are stripped for the same reason: the sibling reward uses that
-    format and a confused policy mixes them.
+    1. The **last** ```` ```sql ````-tagged fence. A reasoning model concludes with its
+       answer, and an explicit language tag is the clearest available statement that this
+       block is the query rather than a quotation, an echo, or a discarded candidate.
+    2. Else the last fenced block whose content OPENS with `SELECT`/`WITH`/`VALUES`.
+       Untagged fences are common, so content is the only signal left; the last one is
+       still the conclusion.
+    3. Else the text from the first SQL leading keyword onward, which handles bare and
+       prose-wrapped SQL with no fence at all.
+    4. Else the text unchanged, so a completion containing no SQL scores 0 by failing to
+       execute rather than being mangled into something that parses.
+
+    Then a trailing semicolon and anything after it is dropped, because
+    `execution_accuracy` runs exactly one statement.
+
+    **Correction, recorded so it is not reintroduced: this took the FIRST fence until
+    2026-10-14, and that was wrong.** The probe's prompt instructs the model to answer
+    "in a ```sql fenced block", so the instruction itself carries an unterminated fence
+    marker, and the schema it ships is fenced too. A model that echoes that schema back
+    and closes it leaves an ODD number of markers before its real answer, after which
+    every pairing is off by one: the first match then spans from the echo's CLOSING fence
+    to the OPENING fence of the actual answer, capturing whatever prose sits between
+    them. Four completions sampled from the dead-group probe's seventh run went through
+    the old path and three came back as text the model never proposed as a query --
+    `Answer:`, and two paragraphs of reasoning. Taking the LAST fence also stops a first
+    fence from being preferred over a conclusion when the model writes several candidate
+    queries while thinking. The failure biases the measured solve rate LOW, and
+    `train/guards.py`'s frontier gate consumes that rate, so it is not a cosmetic bug.
 
     **Known limit, stated rather than fixed:** prose AFTER the query on a new line is
     still included when no semicolon closes the statement. Cutting at the first newline
     would break multi-line SQL, which is both common and correct, so the trade goes the
     other way. Such a completion scores 0, and the sampled completions in the probe's
     metrics are how that case is spotted rather than inferred.
+
+    **Residual bias, surfaced rather than patched:** tier 1 trusts the tag over the
+    content, so a final ```` ```sql ```` block holding prose still comes back as prose.
+    Letting content override an explicit declaration of intent is the kind of heuristic
+    that produced the first-fence bug, so it is not added. Separately, the odd-marker
+    shape above is only recovered when the model's answer fence is TAGGED; with an
+    untagged answer fence the pairing stays shifted and tier 3 returns the query with a
+    trailing ```` ``` ```` attached. Both score 0 and both show up in sampled
+    completions. See `test_extract_sql_cannot_repair_an_untagged_fence_after_an_echo`.
     """
-    m = _FENCE.search(text)
-    if m:
-        body = m.group(1)
+    text = _ANSWER_TAGS.sub(r"\1", text)
+
+    tagged = _SQL_FENCE.findall(text)
+    if tagged:
+        body = tagged[-1]
     else:
-        stripped = _ANSWER_TAGS.sub(r"\1", text)
-        lead = _SQL_LEAD.search(stripped)
-        body = stripped[lead.start():] if lead else stripped
+        sql_like = [b for b in (f.strip() for f in _FENCE.findall(text))
+                    if _SQL_START.match(b)]
+        if sql_like:
+            body = sql_like[-1]
+        else:
+            lead = _SQL_LEAD.search(text)
+            body = text[lead.start():] if lead else text
     body = body.strip()
     # Drop a trailing semicolon AND whatever follows it: the statement ended there, and
     # `execution_accuracy` runs exactly one statement.

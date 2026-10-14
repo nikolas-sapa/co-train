@@ -623,6 +623,40 @@ EXTRACT_CASES = [
     ("cte", "I think:\nWITH t AS (SELECT 1) SELECT * FROM t",
      "WITH t AS (SELECT 1) SELECT * FROM t"),
     ("semicolon_then_prose", "SELECT 1; this counts them", "SELECT 1"),
+    # --- the three shapes that actually failed in the dead-group probe's seventh run.
+    # Each one scored on text the model never proposed as a query. See `extract_sql`.
+    #
+    # 1. The echoed schema closes a fence the completion never opened, so the first
+    #    marker in the text is a CLOSING one and every pairing after it is off by one.
+    #    The old first-fence extractor returned `Answer:` here, verbatim.
+    ("echo_closes_a_fence_then_tagged_answer",
+     "CREATE TABLE superhero (id INTEGER, superhero_name TEXT)\n"
+     "CREATE TABLE hero_attribute (hero_id INTEGER, attribute_value INTEGER)\n"
+     "```\n"
+     "\nAnswer:\n"
+     "```sql\nSELECT id FROM superhero WHERE superhero_name = 'Hulk'\n```",
+     "SELECT id FROM superhero WHERE superhero_name = 'Hulk'"),
+    # 2. Several fenced candidates, the last one the conclusion. The old extractor
+    #    preferred the first draft over the answer the model settled on.
+    ("candidates_then_conclusion",
+     "First attempt:\n```sql\nSELECT count(*) FROM hero_attribute\n```\n"
+     "That ignores the join. Second:\n"
+     "```sql\nSELECT a.attribute_value FROM attribute a\n```\n"
+     "attribute_value lives on hero_attribute, not attribute. Final:\n"
+     "```sql\nSELECT h.attribute_value FROM hero_attribute h\n```",
+     "SELECT h.attribute_value FROM hero_attribute h"),
+    # 3. The only fence holds prose; the query is bare, after it. The old extractor
+    #    returned the paragraph because it was fenced and the SQL was not.
+    ("only_fence_is_prose",
+     "```\nAnalysis: Hulk's superhero_name is 'Hulk', so I need the id first.\n```\n"
+     "SELECT id FROM superhero WHERE superhero_name = 'Hulk'",
+     "SELECT id FROM superhero WHERE superhero_name = 'Hulk'"),
+    # And the tier-4 floor: a fenced paragraph with no SQL anywhere comes back
+    # UNCHANGED, fence markers and all, so it scores 0 by failing to execute rather
+    # than by being mangled into something that parses.
+    ("prose_fence_no_sql_anywhere",
+     "```\nI need the schema for hero_attribute before I can answer.\n```",
+     "```\nI need the schema for hero_attribute before I can answer.\n```"),
 ]
 
 
@@ -657,3 +691,57 @@ def test_extract_sql_keeps_multi_line_sql_whole():
     would break multi-line SQL -- which is common and correct. This pins the trade."""
     multi = "SELECT a,\n       b\nFROM t\nWHERE a > 1"
     assert extract_sql(multi) == multi
+
+
+
+def test_extract_sql_prefers_the_last_candidate_not_the_first():
+    """The precedence itself, stated as an assertion rather than inferred from the
+    fixtures: a tagged fence beats an untagged one, and within a tier the LAST block
+    wins. A reasoning model concludes with its answer; the first fence in its output is
+    an echo, a quotation or a draft."""
+    two_tagged = "```sql\nSELECT 1\n```\nno, rather:\n```sql\nSELECT 2\n```"
+    assert extract_sql(two_tagged) == "SELECT 2"
+
+    two_untagged = "```\nSELECT 1\n```\nno, rather:\n```\nSELECT 2\n```"
+    assert extract_sql(two_untagged) == "SELECT 2"
+
+    # tier 1 outranks tier 2 regardless of position: the tagged block is FIRST here
+    tag_beats_position = "```sql\nSELECT 1\n```\nas text:\n```\nSELECT 2\n```"
+    assert extract_sql(tag_beats_position) == "SELECT 1"
+
+
+def test_extract_sql_ignores_a_fence_that_only_discusses_sql():
+    """Tier 2 is anchored at the START of the block: a paragraph that merely contains
+    the word "select" is reasoning about a query, not a query. That is how two of the
+    four sampled completions came back as prose, and the anchor is what rejects them.
+
+    The second assertion pins an INHERITED limit rather than a new one. Tier 2 does
+    reject the paragraph, but tier 3 then scans the whole text for a leading keyword and
+    finds the one inside that paragraph, because tier 3 has always scanned the whole
+    text and is deliberately unchanged -- it is what recovers bare and prose-wrapped
+    SQL. A fence is not a barrier to it. Both of these score 0; only the first shape is
+    something the new precedence can fix."""
+    rejected_by_the_anchor = ("```\nAnalysis: the value is on another table.\n```\n"
+                              "SELECT id FROM superhero")
+    assert extract_sql(rejected_by_the_anchor) == "SELECT id FROM superhero"
+
+    keyword_inside_the_prose = ("```\nI could select the id, but it is elsewhere.\n```\n"
+                                "SELECT id FROM superhero")
+    assert extract_sql(keyword_inside_the_prose) == (
+        "select the id, but it is elsewhere.\n```\nSELECT id FROM superhero")
+
+
+def test_extract_sql_cannot_repair_an_untagged_fence_after_an_echo():
+    """A residual limit, pinned rather than hidden. The odd-marker echo shape is only
+    recovered when the model TAGS its answer fence. With an untagged answer fence the
+    pairing stays shifted, so no block passes tier 1 or tier 2 and tier 3 takes the text
+    from the leading keyword onward -- which carries the trailing ``` along with it.
+
+    It scores 0 either way, so no measurement is corrupted, but it is a completion whose
+    SQL was correct and unscored. Fixing it means stripping stray fence markers out of
+    tier 3, which would also strip them out of tier 4's deliberate passthrough; that
+    trade has not been taken. Surfaced, not patched."""
+    untagged_after_echo = (
+        "CREATE TABLE superhero (id INTEGER, superhero_name TEXT)\n```\n"
+        "\nAnswer:\n```\nSELECT id FROM superhero\n```")
+    assert extract_sql(untagged_after_echo) == "SELECT id FROM superhero\n```"
