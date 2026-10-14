@@ -31,6 +31,7 @@ needs a T4.
 
 from __future__ import annotations
 
+import functools
 import json
 import pathlib
 from dataclasses import dataclass, field
@@ -42,7 +43,12 @@ if __package__ in (None, ""):  # invoked as `python train/<file>.py`, not `-m`
 
     _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[1]))
 
-from train.verdict import ZERO_STD_CEILING, ZERO_STD_KEY, training_steps
+from train.verdict import (
+    COMPLETION_SAMPLES_KEY,
+    ZERO_STD_CEILING,
+    ZERO_STD_KEY,
+    training_steps,
+)
 
 # ------------------------------------------------------------- the derivation
 #
@@ -182,6 +188,28 @@ def implied_solve_rates(
 ANSWER_OPEN, ANSWER_CLOSE = "<answer>", "</answer>"
 
 
+def completion_text(completion: Any) -> str:
+    """The reply text out of one TRL completion, plain or chat-style."""
+    return completion if isinstance(completion, str) else completion[-1]["content"]
+
+
+def extracted_answer(text: str) -> str | None:
+    """What `exact_match_reward` compares, or `None` when there was no block to read.
+
+    Split out so the recorded sample shows the reward's *own* extraction rather
+    than a second implementation of it -- the gap between what was generated and
+    what was extracted is only a measurement if both come from the same function.
+
+    `None` and `""` are deliberately different: no `<answer>` block at all versus
+    an empty one are different faults, and collapsing them hides the format
+    hypothesis the samples exist to test.
+    """
+    if ANSWER_OPEN not in text or ANSWER_CLOSE not in text:
+        return None
+    given = text.split(ANSWER_OPEN, 1)[1].split(ANSWER_CLOSE, 1)[0]
+    return " ".join(given.lower().split())
+
+
 def exact_match_reward(completions: Iterable[Any], answer: Sequence[str], **_: Any) -> list[float]:
     """Binary exact match on the tagged answer. The reward whose geometry is in question.
 
@@ -193,12 +221,8 @@ def exact_match_reward(completions: Iterable[Any], answer: Sequence[str], **_: A
     """
     out: list[float] = []
     for completion, expected in zip(completions, answer, strict=True):
-        text = completion if isinstance(completion, str) else completion[-1]["content"]
-        if ANSWER_OPEN not in text or ANSWER_CLOSE not in text:
-            out.append(0.0)
-            continue
-        given = text.split(ANSWER_OPEN, 1)[1].split(ANSWER_CLOSE, 1)[0]
-        out.append(float(" ".join(given.lower().split()) == expected.lower()))
+        given = extracted_answer(completion_text(completion))
+        out.append(float(given is not None and given == expected.lower()))
     return out
 
 
@@ -217,6 +241,124 @@ def assert_binary_reward(values: Iterable[float]) -> None:
             "zero_advantage_fraction() models p**G + (1-p)**G, which is only the "
             "zero-advantage rate when the reward has exactly two levels."
         )
+
+
+# ------------------------------------------- what the model actually wrote
+#
+# Six probe runs have been adjudicated and nobody has read a completion. The last three
+# reported reward 0.0 with `frac_reward_zero_std` 1.000, which was read as "the policy
+# cannot solve these tasks" -- but it is equally consistent with:
+#
+#   * output in a shape the reward's extraction does not recover (format fault),
+#   * nothing generated at all (generation fault),
+#   * the prompt echoed back,
+#   * the completion cap cutting the answer off mid-statement.
+#
+# Four different fixes behind one number, and the aggregate cannot tell them apart. So
+# the probe records a few completions beside the metric. These are OBSERVATIONS, never
+# criteria: text is evidence for a diagnosis and must not be able to make a probe pass.
+
+SAMPLES_PER_STEP = NUM_GENERATIONS
+"""Completions recorded per logged step. Derived from G rather than chosen: TRL lays the
+batch out as G consecutive completions per prompt, so the first G are exactly ONE GROUP
+-- the unit `frac_reward_zero_std` counts. One group's replies side by side show whether
+that group was uniform and why; the same budget scattered across groups shows neither. At
+a larger G (the Kaggle run uses 8) it is a prefix of the first group, which is still one
+group's text rather than a scatter."""
+
+SAMPLE_CHARS = 600
+"""Characters kept per recorded completion. A stated judgement, not a derivation: this is
+the budget that still separates the four hypotheses above -- empty output, a prompt echo,
+SQL in a shape the extractor misses, a reply cut off mid-statement -- while leaving a
+20-step file readable. A sink that swallowed 32 full completions a step would be the same
+failure in a new costume: present, unread. The untruncated length travels beside the text
+as `chars`, so truncation stays detectable without storing the whole reply."""
+
+
+def truncated(text: str, budget: int = SAMPLE_CHARS) -> str:
+    """`text` cut to `budget` characters, saying in the value how many it dropped.
+
+    The marker is part of the recorded string rather than a separate flag because a
+    reader must not be able to mistake a sample this function cut for a model that
+    stopped there -- truncation is one of the hypotheses being separated.
+    """
+    if len(text) <= budget:
+        return text
+    return text[:budget] + f"...[+{len(text) - budget} chars]"
+
+
+@dataclass
+class CompletionSampler:
+    """The step's first few completions, each with what the reward made of it.
+
+    Fed from inside the reward function because that is the only point in the GRPO loop
+    where the generated text and the score it received are both in scope. The trainer
+    callback sees aggregates only, which is how six runs went by without anyone reading
+    a completion.
+    """
+
+    extract: Any = extracted_answer
+    """The reward's own extraction step -- `extracted_answer` for `--reward exact`,
+    `bench.score.extract_sql` for `--reward ex`. See `_extractor_for`."""
+
+    per_step: int = SAMPLES_PER_STEP
+    chars: int = SAMPLE_CHARS
+    pending: list[dict] = field(default_factory=list)
+
+    def record(self, completions: Iterable[Any], rewards: Sequence[float]) -> None:
+        """Keep the first `per_step` completions of the step now in progress.
+
+        Accumulates across calls instead of replacing, because one logged step is
+        `gradient_accumulation_steps` reward calls (4 at the probe's G=4, see
+        `batch_for`) and replacing would silently record only the last micro-batch.
+        """
+        for completion, reward in zip(completions, rewards, strict=True):
+            if len(self.pending) >= self.per_step:
+                return
+            text = completion_text(completion)
+            extracted = self.extract(text)
+            # The extraction gets the same budget as the raw text: `extract_sql`
+            # returns the WHOLE reply when it finds no closing fence, which is both
+            # the case most worth seeing and the case that would otherwise double
+            # the row it is recorded in.
+            if isinstance(extracted, str):
+                extracted = truncated(extracted, self.chars)
+            self.pending.append({
+                "chars": len(text),
+                "completion": truncated(text, self.chars),
+                "extracted": extracted,
+                "reward": reward,
+            })
+
+    def drain(self) -> list[dict]:
+        """Hand this step's samples over and start the next step empty."""
+        out, self.pending = self.pending, []
+        return out
+
+
+def sampling_reward(reward: Any, sampler: CompletionSampler) -> Any:
+    """`reward`, wrapped so each call records its first few completions.
+
+    Scores are passed through untouched: this adds an observation, it does not soften
+    a reward whose geometry is the thing being measured.
+
+    `functools.wraps` is load-bearing rather than tidiness -- TRL names its reward
+    columns after `reward_func.__name__` (`rewards/<name>/mean`), so an unnamed
+    wrapper would rename the metric a later run is compared against.
+    """
+
+    @functools.wraps(reward)
+    def sampling(*args: Any, **kwargs: Any) -> list[float]:
+        values = reward(*args, **kwargs)
+        # TRL calls reward functions by keyword; `train/test_train.py` and the rewards'
+        # own docstrings call them positionally. Both are accepted, and neither raises:
+        # a diagnostic that could kill the run it is diagnosing is not worth having, and
+        # recording nothing is a finding `verdict.observations` reports in words.
+        completions = kwargs.get("completions", args[0] if args else ())
+        sampler.record(completions, values)
+        return values
+
+    return sampling
 
 
 # ------------------------------------------------------------- the live abort
@@ -238,6 +380,7 @@ class ProbeMonitor:
 
     ceiling: float = ABORT_CEILING
     sink: pathlib.Path | None = None
+    sampler: CompletionSampler | None = None
     rows: list[dict] = field(default_factory=list)
     aborted: str | None = None
 
@@ -254,8 +397,15 @@ class ProbeMonitor:
         shipped a guard that passed because its target was unreachable; this is
         that shape, and it is the reason the probe is worth running at all.
         """
+        is_step = bool(training_steps([log]))
+        if is_step and self.sampler is not None:
+            # On the step's own row, so one fetched artifact carries the metric and the
+            # text it was computed from. Written even when the list is empty: "the
+            # reward was never handed a completion" and "sampling was switched off" are
+            # different faults and must not look alike in the file.
+            log = {**log, COMPLETION_SAMPLES_KEY: self.sampler.drain()}
         self._emit(log)
-        if not training_steps([log]):
+        if not is_step:
             return None  # the end-of-run summary and eval rows are not steps
 
         index = len(training_steps(self.rows)) - 1
@@ -343,6 +493,40 @@ PROBE_STEPS_MIN, PROBE_STEPS_MAX = 5, 20
 # unreachable target. MIN_GROUPS_PER_STEP=4 gives five attainable levels (0, .25, .5,
 # .75, 1) so 0.60 sits inside the range, and a 1.0 draw at p=0.0625 needs all four
 # groups uniform -- probability 0.597**4, about 0.13, instead of 0.60.
+# The longest prompt the taskset actually produces, in TOKENS, measured from a run
+# rather than estimated. v6's log: `Input IDs of shape (8, 2612) with length 2612 >
+# the model's max sequence length of 2048`. BIRD prompts carry a full CREATE-statement
+# schema, so they are long by construction.
+MEASURED_MAX_PROMPT_TOKENS = 2612
+
+# Unsloth defaults `max_seq_length` to 2048 and the probe never set it, so the context
+# was SMALLER THAN THE PROMPT. Three symptoms, one cause:
+#
+#   - the prompt filled all 2048 and overflowed, leaving no room to generate into
+#   - completions came back empty or instantly truncated, so reward was 0.0 and
+#     `frac_reward_zero_std` 1.0 on every step of every run
+#   - `mask_truncated_completions=True` then masked all of them, which is why
+#     `grad_norm` logged 0.0 in six consecutive runs and nobody could explain it
+#
+# `max_completion_length` was simultaneously set to 3072 -- LARGER than the model's
+# entire context. That pair cannot both be satisfied, and nothing checked it. The
+# completion cap and the sequence length were chosen in different places by different
+# reasoning and never multiplied together.
+#
+# Qwen3-0.6B supports far more natively, so the ceiling here is VRAM, not the model.
+def max_seq_length_for(completion_cap_tokens: int,
+                       prompt_tokens: int = MEASURED_MAX_PROMPT_TOKENS) -> int:
+    """Context that fits the longest prompt AND a full-length completion.
+
+    Derived, and rounded up to a multiple of 1024 because attention kernels prefer it.
+    Returned by a function rather than stored as a constant so it cannot drift out of
+    step with the cap it has to accommodate -- which is exactly how 2048 and 3072 came
+    to coexist.
+    """
+    need = prompt_tokens + completion_cap_tokens
+    return -(-need // 1024) * 1024
+
+
 MIN_GROUPS_PER_STEP = 4
 GROUPS_PER_STEP = 4
 
@@ -488,10 +672,32 @@ def build_parser():
     p.add_argument("--db-root", type=pathlib.Path, default=None,
                    help="Required with --reward ex. Holds dev_databases/<db_id>/. On "
                         "Kaggle this is the mounted dataset directory.")
+    p.add_argument("--no-completion-samples", action="store_true",
+                   help=f"Stop recording the first {SAMPLES_PER_STEP} completions of "
+                        "each step into --out. Sampling is ON by default and this flag "
+                        "is the only way off, because six probe runs were adjudicated "
+                        "from aggregate metrics with nobody reading a completion: the "
+                        "default must not depend on someone remembering to ask, so "
+                        "switching it off is the deliberate act.")
     p.add_argument("--dry-run", action="store_true",
                    help="Print the config, the derived expectations and the resolved "
                         "stack, then exit. No GPU, no model download, no cost.")
     return p
+
+
+def _extractor_for(args: Any) -> Any:
+    """The scoring step's own extraction, so a sample shows what the reward read.
+
+    Not a reimplementation of it: `extracted_answer` is the function
+    `exact_match_reward` compares with, and `bench.score.extract_sql` is the one
+    `train/ex_reward.py` hands the database. The gap between the raw text and this
+    value is the hypothesis under test, and it is only a measurement of the reward if
+    it is literally the reward's own step.
+    """
+    if args.reward == "exact":
+        return extracted_answer
+    from bench.score import extract_sql  # noqa: PLC0415
+    return extract_sql
 
 
 def _reward_for(args: Any) -> Any:
@@ -527,6 +733,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "prompts": len(prompts),
             "taskset_id": args.taskset_id,
             "reward": args.reward,
+            "completion_sampling": (None if args.no_completion_samples else
+                                    {"per_step": SAMPLES_PER_STEP, "chars": SAMPLE_CHARS}),
             "resolved_stack": resolved_versions(),
             "stack_faults": check_stack(resolved_versions()),
         }, indent=2, default=str))
@@ -542,13 +750,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     from datasets import Dataset  # noqa: PLC0415
     from trl import GRPOConfig, GRPOTrainer  # noqa: PLC0415
 
+    # `max_seq_length` is passed explicitly. Omitting it took unsloth's default of
+    # 2048, which is smaller than this taskset's longest prompt (2612 measured), so
+    # the prompt consumed the whole context and left nothing to generate into.
+    seq_len = max_seq_length_for(config["max_completion_length"])
+    print(f"max_seq_length={seq_len} "
+          f"(prompt<={MEASURED_MAX_PROMPT_TOKENS} + completion "
+          f"{config['max_completion_length']})", flush=True)
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=MODEL, load_in_4bit=False, fast_inference=True,
+        max_seq_length=seq_len,
         max_lora_rank=LORA_RANK, gpu_memory_utilization=GPU_MEMORY_UTILIZATION,
     )
     model = FastLanguageModel.get_peft_model(model, r=LORA_RANK, lora_alpha=LORA_RANK)
 
-    monitor = ProbeMonitor(sink=args.out)
+    sampler = (None if args.no_completion_samples
+               else CompletionSampler(extract=_extractor_for(args)))
+    reward = _reward_for(args)
+    if sampler is not None:
+        reward = sampling_reward(reward, sampler)
+
+    monitor = ProbeMonitor(sink=args.out, sampler=sampler)
     monitor.header(
         probe="dead_group",
         taskset_id=args.taskset_id,
@@ -556,12 +778,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         config=config,
         expectations=expectations,
         resolved_stack=resolved_versions(),
+        # Provenance for the samples themselves: what was recorded, how much of it, and
+        # through which extraction. A sample quoted without its budget invites the same
+        # mistake as a zero-advantage fraction quoted without its taskset. Deliberately
+        # NOT `verdict.COMPLETION_SAMPLES_KEY`: that key means "this step's completions"
+        # on every row that carries it, and one key holding a settings dict on the header
+        # and a list of text everywhere else is how a reader or a parser gets it wrong.
+        completion_sampling=None if sampler is None else {
+            "per_step": sampler.per_step,
+            "chars": sampler.chars,
+            "extract": getattr(sampler.extract, "__name__", str(sampler.extract)),
+        },
     )
 
     trainer = GRPOTrainer(
         model=model,
         processing_class=tokenizer,
-        reward_funcs=[_reward_for(args)],
+        reward_funcs=[reward],
         args=GRPOConfig(**config, output_dir="probe_out"),
         train_dataset=Dataset.from_list(prompts),
         callbacks=[make_callback(monitor)],
