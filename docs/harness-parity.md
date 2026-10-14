@@ -37,13 +37,19 @@ anyway: the one task PTC won and bash lost. bash's action space was a strict **s
 PTC's, which is not a harness comparison at all. Five of the nine harness faults in the
 defect ledger (`docs/deviations.md`) penalised PTC, one penalised bash, two were symmetric,
 and one is symmetric in principle but falls roughly three times harder on bash per unit of
-work. **Every one of the twenty-two was invisible to a green test suite, bar one**, and in
+work. **Every one of the twenty-five was invisible to a green test suite, bar one**, and in
 the thirteenth's case worse than invisible: `test_metrics.py` pinned the two failure prefixes
 against drift in the strings, so the suite locked in the blindness it was meant to guard
 against. (It read "every one of the thirteen" until 2026-10-13. The count was stated in a
 sentence no guard parsed, so the 12 → 13 move had already passed it by; it is parsed now. The
-exception is the gate tests, which a *red* suite caught and nobody had run.) Nothing in the
-suite compared what the two arms could *do*.
+exception is the gate tests, which a *red* suite caught and nobody had run. **The three rows
+filed 2026-10-14 do not add a second exception**, checked rather than assumed: no suite saw
+them at all. Two were found by reading — a log fetched six times that named the cause in one
+line, and a metric's own definition against the batch size the probe ran — and the quantities
+they turn on were computed nowhere in the suite, so there was nothing to go red. The third had
+a green control that was telling the truth about the wrong path: twelve fenced gold queries,
+never one completion shaped the way a policy writes. All three are invisible-to-green, which
+is what the sentence claims.) Nothing in the suite compared what the two arms could *do*.
 
 ---
 

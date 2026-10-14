@@ -92,7 +92,7 @@ trustworthy.
 
 ## The defect ledger (added 2026-10-08, because the count kept being asserted)
 
-**Twenty-two distinct faults: nine in the harness, six in the adjudication tools, seven in
+**Twenty-five distinct faults: nine in the harness, six in the adjudication tools, ten in
 the instruments built after run 3d.** Written down because three totals were in
 circulation and none had been derived. The vault index says "six", which was correct as of
 run 2h and stopped being correct at run 3b. An OSF abstract drafted on 2026-10-07 asserted
@@ -102,23 +102,32 @@ nine. A number in a published abstract has to be derived, not remembered.
 **The total moved 12 → 13 on 2026-10-10**, on the one-armed tool-success rate below. Any
 text asserting twelve — including the OSF abstract — is now stale.
 
-**It moved 13 → 22 on 2026-10-12/13, and not one of the nine was exposed by a run.** They
-were exposed by building the next instrument: the BIRD-SQL taskset, the paired SQL arms, the
-frontier gate and the probe's prompt draw. Two of the nine are in `ptc/paired.py` and join
-the adjudication tools; the other seven are in `bench/`, `train/` and the new `ptc/sql_arms.py`,
-which is neither of the two locations this ledger was built with, so they get a third group
-rather than a home that flatters the split. **No run id is invented for them.** The honest
-entry in a "run that exposed it" column is that there was no run: the instrument had not
-run anything yet, and eight of the nine were found by writing the tests the instrument
-needed in order to be trusted. The ninth was found differently and worse: the brief
-commissioning this section asserted a count of eight, and the commit it cited for one of
-them recorded a third fix nobody had filed. An asserted total hid a defect from the ledger
-whose subject is asserted totals.
+**It moved 13 → 25 between 2026-10-12 and 2026-10-14, and not one of the twelve was exposed
+by a run.** The first nine were exposed by building the next instrument: the BIRD-SQL taskset,
+the paired SQL arms, the frontier gate and the probe's prompt draw. Two of the twelve are in
+`ptc/paired.py` and join the adjudication tools; the other ten are in `bench/`, `train/` and
+the new `ptc/sql_arms.py`, which is neither of the two locations this ledger was built with,
+so they get a third group rather than a home that flatters the split. **No run id is invented
+for them.** The honest entry in a "run that exposed it" column is that there was no run: for
+the first nine the instrument had not run anything yet, and eight of them were found by
+writing the tests the instrument needed in order to be trusted. The ninth was found
+differently and worse: the brief commissioning this section asserted a count of eight, and the
+commit it cited for one of them recorded a third fix nobody had filed. An asserted total hid a
+defect from the ledger whose subject is asserted totals.
 
-**Seven of the nine are this project's own, introduced while building that instrument
+**The three filed 2026-10-14 break that pattern in the other direction: the instrument had
+run, six and seven times over, and the runs still did not expose them.** One was found by
+reading a log that had been fetched six times and stated the cause verbatim; one by asking
+what resolution the probe's primary metric could even have; one by asking why five runs
+reported reward 0.0 rather than reading 0.0 as the answer — and the limit still open inside
+that last one was found by sampling model output for the first time. A run produces the
+symptom. Reading produces the fault, and nothing in between is automatic.
+
+**Ten of the twelve are this project's own, introduced while building that instrument
 rather than inherited** (every row in the third table, including a timeout that could not
-fire inside the tool written to avoid one, and a guard that could not fail inside the gate
-written to make the band mean something). The two `ptc/paired.py` rows are inherited: that
+fire inside the tool written to avoid one, a guard that could not fail inside the gate
+written to make the band mean something, and a context smaller than the prompt it had to
+hold). The two `ptc/paired.py` rows are inherited: that
 expression dates to 2026-10-03, and every delta asked for between then and now sat outside
 the band. The near-miss inside the second row's *fix* is this session's own too — the AST
 test written to keep `_attained` independent matched the helper's name as a substring and
@@ -130,7 +139,7 @@ amend, not this file's: `HANDOFF.md`, `docs/outreach.md` (the OSF title, note an
 and `docs/results-untrained.md`.
 
 The `submitted` column exists so that both numbers stay derivable from one table: the
-thirteen those documents describe, frozen on 2026-10-11, and the twenty-two the ledger holds
+thirteen those documents describe, frozen on 2026-10-11, and the twenty-five the ledger holds
 now. `tests/test_defect_ledger.py` reads each of their sentences against the submitted
 subset, so none of them can drift to a third number while waiting for the amendment, and
 whichever of them is still on the submitted value has to be named in the list above — the
@@ -146,16 +155,18 @@ rather than remembered.
 "twelve of them fixed", which was the only count in any of these documents that nothing could
 derive: the tables recorded what each fault was and what caught it, never whether it had been
 repaired. Forcing it to a boolean would have lied in two places, so there are three states and
-the honest total is **20 fixed, 1 not fixable, 1 withdrawn**:
+the honest total is **23 fixed, 1 not fixable, 1 withdrawn**:
 
-- **fixed** (20) — a code change exists and a test covers it. Verified per row against the
+- **fixed** (23) — a code change exists and a test covers it. Verified per row against the
   implementation, not from memory: the turn budget reaching `PTCHarness`, `n_budget_exhausted`
   in the metrics, `render_catalog` in the system prompt, `"stream": True`, the
   empty-`choices` guard, `stream_options.include_usage`, the typed MCP catalog,
   `"HarnessError"` in the retry include-list, `_binom_cdf`'s log space with a max-shift,
   `Fraction` in `_attained`, `compare: str = "set"`, `MAX_ROWS = 500_000`, a defined
   `SECOND_HARNESS_REQUIREMENTS`, `MIN_FRONTIER_TASKS`, a progress handler that reads a
-  deadline rather than a flag nothing sets, and `root = pathlib.Path(root)` at the gate.
+  deadline rather than a flag nothing sets, `root = pathlib.Path(root)` at the gate,
+  `_SQL_LEAD` reached before the whole-string fallback in `extract_sql`, `max_seq_length_for`
+  deriving the context from the completion cap, and `GROUPS_PER_STEP = 4`.
 - **not fixable** (1) — the per-account rate limit. Its own section below is titled *"the
   seventh defect, and it is structural rather than fixable"*: bash issues 475 tool calls
   across 494 turns against PTC's 138, so it meets a request-rate limit roughly three times as
@@ -178,7 +189,11 @@ defect 4's fix — which is why the numbered total and the true total differ by 
 **Extended 2026-10-12:** one row per fault that would have made a run inadmissible had the
 instrument it lives in ever been run, which is the only form the convention can take for a
 fault found before the first rollout. Admissibility is the test, not whether a rollout
-happened to be burned proving it.
+happened to be burned proving it. **Unchanged 2026-10-14:** the three rows filed that day
+need no further extension. The probe and the reward had both run, repeatedly, and every one
+of those runs was inadmissible for the fault its row records, which is the original clause
+rather than the 2026-10-12 one. That clause covers the narrower case where no rollout exists
+yet; it does not cover a fault whose symptom a rollout produced and nobody read.
 
 ### Harness — nine
 
@@ -205,13 +220,16 @@ happened to be burned proving it.
 | `power_pairs` built each binomial term as `comb(d, i) * p ** (d - i)`, which converts the exact big integer to float first and raises `OverflowError` past d of ~1030, so every delta between 0.02 and 0.04 crashed instead of answering. Bounded on *both* sides, which is why no run ever touched it: delta >= 0.05 answers at a d below the ceiling and delta < 0.02 takes the lower `hi` bound and stops at d of 1000. All four published figures (59, 398, 859, 1571) sit outside the band | the bench lane siting the new taskset's power at a delta nobody had asked for before, 2026-10-12 | no | fixed |
 | `_attained` carried the same overflowing expression, and it is `demo()`'s *independent* check on the search, so the obvious repair (route it through the fixed helper) would have made the check agree by construction. Given exact `Fraction` arithmetic instead, a third method, and pinned by an AST test on call nodes | repairing the row above; the AST test's own first version matched the helper's name as a substring and failed on `_attained`'s comment about it | no | fixed |
 
-### Instruments built after run 3d — seven
+### Instruments built after run 3d — ten
 
-Same columns as the table above, and the same counting rule, but no `run` column: none of
-these seven was exposed by a run. They were exposed by building the instrument the next runs
-will use, before it had run anything. Each fault names its own file, because "the harness"
-and "the adjudication tools" are the two locations the project had when the ledger was
-written and these are in neither.
+Same columns as the table above, and the same counting rule, but no `run` column: not one of
+these ten was exposed by a run. The first seven were exposed by building the instrument the
+next runs would use, before it had run anything. The last three were exposed after it had
+run, and still not by the running: by reading a log, by reading a metric's own definition,
+and by reading what the model actually wrote. There is no run id to put in a column for them
+either, because a run that produces a symptom nobody reads has exposed nothing. Each fault
+names its own file, because "the harness" and "the adjudication tools" are the two locations
+the project had when the ledger was written and these are in neither.
 
 | fault | found by | submitted | state |
 |---|---|---|---|
@@ -222,23 +240,37 @@ written and these are in neither.
 | `train/guards.py`'s `n_tasks > 0` was conformant by construction: the solve-rate band is a band over the *retained* subset, so it cannot fail once out-of-band tasks are discarded, and a suite that drew 198 tasks and kept 3 passed every band check. The floor that replaced it is `power_pairs(0.25, 0.5)`, derived at import rather than stored, so it moves when the power function is corrected | the bench lane asking what the band could still reject, 2026-10-12 | no | fixed |
 | `bench/make_probe_prompts.py`'s gold-query timeout could never fire: its `sqlite3` progress handler closed over a flag nothing ever set, so it returned 0 forever and the two non-terminating BIRD golds hung the entire draw with no output. A timeout that cannot fire, written into the very tool built to avoid one | the draw producing no output at all, then a test driving an unbounded recursive CTE through the handler, 2026-10-13 | no | fixed |
 | `train/guards.py`'s gate accepted only a `Path`: `root / FRONTIER_MANIFEST` raised `TypeError` on a `str`, so the one function whose entire purpose is explaining why the pipeline is shut failed with an operator error on an ordinary argument instead of a reason | not by the code and not by a run: this row exists because the brief commissioning the eight rows above was wrong about the count, and the commit it cited recorded a third fix, 2026-10-13 | no | fixed |
+| `bench/score.py`'s `extract_sql` took the first fenced block if present and **the whole string otherwise**, so a completion reading `The answer is:` followed by `SELECT count(*) FROM frpm` came back with the prose attached, failed to execute, and scored 0 with the correct SQL inside it. A 0.6B policy explains itself constantly, so this understated it in exactly the way the function's own docstring warns about. The reward's positive control fed it twelve fenced gold queries and passed twelve times, which exercises the path the *reference* takes and never the path a *policy* takes. **Fixed with a successor still open:** run 7's samples show the first-fence heuristic also lands wrong when the model echoes the prompt's schema fence, and 3 of 4 sampled completions extracted prose or `Answer:`. This row is the whole-string passthrough, not a claim that extraction is now sound | asking why five GPU runs reported reward 0.0, rather than reading 0.0 as the measurement, 2026-10-14. Not a run and not a test: the control was green over its twelve gold queries throughout | no | fixed |
+| `train/dead_group_probe.py` never passed `max_seq_length`, so unsloth's default of 2048 applied while a BIRD prompt measures 2612 tokens: the prompt consumed the entire context with nothing left to generate into, and `max_completion_length` was simultaneously 3072, larger than the model's whole context. Two numbers chosen in different places and never multiplied together. This one fault is every symptom of six consecutive runs: empty completions, so reward 0.0, so `frac_reward_zero_std` 1.0, and `mask_truncated_completions=True` then masked all of them, which is `grad_norm` 0.0 in all six runs. Logged every time, flagged twice as unexplained, and read past both times | reading v6's log, which had been fetched six times and stated it verbatim: `Input IDs of shape (8, 2612) with length 2612 > the model's max sequence length of 2048`. Not a run and not a test, 2026-10-14 | no | fixed |
+| `frac_reward_zero_std` is a fraction over *groups* and `train/dead_group_probe.py` never set a batch size, so TRL's default of 8 sequences applied: G=4 gave 2 groups and G=8 gave 1. With one group the statistic is a Bernoulli draw and the 0.60 abort ceiling is unreachable, so at the measured solve rate a lone group is uniform about 60% of the time and **the probe aborted at exactly the rate a healthy configuration predicts** — twice, and both aborts were reported as findings about the reward and about the taskset in turn | reading the metric's own definition against the batch the probe actually ran; nothing in the repo had ever checked that quantity, 2026-10-13 | no | fixed |
 
 **Five of the nine harness faults penalised the PTC arm, one penalised bash (defect 6), two
 were symmetric (the two knock-ons), and one — the rate limit — is symmetric in principle but
 falls roughly three times harder on bash per unit of work, because bash makes one request per
-turn.** The ledger holds twenty-two rows, and the suite was green over all of them but the
+turn.** The ledger holds twenty-five rows, and the suite was green over all of them but the
 gate tests. The one-armed `tool_success_rate` is worse than invisible: `test_metrics.py`
 pinned the two failure prefixes against drift *in the strings*, so the suite actively locked
 in the blindness it was meant to guard.
 
-**"Invisible to a green suite" needs splitting after 2026-10-12, because the nine new rows
-got past it two different ways.** Three of them are the harder case — a guard that could not
+**"Invisible to a green suite" needs splitting after 2026-10-12, because the twelve new rows
+got past it three different ways.** Three of them are the harder case — a guard that could not
 fail, a timeout that could not fire, and a default nothing pinned — where the suite was green
 *because* the check could never try, and a check that cannot fail is indistinguishable from
 one that passes. The gate tests are the opposite route, and the only row here the suite did
 report: they were left *failing*, so it was red and nobody had run it. A red suite nobody
 reads and a green suite that cannot fail produce the same silence, and only one of them looks
 like a problem.
+
+**The third route arrived 2026-10-14, and the suite is not where it was missed.** `grad_norm`
+logged 0.0 in six consecutive runs and was flagged twice as unexplained; v6's log named the
+cause in a single line and had been fetched six times. For those two the suite could not have
+gone red, because the quantities were never computed anywhere: nothing related the context
+length to the prompt length, and nothing checked how many groups a step contained. The third
+is the inverse and the most expensive shape here — the reward's positive control *was* green,
+over twelve fenced gold queries, and the green was true. It measured the route the reference
+takes. Nothing had ever handed that function the kind of text a policy emits. A control that
+passes on the wrong path is not a check that cannot fail; it is a check answering a question
+nobody asked, and it reads identically from the outside.
 
 ---
 

@@ -228,13 +228,31 @@ LEDGER_CLAIMS: tuple[Claim, ...] = (
     (f"The ledger holds ({WORD}) rows", ("total",)),
     # The 13 -> 21 move, and the batch it added. Both numbers are in the tables: the
     # batch is every row whose `submitted` cell says no, so the paragraph describing it
-    # cannot be left behind by the next one.
-    (f"It moved ({WORD}) → ({WORD}) on 2026-10-12", ("submitted_total", "total")),
+    # cannot be left behind by the next one. The END date is not in the pattern: it moved
+    # on 2026-10-14 when three more were filed and will move again, so pinning it would
+    # make the guard a second place to edit and a sentence it stopped matching reads as
+    # "reworded" rather than as a drifted count. The start date is the frozen fact.
+    (f"It moved ({WORD}) → ({WORD}) between 2026-10-12 and",
+     ("submitted_total", "total")),
     (f"not one of the ({WORD}) was exposed by a run", ("new_total",)),
-    (f"({WORD}) of the nine are in ptc/paired.py and join the adjudication tools; the "
+    # "N of the M" -- both halves derived, because the second half was the literal word
+    # "nine" in this pattern until 2026-10-14 and the batch had grown to twelve. A pattern
+    # that hard-codes one of the two numbers it is comparing stops matching when that
+    # number moves, which reports as a reworded sentence and hides the real drift.
+    (f"({WORD}) of the ({WORD}) are in ptc/paired.py and join the adjudication tools; the "
      f"other ({WORD}) are in bench/, train/ and the new ptc/sql_arms.py",
-     ("new_tools", "instrument")),
-    (f"({WORD}) of the nine are this project's own", ("new_instrument",)),
+     ("new_tools", "new_total", "instrument")),
+    (f"({WORD}) of the ({WORD}) are this project's own",
+     ("new_instrument", "new_total")),
+    # The third group states its count twice: in the heading, which
+    # `test_the_ledger_tables_agree_with_their_own_group_headings` reads, and again in the
+    # paragraph under it, which nothing read until 2026-10-14. A checked heading directly
+    # above an unchecked restatement of the same number is `docs/harness-parity.md` again,
+    # three days stale in a sentence no pattern parsed.
+    (f"not one of these ({WORD}) was exposed by a run", ("instrument",)),
+    # The sentence that splits "invisible to a green suite" states the size of the batch it
+    # is splitting, so it moves with the batch rather than with the total.
+    (f"because the ({WORD}) new rows got past it", ("new_total",)),
     # The three repair states, in the sentence and again in the bullet that explains each.
     (f"the honest total is ({WORD}) fixed, ({WORD}) not fixable, ({WORD}) withdrawn",
      ("fixed", "not_fixable", "withdrawn")),
