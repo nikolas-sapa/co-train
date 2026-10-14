@@ -203,6 +203,224 @@ def test_a_graded_reward_is_refused_because_it_breaks_the_probe_s_model():
         probe.assert_binary_reward([0.0, 0.5, 1.0])
 
 
+# ------------------------------------------- what the model actually wrote
+#
+# Six probe runs were adjudicated from aggregate metrics and nobody read a completion.
+# Reward 0.0 with frac_reward_zero_std 1.000 was read as "the policy cannot solve
+# these tasks", but it is equally consistent with output the reward's extraction does
+# not recover, with nothing generated at all, and with the completion cap cutting the
+# answer off. These tests pin the sampling that separates those.
+
+
+def test_the_sample_records_what_was_generated_beside_what_was_extracted():
+    """Both fields, because the gap between them IS the hypothesis under test.
+
+    One reward number cannot distinguish "wrote the wrong answer" from "wrote the
+    right answer in a shape the extractor missed" from "wrote nothing". The row can.
+    """
+    completions = ["<answer>ada</answer>", "the answer is ada", ""]
+    sampler = probe.CompletionSampler()
+    sampler.record(completions, probe.exact_match_reward(completions, ["ada"] * 3))
+    samples = sampler.drain()
+
+    assert [s["reward"] for s in samples] == [1.0, 0.0, 0.0]
+    assert [s["extracted"] for s in samples] == ["ada", None, None]
+    assert [s["completion"] for s in samples] == completions
+    assert [s["chars"] for s in samples] == [len(c) for c in completions]
+    # the two zeros are opposite diagnoses and the row says which: text present with
+    # nothing recovered is a format fault, no text at all is a generation fault
+    assert samples[1]["chars"] > 0 and samples[2]["chars"] == 0
+    assert sampler.drain() == []  # drained, so the next step does not inherit this one
+
+
+def test_a_long_completion_is_cut_to_its_budget_and_names_what_it_dropped():
+    """A sink that swallowed whole completions would be unread for the same reason the
+    aggregates were: too much to look at. The dropped count is in the value, so a cut
+    sample cannot be mistaken for a model that stopped there."""
+    long = "SELECT " + "x" * (probe.SAMPLE_CHARS * 3)
+    sampler = probe.CompletionSampler()
+    sampler.record([long], [0.0])
+    sample, = sampler.drain()
+
+    dropped = len(long) - probe.SAMPLE_CHARS
+    assert sample["completion"] == long[:probe.SAMPLE_CHARS] + f"...[+{dropped} chars]"
+    assert sample["chars"] == len(long)  # the untruncated length still travels with it
+    assert len(sample["completion"]) < len(long)
+    # and a completion inside the budget is recorded verbatim, marker and all absent
+    assert probe.truncated("x" * probe.SAMPLE_CHARS) == "x" * probe.SAMPLE_CHARS
+
+
+def test_the_extraction_is_cut_to_the_same_budget():
+    """An unterminated fence leaves `extract_sql` returning the whole tail of the reply
+    -- the case most worth seeing, and the one that would otherwise double the row it
+    sits in. Asserted against `extract_sql`'s live behaviour rather than a copy of it,
+    because `bench/score.py` owns what extraction means and changed it on 2026-10-14."""
+    from bench.score import extract_sql
+
+    unterminated = "```sql\nSELECT " + "y" * (probe.SAMPLE_CHARS * 2)
+    sampler = probe.CompletionSampler(extract=extract_sql)
+    sampler.record([unterminated], [0.0])
+    sample, = sampler.drain()
+
+    assert len(extract_sql(unterminated)) > probe.SAMPLE_CHARS  # else nothing is proved
+    assert sample["extracted"] == probe.truncated(extract_sql(unterminated))
+    assert sample["extracted"].endswith("chars]")
+
+
+def test_sampling_keeps_one_group_per_step_across_accumulation():
+    """One logged step is `gradient_accumulation_steps` reward calls, so the sampler
+    accumulates across them; replacing would record only the last micro-batch and the
+    JSONL would silently describe a different part of the step than its metric does.
+
+    The cap is G because TRL lays the batch out as G consecutive completions per
+    prompt: the first G are exactly one group, the unit `frac_reward_zero_std` counts.
+    """
+    assert probe.SAMPLES_PER_STEP == probe.NUM_GENERATIONS
+    per_device, accum = probe.batch_for(probe.NUM_GENERATIONS)
+    assert accum > 1, (per_device, accum)  # otherwise this test proves nothing
+
+    sampler = probe.CompletionSampler()
+    for call in range(accum):
+        batch = [f"<answer>c{call}-{i}</answer>" for i in range(per_device)]
+        sampler.record(batch, probe.exact_match_reward(batch, ["none"] * per_device))
+    samples = sampler.drain()
+    assert len(samples) == probe.SAMPLES_PER_STEP
+    assert [s["extracted"] for s in samples] == [
+        f"c0-{i}" for i in range(probe.SAMPLES_PER_STEP)]
+
+    # micro-batches smaller than the cap contribute to the same step, in order
+    sampler = probe.CompletionSampler()
+    half = probe.SAMPLES_PER_STEP // 2
+    for call in range(2):
+        batch = [f"<answer>c{call}-{i}</answer>" for i in range(half)]
+        sampler.record(batch, [0.0] * half)
+    assert [s["extracted"] for s in sampler.drain()] == [
+        f"c{call}-{i}" for call in range(2) for i in range(half)]
+
+
+def test_the_wrapped_reward_keeps_its_name_and_passes_its_scores_through():
+    """TRL names its reward columns after `reward_func.__name__`, so an unnamed wrapper
+    renames the metric a later run is compared against -- and a sampler that changed a
+    score would be softening the reward whose geometry is the measurement."""
+    sampler = probe.CompletionSampler()
+    wrapped = probe.sampling_reward(probe.exact_match_reward, sampler)
+    completions = ["<answer>ada</answer>", "no tags"]
+    expected = probe.exact_match_reward(completions, ["ada"] * 2)
+
+    assert wrapped.__name__ == probe.exact_match_reward.__name__
+    assert wrapped(completions=completions, answer=["ada"] * 2) == expected
+    assert len(sampler.drain()) == len(completions)
+    # called positionally too: recording must not depend on TRL's call style
+    assert wrapped(completions, ["ada"] * 2) == expected
+    assert len(sampler.drain()) == len(completions)
+
+
+def test_the_sampled_extraction_is_the_rewards_own_not_a_second_copy():
+    """A sample only measures the reward if it shows the reward's own extraction."""
+    from bench.score import extract_sql
+
+    def parsed(*extra):
+        return probe.build_parser().parse_args(
+            ["--prompts", "p", "--taskset-id", "t", *extra])
+
+    assert probe._extractor_for(parsed()) is probe.extracted_answer
+    assert probe._extractor_for(parsed("--reward", "ex", "--db-root", ".")) is extract_sql
+    # and `exact_match_reward` scores exactly what the sample reports as extracted
+    text = "<answer>  ADA </answer>"
+    assert probe.extracted_answer(text) == "ada"
+    assert probe.exact_match_reward([text], ["ada"]) == [1.0]
+
+
+def test_the_samples_ride_the_same_row_as_the_metric_through_the_sink(tmp_path):
+    """One fetched artifact has to carry the metric and the text it was computed from;
+    a second output file is one more thing to remember to look at."""
+    sink = tmp_path / "probe.jsonl"
+    sampler = probe.CompletionSampler()
+    monitor = probe.ProbeMonitor(sink=sink, sampler=sampler)
+    # the header records the sampling SETTINGS under a different key on purpose: one
+    # key must not mean "the budget" on one row and "the text" on all the others
+    monitor.header(probe="dead_group", taskset_id="fixture",
+                   completion_sampling={"per_step": sampler.per_step,
+                                        "chars": sampler.chars})
+    sampler.record(["<answer>ada</answer>"], [1.0])
+    assert monitor.observe(step(0.4)) is None
+    assert monitor.observe(step(0.4)) is None  # nothing recorded for this one
+    monitor.observe({"train_runtime": 1.0, "train_loss": 0.1})
+
+    head, first, second, summary = V.load(str(sink))
+    assert V.COMPLETION_SAMPLES_KEY not in head
+    assert V.COMPLETION_SAMPLES_KEY not in summary  # the summary is not a step
+    assert [s["extracted"] for s in first[V.COMPLETION_SAMPLES_KEY]] == ["ada"]
+    # present and empty, not absent: "the reward saw no completion" must not look
+    # like "sampling was switched off"
+    assert second[V.COMPLETION_SAMPLES_KEY] == []
+    assert V.completion_samples(V.load(str(sink))) == [(0, first[V.COMPLETION_SAMPLES_KEY][0])]
+
+
+def test_sampling_is_on_by_default_and_turning_it_off_is_the_deliberate_act():
+    """The lesson is that nobody looked, so the default must not depend on asking."""
+    base = ["--prompts", "p", "--taskset-id", "t"]
+    assert probe.build_parser().parse_args(base).no_completion_samples is False
+    assert probe.build_parser().parse_args(
+        base + ["--no-completion-samples"]).no_completion_samples is True
+    assert probe.ProbeMonitor().sampler is None  # explicitly wired, never implicit
+
+
+def test_the_verdict_shows_the_samples_without_being_asked():
+    """A reader adjudicating a run with no correct answers is shown the text, not told
+    where to grep for it -- and shown the first step's group IN FULL, because cutting
+    it at a fixed count hides whichever shape came last."""
+    raw = "the answer is ada"
+    group = [{"chars": len(raw), "completion": raw, "extracted": None, "reward": 0.0},
+             {"chars": 0, "completion": "", "extracted": None, "reward": 0.0}]
+    logs = probe_log([1.0] * 5)
+    for n, row in enumerate(V.training_steps(logs)):
+        row[V.COMPLETION_SAMPLES_KEY] = group if n == 0 else group[:1]
+
+    total = len(group) + (len(V.training_steps(logs)) - 1)
+    notes = V.observations(logs)
+    assert any(f"{total} completions sampled over 5 steps" in n for n in notes)
+    assert any("0 scored above 0" in n and f"{total} had nothing recovered" in n
+               for n in notes)
+    assert any(raw in n for n in notes)  # verbatim, not summarised
+    assert sum("step 0 sample: reward" in n for n in notes) == len(group)
+    assert any(f"{total - len(group)} further samples" in n for n in notes)
+
+
+def test_a_file_that_recorded_nothing_says_which_kind_of_nothing():
+    """"sampling was off" and "the reward was never handed a completion" are different
+    faults with different fixes, so they get different notes."""
+    off = V.observations(probe_log([1.0] * 5))
+    assert any("no step recorded what the model wrote" in n for n in off)
+    assert any("--no-completion-samples" in n for n in off)
+
+    logs = probe_log([1.0] * 5)
+    for row in V.training_steps(logs):
+        row[V.COMPLETION_SAMPLES_KEY] = []
+    on = V.observations(logs)
+    assert any("recorded nothing across 5 steps" in n for n in on)
+    assert any("generation-path fault" in n for n in on)
+    assert not any("no step recorded" in n for n in on)
+
+
+def test_the_samples_are_never_a_pass_criterion():
+    """Text is evidence for a diagnosis. It must not be able to make a probe pass, and
+    a failure must not be downgradable to a quote."""
+    def with_samples(logs, samples):
+        rows = [dict(r) for r in logs]
+        for row in V.training_steps(rows):
+            row[V.COMPLETION_SAMPLES_KEY] = samples
+        return rows
+
+    perfect = [{"chars": 20, "completion": "<answer>ada</answer>",
+                "extracted": "ada", "reward": 1.0}]
+    aborting = probe_log([0.4, 0.4, 0.9, 0.4, 0.4])
+    assert V.probe_verdict(with_samples(aborting, perfect)) == V.probe_verdict(aborting)
+
+    clean = probe_log([0.4] * 5)
+    assert V.probe_verdict(with_samples(clean, []))[0] is True
+
+
 # ------------------------------------------------------- the live probe abort
 
 
@@ -869,3 +1087,42 @@ def test_the_metric_has_enough_groups_to_reach_its_own_ceiling():
         batch_for(8, 1)
     with pytest.raises(ValueError, match="attainable levels"):
         batch_for(4, MIN_GROUPS_PER_STEP - 1)
+
+
+def test_the_context_fits_the_prompt_and_a_full_completion():
+    """Six runs died because the sequence length was smaller than the prompt.
+
+    Unsloth defaults `max_seq_length` to 2048 and the probe never set it, while
+    `max_completion_length` was 3072 -- larger than the model's entire context. The two
+    were chosen in different places by different reasoning and never multiplied
+    together. v6's log: `Input IDs of shape (8, 2612) with length 2612 > the model's max
+    sequence length of 2048`.
+
+    The prompt therefore consumed the whole context with nothing left to generate into,
+    so completions were empty or instantly truncated (reward 0.0,
+    frac_reward_zero_std 1.0) and `mask_truncated_completions=True` masked all of them,
+    which is the unexplained `grad_norm` of 0.0 in every run.
+    """
+    from train.dead_group_probe import (MEASURED_MAX_PROMPT_TOKENS, max_seq_length_for,
+                                        probe_config)
+
+    for g in (4, 8):
+        config = probe_config(5, g)
+        cap = config["max_completion_length"]
+        seq = max_seq_length_for(cap)
+        assert seq >= MEASURED_MAX_PROMPT_TOKENS + cap, (g, seq, cap)
+        # the old pairing must now be impossible to express
+        assert seq > 2048, seq
+        assert cap < seq, (cap, seq)
+        assert seq % 1024 == 0, seq
+
+
+def test_a_longer_cap_moves_the_context_with_it():
+    """Derived rather than stored, so the two cannot drift apart again. This is the
+    property that was missing, not the specific 6144."""
+    from train.dead_group_probe import MEASURED_MAX_PROMPT_TOKENS, max_seq_length_for
+
+    small, large = max_seq_length_for(1024), max_seq_length_for(4096)
+    assert large > small
+    for cap in (512, 1024, 3072, 4258, 8192):
+        assert max_seq_length_for(cap) >= MEASURED_MAX_PROMPT_TOKENS + cap, cap

@@ -47,6 +47,16 @@ and logs the difference's mean and max, with
 `vllm_importance_sampling_correction=True` and mode `"sequence_mask"` as
 measured defaults."""
 
+COMPLETION_SAMPLES_KEY = "completion_samples"
+"""Where the probe records what the model actually wrote: a list per step of
+`{chars, completion, extracted, reward}` -- the untruncated length, the reply cut to
+`dead_group_probe.SAMPLE_CHARS`, what the reward's own extraction recovered from it,
+and the score it received.
+
+**Read as an observation and never as a criterion.** Text is evidence for a diagnosis;
+it must not be able to make a probe pass, and a failure must not be downgradable to a
+quote. `observations()` prints it, `probe_verdict` does not look at it."""
+
 # ----------------------------------------------------------------- thresholds
 
 ZERO_STD_CEILING = 0.60
@@ -94,6 +104,13 @@ def header(logs: Iterable[dict]) -> dict | None:
         if "taskset_id" in row:
             return row
     return None
+
+
+def completion_samples(logs: Sequence[dict]) -> list[tuple[int, dict]]:
+    """`(step index, sample)` for every completion the probe recorded."""
+    return [(i, sample)
+            for i, row in enumerate(training_steps(logs))
+            for sample in (row.get(COMPLETION_SAMPLES_KEY) or [])]
 
 
 # -------------------------------------------------------------- criterion A
@@ -289,6 +306,72 @@ def run_verdict(logs: Sequence[dict]) -> tuple[bool, list[str]]:
     return (not reasons), reasons
 
 
+def _sample_observations(logs: Sequence[dict]) -> list[str]:
+    """What the model actually wrote, shown without being asked for.
+
+    A reader adjudicating a run whose reward is 0.0 everywhere needs the text, not a
+    pointer to the JSONL: reward 0 with text present and nothing extracted is a format
+    fault, with nothing generated it is a generation fault, and with SQL extracted it
+    is the policy. One summary line carries those three counts, then the FIRST SAMPLED
+    STEP IN FULL.
+
+    In full, and one step, because the unit is a group: the probe records the step's
+    first `dead_group_probe.SAMPLES_PER_STEP` completions, which TRL lays out as one
+    prompt's group -- exactly what `frac_reward_zero_std` counts. Printing a fixed few
+    instead would cut that group mid-way and hide whichever shape came last, which is
+    how the first draft of this hid the unterminated-fence case. The rest of the file
+    is named, not printed.
+    """
+    out: list[str] = []
+    steps = training_steps(logs)
+    carrying = [r for r in steps if COMPLETION_SAMPLES_KEY in r]
+    samples = completion_samples(logs)
+
+    if steps and not carrying:
+        return [
+            "no step recorded what the model wrote, so this file cannot say WHY the "
+            f"reward is what it is. A reward of 0 with {ZERO_STD_KEY} at 1.0 is equally "
+            "consistent with a policy that cannot solve the task, output the reward's "
+            "extraction does not recover, an empty generation path, and the completion "
+            "cap cutting the answer off -- four different fixes. Re-run without "
+            "--no-completion-samples; sampling is on by default."
+        ]
+    if carrying and not samples:
+        return [
+            f"completion sampling was ON and recorded nothing across {len(carrying)} "
+            "steps: the reward function was never handed a completion. That is a "
+            "generation-path fault, not a policy one, and no change to the reward "
+            "addresses it."
+        ]
+    if not samples:
+        return out
+
+    scored = [s for _, s in samples if _finite(s.get("reward")) and s["reward"] > 0]
+    unrecovered = [s for _, s in samples if not s.get("extracted")]
+    empty = [s for _, s in samples if not s.get("chars")]
+    out.append(
+        f"{len(samples)} completions sampled over {len(carrying)} steps: {len(scored)} "
+        f"scored above 0, {len(unrecovered)} had nothing recovered by the reward's "
+        f"extraction, {len(empty)} were empty. Reward 0 with text present and nothing "
+        "extracted is a format fault; with nothing generated, a generation fault; with "
+        "the answer extracted, the policy."
+    )
+    first = min(index for index, _ in samples)
+    shown = [sample for index, sample in samples if index == first]
+    for sample in shown:
+        out.append(
+            f"step {first} sample: reward {sample.get('reward')!r}, "
+            f"{sample.get('chars')!r} chars generated, "
+            f"extracted {sample.get('extracted')!r}, raw {sample.get('completion')!r}"
+        )
+    if len(samples) > len(shown):
+        out.append(
+            f"{len(samples) - len(shown)} further samples, from the steps after "
+            f"{first}, are in the metrics file under {COMPLETION_SAMPLES_KEY!r}."
+        )
+    return out
+
+
 def observations(logs: Sequence[dict]) -> list[str]:
     """What the operator should see that is not a failure."""
     # Lazy, and the only edge of its kind: `dead_group_probe` imports this module
@@ -320,6 +403,8 @@ def observations(logs: Sequence[dict]) -> list[str]:
                 "metric alone, and they are opposite diagnoses. Read the mean reward "
                 "to tell them apart."
             )
+
+    out += _sample_observations(logs)
 
     if steps and not any(LOGP_DIFF_KEY in r for r in steps):
         out.append(
