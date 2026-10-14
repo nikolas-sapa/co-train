@@ -608,3 +608,52 @@ def test_a_scalar_gold_is_kept_and_a_wide_one_is_not(tmp_path):
     assert mpp.scalar_answer(task("SELECT a FROM t")) is None              # two rows
     assert mpp.scalar_answer(task("SELECT nope FROM t")) is None           # broken gold
     assert mpp.scalar_answer(task("SELECT NULL")) is None                  # no answer
+
+
+EXTRACT_CASES = [
+    # (name, raw completion, expected extraction or None for "unchanged passthrough")
+    ("fenced_sql", "```sql\nSELECT 1\n```", "SELECT 1"),
+    ("fenced_no_tag", "```\nSELECT 1\n```", "SELECT 1"),
+    ("bare", "SELECT 1", "SELECT 1"),
+    ("bare_semicolon", "SELECT 1;", "SELECT 1"),
+    ("prose_then_bare", "The answer is:\nSELECT 1", "SELECT 1"),
+    ("prose_then_fenced", "Here:\n```sql\nSELECT 1\n```\nDone.", "SELECT 1"),
+    ("lowercase", "select 1", "select 1"),
+    ("answer_tags", "<answer>SELECT 1</answer>", "SELECT 1"),
+    ("cte", "I think:\nWITH t AS (SELECT 1) SELECT * FROM t",
+     "WITH t AS (SELECT 1) SELECT * FROM t"),
+    ("semicolon_then_prose", "SELECT 1; this counts them", "SELECT 1"),
+]
+
+
+@pytest.mark.parametrize("name, raw, expected", EXTRACT_CASES,
+                         ids=[c[0] for c in EXTRACT_CASES])
+def test_extract_sql_recovers_the_query_from_what_a_policy_actually_writes(
+        name, raw, expected):
+    """Until 2026-10-14 `extract_sql` returned the whole string whenever no fence was
+    present, so "The answer is:\\nSELECT 1" came back with the prose attached, failed to
+    execute, and scored 0 with correct SQL inside it.
+
+    A small model explains itself constantly. Five free GPU runs reported reward 0.0 and
+    were read as capability measurements while this was unfixed; the reward's own
+    controls fed it fenced gold queries, which is the path the GOLD takes and not the
+    path a POLICY takes.
+    """
+    assert extract_sql(raw) == expected
+
+
+def test_extract_sql_leaves_a_completion_with_no_sql_alone():
+    """No SQL means no extraction, and the text must not be mangled into something that
+    accidentally parses. These score 0 by failing to execute, which is correct."""
+    for raw in ("", "I need more information about the schema.",
+                "Question: how many rows?"):
+        got = extract_sql(raw)
+        assert got == raw.strip(), (raw, got)
+
+
+def test_extract_sql_keeps_multi_line_sql_whole():
+    """The documented limit runs the other way: prose AFTER the query on a new line is
+    still included when no semicolon closes it, because cutting at the first newline
+    would break multi-line SQL -- which is common and correct. This pins the trade."""
+    multi = "SELECT a,\n       b\nFROM t\nWHERE a > 1"
+    assert extract_sql(multi) == multi

@@ -92,6 +92,16 @@ class ExResult:
     n_gold_rows: int = 0
 
 
+# A SQL statement's leading keyword, at a word boundary. WITH covers CTEs, which BIRD
+# uses heavily; VALUES and SELECT cover the rest of what a text-to-SQL policy emits.
+# Anchored with \b so a column named "selection" does not start a statement.
+_SQL_LEAD = re.compile(r"\b(?:select|with|values)\b", re.IGNORECASE)
+
+# `<answer>...</answer>` from the sibling exact-match reward, which a confused policy
+# mixes into a SQL task.
+_ANSWER_TAGS = re.compile(r"<answer>(.*?)</answer>", re.IGNORECASE | re.DOTALL)
+
+
 def extract_sql(text: str) -> str:
     """Pull a SQL statement out of model output.
 
@@ -102,12 +112,37 @@ def extract_sql(text: str) -> str:
     and understate the model, which looks exactly like a frontier-band problem and is
     not one.
 
-    Takes the first fenced block if there is one, else the whole string, then strips a
-    trailing semicolon.
+    Order: a fenced block if there is one; else the text from the first SQL leading
+    keyword onward; else the whole string. Then a trailing semicolon and anything after
+    it is dropped.
+
+    **The prose case is not a nicety.** Until 2026-10-14 this returned the whole string
+    whenever no fence was present, so a completion reading "The answer is:\nSELECT
+    count(*) FROM frpm" came back with the prose attached, failed to execute, and scored
+    0 -- with the SQL inside it correct. A small model explains itself constantly, so
+    this understated the policy in exactly the way the docstring above warns about, and
+    it did so during five free GPU runs that were read as capability measurements.
+    `<answer>` wrappers are stripped for the same reason: the sibling reward uses that
+    format and a confused policy mixes them.
+
+    **Known limit, stated rather than fixed:** prose AFTER the query on a new line is
+    still included when no semicolon closes the statement. Cutting at the first newline
+    would break multi-line SQL, which is both common and correct, so the trade goes the
+    other way. Such a completion scores 0, and the sampled completions in the probe's
+    metrics are how that case is spotted rather than inferred.
     """
     m = _FENCE.search(text)
-    body = m.group(1) if m else text
-    return body.strip().rstrip(";").strip()
+    if m:
+        body = m.group(1)
+    else:
+        stripped = _ANSWER_TAGS.sub(r"\1", text)
+        lead = _SQL_LEAD.search(stripped)
+        body = stripped[lead.start():] if lead else stripped
+    body = body.strip()
+    # Drop a trailing semicolon AND whatever follows it: the statement ended there, and
+    # `execution_accuracy` runs exactly one statement.
+    head, sep, _ = body.partition(";")
+    return (head if sep else body).strip().rstrip(";").strip()
 
 
 def _normalise(value: object) -> object:
