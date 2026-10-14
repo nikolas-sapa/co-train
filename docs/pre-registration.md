@@ -625,3 +625,74 @@ for N1; set-based comparison over multiset; excluding Spider; and raising the ro
 to 500,000. **No measurement requiring this amendment has been run at the time of
 signing** — `bench/frontier/manifest.json` does not exist, `train/guards.py`'s gate is
 shut, and the git timestamp is the evidence that this precedes the data.
+
+---
+
+### A9 — 2026-10-14, after the caching audit: the dollar ratio is an upper bound, and the condition favours bash — UNSIGNED
+
+**Status: UNSIGNED.** Drafted by Claude under Nikolas' direction. It restates a condition on
+A7's cost claim and records the first external corroboration this result has had. It is not
+an owner's signature on the amendment.
+
+**What this does not touch.** The token ratio (8.0-10.7x as reported, 6.9-8.9x de-inflated),
+the mechanism, and the sign of the cost result. Nothing here is a withdrawal.
+
+**The condition, which A7 stated too weakly.** A7 says the rates are "one relay on one date,
+not a provider price list", and that the dollars are "an estimate with a stated floor". Both
+are true and both are insufficient, because neither names the *direction* of the bias. The
+relay reported **zero cached input tokens on both arms**. Run 3d's own table
+(`~/scratch/co-train-run3d/run.log:15`):
+
+```
+prompt tokens (billed)     2229481    208780
+cached tokens                    0         0
+```
+
+`ptc/metrics.py:244` reads `cached_input_tokens` and `:321` raises `cost_is_upper_bound` when
+a cached price is missing, so the instrument was built to see caching. It saw none. Every
+input token in every admissible run is therefore priced at the full uncached rate.
+
+**That is not neutral between the arms.** bash re-sends its transcript once per turn, so its
+prompt is a long, stable, growing prefix -- the ideal prefix-cache hit pattern. PTC sends
+short prompts that vary per call and cache poorly. Providers bill cache reads at a fraction
+of uncached input. **So a no-cache billing basis maximises exactly the ratio this project
+reports.** `research/02-synthesis.md:196-197` already held the mechanism: *"r = 0.15 between
+token reduction and cost reduction. Cause is cache dynamics: compression breaks prefix
+caching, and cache-read tokens are billed at a fraction of uncached input."* The mechanism
+was documented and then measured under the one condition where it cannot bite.
+
+**Restated:** `6.1-8.2x dollars per solved task` is an **upper bound conditioned on no prefix
+caching**, and the amount by which prefix caching would compress it is **unmeasured**. Only a
+run against an endpoint that reports `cached_input_tokens` settles it.
+
+**External corroboration, recorded because it is the first this result has had.** HarnessTax
+(UC Berkeley and Arena Intelligence Inc.; Pan, Yang, Arabzadeh, Chiang, Stoica, Zaharia --
+https://harnesstax.github.io/) evaluates 21 model-harness pairs over 7 models and 3 harnesses
+on SWE-bench Lite and Terminal-Bench 2.0, 30 tasks x 3 repetitions, bootstrap intervals, on a
+fixed direct-API price list:
+
+- *"Harness choice has little effect on task success rate, but can significantly affect the
+  cost. The same model can achieve similar success rates at up to 5x costs."*
+- Claude Fable 5: 97.8% in Claude Code, 96.7% in Codex, 96.7% in Pi -- Claude Code at about
+  **2x Pi** ($1.33 vs $0.67). Across shared models Claude Code is **2.0x Pi** and **1.6x
+  Codex** on SWE-bench Lite. Harness effect on success rate within **+/-2%**.
+- *"Claude Code's mean initial context is over 10x Pi's"* -- the same mechanism, on real
+  harnesses rather than a self-authored pair.
+
+This project's finding is the same claim, with the same metric, at a larger effect size, on
+n=29 with one model behind one unaudited relay. **The gap between their ~2x and this
+project's 6.1-8.2x is a caching question, not a disagreement**, and the paragraph above is
+why.
+
+Also recorded: Reason Machines (https://reasonmachines.com, Agent 1.1 post dated 2026-10-10)
+ships a product on this premise -- *"The model sets the pass rate; the harness sets the
+bill"* -- reports cost per solved task as its headline metric, cites HarnessTax, and states
+that *"going from 95% to 98% [cache hit rate] cut one modelled bill by about 17%."* Its
+`codemode` tool is this project's PTC arm under another name. **The co-primary this project
+treats as its surviving result is a solved and commercialised question elsewhere.** That
+bears on what this instrument should be pointed at next, and it is the honest reason to stop
+describing the cost ratio as this project's contribution.
+
+**What would settle A9:** one paired run on an endpoint that reports `cached_input_tokens`,
+with `price_cached` supplied, so `cost_is_upper_bound` can go false. Until then the dollar
+figure carries the condition in the same sentence as the number, every time it is stated.
