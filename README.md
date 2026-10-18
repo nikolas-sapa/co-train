@@ -12,6 +12,13 @@ finding is cost rather than accuracy — 6.1 to 8.2x cost per solved task, quote
 Full report in `docs/results-untrained.md`. A negative result is publishable and cheap, which
 is the point: this is a falsification-first research repo, not a product.
 
+**Related work, added 2026-10-18.** arXiv 2610.14774 (ProgAgent, submitted 2026-10-10) trains
+Qwen3-8B and 14B under PTC, direct tool calling and a hybrid, and evaluates a harness swap:
+PTC-training beats DTC-training under both interfaces. Its DTC arm is typed calls, not bash,
+and its smallest model is 8B, so it answers the DTC analogue of this repo's question at 8B and
+up, and does not enter the 0.6-1.7B band or the bash axis. `docs/related-work.md` maps H1-H5
+and N1 against it cell by cell.
+
 ---
 
 ## Start here
@@ -28,6 +35,7 @@ with; read the one file, not the pile.
 | **What was fixed before the run, so the result stays falsifiable?** | `docs/pre-registration.md` (append-only, owner-signed); every amendment to it is in `docs/deviations.md`. |
 | **How does the PTC arm work? What are the tasks?** | `ptc/README.md` for the restricted runtime, `ledger/README.md` for the taskset. |
 | **Why any of these choices?** | `research/README.md` — 8 synthesis documents + 6 deep lanes. |
+| **Has anyone already answered this?** | **`docs/related-work.md`** — verified arXiv IDs, ProgAgent read in full against H1-H5 and N1, and the one cell still open. |
 | **Did the training loop run on free hardware?** | `step2/results/README.md` for the verdict, `step2/README.md` for the detail. |
 
 ```
