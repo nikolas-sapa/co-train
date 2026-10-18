@@ -46,12 +46,26 @@ repo is private, so there is no link to give until that changes.
 
 ---
 
-## 2. OSF posting — DRAFTED ON OSF, PRIVATE, NOT PUBLISHED
+## 2. OSF posting — PUBLISHED 2026-10-18
 
-**Node `2hfzt` exists: https://osf.io/2hfzt/ — created 2026-10-07, `public: false`.** Title,
-description (abstract plus the limitations paragraph) and tags are set; all three files are
-uploaded and md5-verified against the repo copies. **Everything reversible is done.** What
-remains is the one irreversible step: flip the node public and mint the DOI.
+**Node `2hfzt` is public: https://osf.io/2hfzt/** — made public 2026-10-18 after the
+2026-10-17 hold passed with no reply from the author. Title, description (abstract plus the
+limitations paragraph) and tags are set; all three files were re-synced to the repo copies
+at publication and md5-verified against the API's reported hashes:
+`results-untrained.md` v5 `df4e7971…`, `deviations.md` v7 `7243114d…` (the 25-defect
+ledger, not the 22-defect version uploaded on 10-11), `pre-registration.md` v6 `ffd5c98d…`
+(A9 included).
+
+**There is no DOI, and the earlier plan to "mint one" was wrong.** OSF issues DOIs to
+registrations and preprints, not to plain project nodes: the node's `doi` and
+`identifiers` fields are `null` and `date_published` is `null`. It has a stable public URL
+and that is all. Getting a DOI would mean creating a registration — a frozen snapshot with
+its own review — which is a separate decision and was not taken.
+
+**The node still says "thirteen instrument defects" and that is correct, not stale.** The
+thirteen are the *submitted* subset, frozen on 2026-10-11; the ledger now holds 25. Both
+numbers stay derivable from `deviations.md`'s `submitted` column, and the title describes
+what produced the report, not the current ledger size.
 
 **Title and description were replaced 2026-10-11** from the derived block below, and
 `results-untrained.md` and `deviations.md` were re-uploaded on 2026-10-10 and again on
