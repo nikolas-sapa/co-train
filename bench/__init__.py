@@ -41,7 +41,7 @@ need that amendment has been run.
 """
 
 from bench.loader import CorpusMissing, load_bird, load_spider
-from bench.score import ExResult, execution_accuracy, extract_sql, validate_golds
+from bench.score import ExResult, execution_accuracy, extract_sql, rows_match, validate_golds
 from bench.shapes import Skeleton, shape, skeleton
 from bench.suite import inventory, report, select
 from bench.task import TIERS, SqlTask
@@ -58,6 +58,7 @@ __all__ = [
     "load_bird",
     "load_spider",
     "report",
+    "rows_match",
     "select",
     "shape",
     "skeleton",

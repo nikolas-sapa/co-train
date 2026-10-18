@@ -232,47 +232,112 @@ Stated rather than buried: the guard converts "we believe the arms are paired" i
 are paired on these twelve axes, measured on every test run", and the gap between those two
 sentences is a judgement about whether the twelve are the right twelve.
 
-**Gaps found while writing this file (2026-10-13), not fixed here.** Three docstrings in
-`ptc/sql_arms.py` describe checks that `ptc/test_sql_arms.py` does not perform. The code is
+**Gaps found while writing this file (2026-10-13).** Three docstrings in
+`ptc/sql_arms.py` described checks that `ptc/test_sql_arms.py` did not perform. The code is
 the source of truth for the contract and the test is the source of truth for what is
 *enforced*; where they disagree, the enforcement is what a reader should trust, so the
-disagreements are listed rather than smoothed over.
+disagreements were listed rather than smoothed over.
 
-1. **No prompt-identity check.** `sql_arms.py:372` claims the test "renders both prompts,
-   removes the two channel strings, and fails unless what is left is byte-identical". No
-   such test exists. `test_both_prompts_carry_the_same_schema` asserts only that the schema
-   and the question appear as substrings in both prompts. Body text present in one arm's
-   prompt and absent from the other's would pass the suite, which leaves contract clause 1
-   unenforced, and clause 1 is the confound defect 5 turned out to be.
-2. **The asymmetry probes are never executed.** `Asymmetry.probe` and `expect` (`rejected` /
-   `partial_loss`) exist as data, and the docstring at `sql_arms.py:746` says a declared
-   asymmetry whose limit quietly went away turns the test red. Nothing runs the probes.
-   `test_every_declared_asymmetry_carries_a_reason` checks field presence and the direction
-   set only, and never touches `Asymmetry.reason`, so an asymmetry named in neither reason
-   dict would fail at render time rather than at test time.
-3. **`DECLARED_ASYMMETRIES` is not checked for covering `UNREACHABLE_IN_SANDBOX`.**
-   `sql_arms.py:839` claims the test asserts that coverage. `UNREACHABLE_IN_SANDBOX` is not
-   imported by the test file. A sandbox limit added to that dict without a probe here stays
-   green, and that is the "gap nobody measured" the same docstring says kept five of run 1's
-   nine faults invisible.
-4. **The capability guard is not parameterised over backends.**
-   `SECOND_HARNESS_REQUIREMENTS` entry 6 states that it is, and that a second implementation
-   therefore "inherits the whole guard and does not get a second, weaker test". The
-   parametrize is over `CAPABILITIES`, and `_observe` calls the module-level `run_bash_sql` /
-   `run_ptc_program` directly rather than `backend.run_bash` / `backend.run_ptc`, so every
-   probe runs against `PTC_V1`'s path whatever backend is passed.
-   `test_the_swap_seam_takes_a_second_backend` builds a stub whose `model_tools` takes no
-   `arm` argument and only asserts that the five methods are `callable`, so it demonstrates
-   that `build_sql_arms` accepts a backend object, not that a backend conforms. Until the
-   parameterisation exists, requirement 6 is a thing a second implementation has to be held
-   to by hand.
+**All four were closed by `04575d4` (2026-10-13), and this list is kept as the record of
+what they were.** Each now has a named test, so a reader can run it rather than trust this
+paragraph:
 
-Two smaller notes. `test_both_arms_get_one_budget_struct` contains
-`assert pair.budget is pair.budget`, which is a tautology and cannot fail; the real
-guarantee is structural, in that `ArmPair` has one `budget` field and no code path builds
-one arm without the other. And the probes exercise the arms against a five-row fixture,
-which is the right scope for an action-space question and tells you nothing about behaviour
-at corpus scale.
+1. **Prompt identity.** `test_the_two_prompts_differ_only_by_the_channel_paragraph` renders
+   both prompts, removes the two channel strings, and fails unless the remainder is
+   byte-identical. Contract clause 1 is enforced.
+2. **The asymmetry probes run.** `test_every_declared_asymmetry_still_exists` is
+   parameterised over every entry with a probe and executes it; a limit that quietly went
+   away turns it red. `test_every_declared_asymmetry_has_a_retrievable_reason` touches
+   `Asymmetry.reason`, so a name in neither reason dict fails at test time rather than at
+   render time.
+3. **Coverage of `UNREACHABLE_IN_SANDBOX` is asserted.**
+   `test_declared_asymmetries_cover_every_sandbox_limit` imports the dict and fails on any
+   limit with no declared asymmetry.
+4. **The capability guard is parameterised over backends.**
+   `test_the_capability_guard_runs_against_a_second_backend` drives a recording stub and
+   proves both `run_bash` and `run_ptc` are reached, and that `model_tools(arm)` is called
+   for real rather than merely `callable`.
+
+Of the two smaller notes that used to follow, the tautology is gone —
+`assert pair.budget is pair.budget` was replaced with the shape that would have to change
+for a per-arm budget to appear — and the probes' five-row fixture scope is unchanged: right
+for an action-space question, silent at corpus scale, which is what the sweep below is for.
+
+### What the differential closes, and what it still cannot
+
+`ptc/sql_diff.py` is the answer to the paragraph above. Instead of a thirteenth named
+capability, it runs the **task class's own gold queries** through both arms' execution
+channels and requires the same answer as scored by `bench/score.py` (`rows_match`,
+`compare="set"`, matching BIRD's `evaluation.py`). The golds were written by BIRD before
+either arm existed, so nothing in them was chosen to suit a list: a divergence is an
+asymmetry nobody named, by construction.
+
+Three comparisons, because an answer can differ at three depths:
+
+| Comparison | What it asks | Cause vocabulary |
+|---|---|---|
+| delivery | did both arms return rows, both refuse at the cap, or both fail? | `one_sided_refusal`, `one_sided_error`, `one_sided_undecodable`, `refusal_text_differs`, `error_text_differs` |
+| answer | do the delivered rows score as the same answer? | `rows_differ`, `trailing_empty_row` |
+| render | would the two MODELS read the same thing? | `null_rendering`, `float_rendering`, `blob_rendering`, `separator_in_cell`, `newline_in_cell`, `duplicate_columns`, `control_char_rendering`, `type_rendering`, `column_count`, `row_count`, `trailing_empty_row` |
+
+The render pass is not decoration. bash reads `sqlite3 -list -header` text; PTC reads dicts
+a program must `print`, and `print` renders Python `repr`. The same rows therefore arrive as
+different answers: NULL is an empty field on bash and `None` on PTC; a REAL prints
+`0.33333333333333332` on the CLI and reprs as `0.3333333333333333`; a control byte prints as
+caret notation (`^]`) on bash and as the raw byte on PTC; a final all-NULL row is a blank
+line that the wrapper's own terminator makes unrecoverable; `|` and newlines inside a value
+reshape the bash row; and two columns called `name` print `name|name` on bash against the
+`name_2` suffix `SHARED_PROMPT` promises. Each is reported by name.
+
+**Measured on the full corpus (2026-10-18, `.venv-ptc`, SQLite 3.50.4 in Python and 3.54.0
+in the CLI): 1526 of 1534 BIRD dev golds agree, and every one of the 8 that do not is
+characterised.** 92 of the 1526 are refused at the cap by BOTH arms — agreement, but not a
+row comparison. Of the 8:
+
+| ids | count | cause |
+|---|---|---|
+| `bird-0518`, `bird-0701` | 2 | the corpus's own non-terminating golds, already documented as defects in `docs/bench-taskset.md` §4.3 |
+| `bird-0284`, `bird-0637`, `bird-1399`, `bird-1504` | 4 | a trailing run of all-NULL rows renders as blank lines that the wrapper's own terminator makes unrecoverable; `bird-1399` loses 13 of 14 rows this way |
+| `bird-0483` | 1 | the wrapper's line-count fallback refuses early: 149 rows carrying 7 806 embedded newlines exceed the cap as LINES |
+| `bird-0714` | 1 | embedded newlines split bash rows, so 118 rows arrive as 137 |
+
+A further 25 golds agree on the answer and differ only in rendering: `null_rendering` 16
+(NULL against `''`/`None`), `control_char_rendering` 4 (caret notation against the raw
+byte), `duplicate_columns` 2, `newline_in_cell` 1, and `trailing_empty_row` counted on 7
+(golds where the row count differs but the SET still scores equal).
+
+**Multiset sensitivity.** The same sweep with `compare="multiset"` agrees on **1523** and
+diverges on **11**: the same 8, plus `bird-0538`, `bird-0618` and `bird-0630`, whose
+duplicate all-NULL rows set comparison collapses and multiset does not. That is the
+trailing-row loss again, arriving a second way — and it is the only place the two BIRD
+comparison conventions disagree on the differential, so neither number is reported alone.
+
+**The check can fail, and was seen failing.** Rounding REALs to six places inside
+`rows_from_cursor` — a plausible "tidy the display" regression that no capability names —
+turns `test_every_fixture_gold_agrees_on_both_arms` and
+`test_float_rendering_is_compared_not_assumed` red while all twelve capability probes stay
+green. Switching the bash wrapper from `-list` to `-csv` turns five checks red. Both were
+reverted and `ptc/sql_runtime.py` confirmed byte-identical by sha256
+(`fe35aed58eca47984b4842f438680d18d7b7a220e4376b374ce84cd4225aa0b4`). The
+`trailing_empty_row` and `control_char_rendering` causes were not found by design; they
+were found by running the corpus's own golds, which is the point.
+
+**What it still cannot see.** A gold returns one result set, so the differential exercises
+`execute_sql` and the three outcomes above: not multi-query programs, not `join`, not the
+model's own `print` formatting, not the prompt, not the budgets. It cannot detect a
+divergence that only a *model-written* query triggers. And where the bash channel loses
+information in a way no parser can recover — a trailing all-NULL row, a value whose
+newlines outnumber the rows — the differential can only report the loss, not repair it, and
+a task whose answer depends on such a row is scored differently by the two arms no matter
+what this check says. That is now a known, counted property of the bash channel rather than
+an unnamed hole. Two of the eight are corpus defects, so the parity defect rate among golds
+that run is **6 / 1532 = 0.39 %**, all six in the bash arm's rendering of NULLs and
+newlines.
+
+Two smaller notes remain as scope, not defects: the probes still exercise the arms against a
+five-row fixture, which is right for an action-space question and says nothing about corpus
+scale (the sweep above is what says something about corpus scale); and the sweep is run by
+hand (`bench/sql_parity_sweep.py`), not in CI, so its number describes the day it was run.
 
 ---
 
@@ -328,8 +393,10 @@ Verbatim:
    unparseable string is defect 5 and invalidates the run.
 5. `run_bash` / `run_ptc` deliver the same refusal text on an over-cap result and the same
    database error text, because an arm told why it failed has information the other lacks.
-6. Every entry in `CAPABILITIES` passes on both of its arms. (See §6, gap 4: the test does
-   not yet enforce this per backend.)
+6. Every entry in `CAPABILITIES` passes on both of its arms.
+   `test_the_capability_guard_runs_against_a_second_backend` drives this through
+   `backend.run_bash` / `backend.run_ptc`, so a second implementation inherits the guard
+   rather than being held to it by hand (the former §6 gap 4, closed in `04575d4`).
 7. It does NOT supply the task, the schema string, the prompt body or the budgets. A backend
    that could vary those could vary the comparison.
 
@@ -376,3 +443,15 @@ cheaper: removing the subquery `COUNT(*)` check and the line-count guard from
 `wrapper_script` makes the bash arm's channel uncapped, which `over_cap_refusal` catches as
 bash failing to produce the refusal the PTC arm produces. That is defect 5 inverted, and it
 is the only capability in the list whose failure favours bash.
+
+The differential is run the same way, and has the same requirement:
+
+```sh
+.venv-ptc/bin/python -m pytest ptc/test_sql_diff.py -q          # fixture corpus, fast
+.venv-ptc/bin/python -m bench.sql_parity_sweep --jobs 8 \
+    --out ~/scratch/cotrain-diffparity/sweep.json               # all 1534 dev golds
+```
+
+Green at the state this file documents: `17 passed`, and the sweep's summary is the table in
+§6. The sweep writes one JSON row per gold (`agreed`, both outcomes, both row counts, the
+cause lists), so a divergence can be re-derived without re-running it.

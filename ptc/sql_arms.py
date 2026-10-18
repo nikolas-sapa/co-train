@@ -44,6 +44,7 @@ import os
 import shutil
 import sqlite3
 import subprocess
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
@@ -301,12 +302,22 @@ def install_wrapper(bindir: str | Path, db_path: str,
     Returns the script path. Put `bindir` on the bash arm's PATH and the arm's action
     is `execute_sql "<query>"` -- the same name the PTC arm's catalog entry carries, so
     `SHARED_PROMPT` can name the action once for both arms.
+
+    **Written to a temporary name and renamed into place.** `write_text` truncates
+    first, so a reader that opens the script mid-write runs a partial file: eight
+    threads sharing one `bindir` with a parallel differential sweep observed 63 of 480
+    calls return empty stdout with exit code 0, which is a divergence manufactured by
+    the rig and indistinguishable from a finding. `rename` within a directory is atomic
+    on POSIX, so a concurrent reader sees either the old script or the new one and
+    never neither.
     """
     bindir = Path(bindir)
     bindir.mkdir(parents=True, exist_ok=True)
     script = bindir / SQL_TOOL
-    script.write_text(wrapper_script(db_path, max_rows))
-    script.chmod(0o755)
+    staging = bindir / f".{SQL_TOOL}.{os.getpid()}.{threading.get_ident()}"
+    staging.write_text(wrapper_script(db_path, max_rows))
+    staging.chmod(0o755)
+    staging.replace(script)
     return script
 
 
