@@ -474,6 +474,29 @@ VRAM when the trainer already holds 1.39 GB. If total, it needs lowering. The
 PROBE_STEPS_MIN, PROBE_STEPS_MAX = 5, 20
 """"5-20 steps, aborting" (§279). Fewer than 5 is not a probe; more is a study."""
 
+CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
+"""Passed to `GRPOConfig` by both configs, so the probe and the run generate under the
+same template variables.
+
+Qwen3-0.6B's template emits `<|im_start|>assistant\\n` followed by `<think>` unless
+this flag is False, in which case it emits a closed empty think block. With thinking
+on, the 0.6B model wrote 8,000-13,000 characters of prose reasoning per completion and
+never reached its stop token inside the 3,072-token cap: v8 logged `clipped_ratio`
+1.000 and `mean_terminated_length` 0.0 for all eight rollouts, which
+`mask_truncated_completions=True` then removed from the loss entirely. Reward 0.000,
+`frac_reward_zero_std` 1.000, `grad_norm` 0.0 — the same signature as v7, which was
+read as a policy finding for six runs.
+
+Shared rather than written twice because a probe that generates differently from the
+run measures a different policy's geometry, and the two would drift silently."""
+
+# The template's own wrapper adds a few tokens around the prompt text. No separate
+# constant for it: `max_seq_length_for` rounds up to 1024, and the prompt-plus-cap sum
+# (2612 + 3072 = 5684) has 460 tokens of headroom before the rounding moves, so a
+# wrapper of the size Qwen3's template emits cannot make the sequence length short.
+# Carried nowhere as a second number, because a number nothing derives is how 2048 and
+# 3072 came to coexist in the first place.
+
 
 # Groups per step, and why it is a declared quantity rather than whatever TRL defaults
 # to. `frac_reward_zero_std` is a FRACTION OVER GROUPS, so the number of groups in a
@@ -578,6 +601,12 @@ def probe_config(steps: int = PROBE_STEPS_MAX, g: int = NUM_GENERATIONS) -> dict
         "gradient_accumulation_steps": accum,
         "max_completion_length": cap.value,
         "mask_truncated_completions": True,
+        # Qwen3's template opens a `<think>` block unless this is False, and the
+        # template is where it is read: `{%- if enable_thinking is defined and
+        # enable_thinking is false %}` injects an empty closed think block. Left at
+        # the default the model reasons inside the block, never reaches its stop
+        # token inside the cap, and every rollout is masked -- v8's failure.
+        "chat_template_kwargs": dict(CHAT_TEMPLATE_KWARGS),
         "beta": BETA,
         "learning_rate": LEARNING_RATE,
         "fp16": True,
@@ -616,9 +645,21 @@ def probe_expectations(g: int = NUM_GENERATIONS) -> dict[str, Any]:
 # ---------------------------------------------------------------------- main
 
 
-def load_prompts(path: pathlib.Path) -> list[dict[str, str]]:
-    """`{"prompt": ..., "answer": ...}` per line. Both required, both non-empty."""
-    rows: list[dict[str, str]] = []
+def load_prompts(path: pathlib.Path) -> list[dict[str, Any]]:
+    """`{"prompt": ..., "answer": ...}` per line. Both required, both non-empty.
+
+    **`prompt` is rendered as a one-message conversation, not left as a string.**
+    TRL only applies the chat template to conversational prompts; a bare string is
+    tokenized verbatim, so the `<|im_start|>assistant` generation prompt is never
+    emitted and the model is never told it is the assistant. v8 measured the cost of
+    that: `completions/clipped_ratio` 1.000, `mean_length == max_length == 3072`,
+    `mean_terminated_length` 0.0, every rollout masked, reward never exercised, and
+    four sampled replies that each echoed the schema and then kept writing past the
+    cap. The model could not emit a stop token because the template's stop token was
+    never in play. Rendering the conversation is what makes `enable_thinking: False`
+    in `probe_config` reachable at all, since that flag is a template variable.
+    """
+    rows: list[dict[str, Any]] = []
     for n, line in enumerate(path.read_text().splitlines(), 1):
         if not line.strip():
             continue
@@ -630,7 +671,10 @@ def load_prompts(path: pathlib.Path) -> list[dict[str, str]]:
         # into the reward as a kwarg, and the execution reward needs `db_id` to find
         # the database. Dropping them here is what forced `answer` to carry a baked
         # scalar in the first place, and that is the design that read 1.000.
-        kept = {"prompt": row["prompt"], "answer": row["answer"]}
+        kept = {
+            "prompt": [{"role": "user", "content": row["prompt"]}],
+            "answer": row["answer"],
+        }
         for extra in ("db_id",):
             if row.get(extra):
                 kept[extra] = row[extra]

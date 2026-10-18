@@ -92,7 +92,7 @@ trustworthy.
 
 ## The defect ledger (added 2026-10-08, because the count kept being asserted)
 
-**Twenty-five distinct faults: nine in the harness, six in the adjudication tools, ten in
+**Twenty-six distinct faults: nine in the harness, six in the adjudication tools, eleven in
 the instruments built after run 3d.** Written down because three totals were in
 circulation and none had been derived. The vault index says "six", which was correct as of
 run 2h and stopped being correct at run 3b. An OSF abstract drafted on 2026-10-07 asserted
@@ -102,10 +102,10 @@ nine. A number in a published abstract has to be derived, not remembered.
 **The total moved 12 → 13 on 2026-10-10**, on the one-armed tool-success rate below. Any
 text asserting twelve — including the OSF abstract — is now stale.
 
-**It moved 13 → 25 between 2026-10-12 and 2026-10-14, and not one of the twelve was exposed
+**It moved 13 → 26 between 2026-10-12 and 2026-10-18, and not one of the thirteen was exposed
 by a run.** The first nine were exposed by building the next instrument: the BIRD-SQL taskset,
-the paired SQL arms, the frontier gate and the probe's prompt draw. Two of the twelve are in
-`ptc/paired.py` and join the adjudication tools; the other ten are in `bench/`, `train/` and
+the paired SQL arms, the frontier gate and the probe's prompt draw. Two of the thirteen are in
+`ptc/paired.py` and join the adjudication tools; the other eleven are in `bench/`, `train/` and
 the new `ptc/sql_arms.py`, which is neither of the two locations this ledger was built with,
 so they get a third group rather than a home that flatters the split. **No run id is invented
 for them.** The honest entry in a "run that exposed it" column is that there was no run: for
@@ -123,7 +123,7 @@ reported reward 0.0 rather than reading 0.0 as the answer — and the limit stil
 that last one was found by sampling model output for the first time. A run produces the
 symptom. Reading produces the fault, and nothing in between is automatic.
 
-**Ten of the twelve are this project's own, introduced while building that instrument
+**Eleven of the thirteen are this project's own, introduced while building that instrument
 rather than inherited** (every row in the third table, including a timeout that could not
 fire inside the tool written to avoid one, a guard that could not fail inside the gate
 written to make the band mean something, and a context smaller than the prompt it had to
@@ -139,7 +139,7 @@ amend, not this file's: `HANDOFF.md`, `docs/outreach.md` (the OSF title, note an
 and `docs/results-untrained.md`.
 
 The `submitted` column exists so that both numbers stay derivable from one table: the
-thirteen those documents describe, frozen on 2026-10-11, and the twenty-five the ledger holds
+thirteen those documents describe, frozen on 2026-10-11, and the twenty-six the ledger holds
 now. `tests/test_defect_ledger.py` reads each of their sentences against the submitted
 subset, so none of them can drift to a third number while waiting for the amendment, and
 whichever of them is still on the submitted value has to be named in the list above — the
@@ -155,9 +155,9 @@ rather than remembered.
 "twelve of them fixed", which was the only count in any of these documents that nothing could
 derive: the tables recorded what each fault was and what caught it, never whether it had been
 repaired. Forcing it to a boolean would have lied in two places, so there are three states and
-the honest total is **23 fixed, 1 not fixable, 1 withdrawn**:
+the honest total is **24 fixed, 1 not fixable, 1 withdrawn**:
 
-- **fixed** (23) — a code change exists and a test covers it. Verified per row against the
+- **fixed** (24) — a code change exists and a test covers it. Verified per row against the
   implementation, not from memory: the turn budget reaching `PTCHarness`, `n_budget_exhausted`
   in the metrics, `render_catalog` in the system prompt, `"stream": True`, the
   empty-`choices` guard, `stream_options.include_usage`, the typed MCP catalog,
@@ -220,10 +220,10 @@ yet; it does not cover a fault whose symptom a rollout produced and nobody read.
 | `power_pairs` built each binomial term as `comb(d, i) * p ** (d - i)`, which converts the exact big integer to float first and raises `OverflowError` past d of ~1030, so every delta between 0.02 and 0.04 crashed instead of answering. Bounded on *both* sides, which is why no run ever touched it: delta >= 0.05 answers at a d below the ceiling and delta < 0.02 takes the lower `hi` bound and stops at d of 1000. All four published figures (59, 398, 859, 1571) sit outside the band | the bench lane siting the new taskset's power at a delta nobody had asked for before, 2026-10-12 | no | fixed |
 | `_attained` carried the same overflowing expression, and it is `demo()`'s *independent* check on the search, so the obvious repair (route it through the fixed helper) would have made the check agree by construction. Given exact `Fraction` arithmetic instead, a third method, and pinned by an AST test on call nodes | repairing the row above; the AST test's own first version matched the helper's name as a substring and failed on `_attained`'s comment about it | no | fixed |
 
-### Instruments built after run 3d — ten
+### Instruments built after run 3d — eleven
 
 Same columns as the table above, and the same counting rule, but no `run` column: not one of
-these ten was exposed by a run. The first seven were exposed by building the instrument the
+these eleven was exposed by a run. The first seven were exposed by building the instrument the
 next runs would use, before it had run anything. The last three were exposed after it had
 run, and still not by the running: by reading a log, by reading a metric's own definition,
 and by reading what the model actually wrote. There is no run id to put in a column for them
@@ -243,16 +243,17 @@ the project had when the ledger was written and these are in neither.
 | `bench/score.py`'s `extract_sql` took the first fenced block if present and **the whole string otherwise**, so a completion reading `The answer is:` followed by `SELECT count(*) FROM frpm` came back with the prose attached, failed to execute, and scored 0 with the correct SQL inside it. A 0.6B policy explains itself constantly, so this understated it in exactly the way the function's own docstring warns about. The reward's positive control fed it twelve fenced gold queries and passed twelve times, which exercises the path the *reference* takes and never the path a *policy* takes. **Fixed with a successor still open:** run 7's samples show the first-fence heuristic also lands wrong when the model echoes the prompt's schema fence, and 3 of 4 sampled completions extracted prose or `Answer:`. This row is the whole-string passthrough, not a claim that extraction is now sound | asking why five GPU runs reported reward 0.0, rather than reading 0.0 as the measurement, 2026-10-14. Not a run and not a test: the control was green over its twelve gold queries throughout | no | fixed |
 | `train/dead_group_probe.py` never passed `max_seq_length`, so unsloth's default of 2048 applied while a BIRD prompt measures 2612 tokens: the prompt consumed the entire context with nothing left to generate into, and `max_completion_length` was simultaneously 3072, larger than the model's whole context. Two numbers chosen in different places and never multiplied together. This one fault is every symptom of six consecutive runs: empty completions, so reward 0.0, so `frac_reward_zero_std` 1.0, and `mask_truncated_completions=True` then masked all of them, which is `grad_norm` 0.0 in all six runs. Logged every time, flagged twice as unexplained, and read past both times | reading v6's log, which had been fetched six times and stated it verbatim: `Input IDs of shape (8, 2612) with length 2612 > the model's max sequence length of 2048`. Not a run and not a test, 2026-10-14 | no | fixed |
 | `frac_reward_zero_std` is a fraction over *groups* and `train/dead_group_probe.py` never set a batch size, so TRL's default of 8 sequences applied: G=4 gave 2 groups and G=8 gave 1. With one group the statistic is a Bernoulli draw and the 0.60 abort ceiling is unreachable, so at the measured solve rate a lone group is uniform about 60% of the time and **the probe aborted at exactly the rate a healthy configuration predicts** — twice, and both aborts were reported as findings about the reward and about the taskset in turn | reading the metric's own definition against the batch the probe actually ran; nothing in the repo had ever checked that quantity, 2026-10-13 | no | fixed |
+| `train/dead_group_probe.py` passed the prompt as a bare string, and TRL applies the chat template only to conversational prompts, so no `<|im_start|>assistant` generation prompt was ever emitted and the model was never placed in the assistant role or given the template's stop token. v8 measured the consequence: `completions/clipped_ratio` 1.000, `mean_length` == `max_length` == 3072, `mean_terminated_length` 0.0, all eight rollouts masked by `mask_truncated_completions`, reward never exercised, and four sampled replies that each echoed the schema and kept writing past the cap | reading the four sampled completions from v8 rather than the aggregate, 2026-10-18 | no | fixed |
 
 **Five of the nine harness faults penalised the PTC arm, one penalised bash (defect 6), two
 were symmetric (the two knock-ons), and one — the rate limit — is symmetric in principle but
 falls roughly three times harder on bash per unit of work, because bash makes one request per
-turn.** The ledger holds twenty-five rows, and the suite was green over all of them but the
+turn.** The ledger holds twenty-six rows, and the suite was green over all of them but the
 gate tests. The one-armed `tool_success_rate` is worse than invisible: `test_metrics.py`
 pinned the two failure prefixes against drift *in the strings*, so the suite actively locked
 in the blindness it was meant to guard.
 
-**"Invisible to a green suite" needs splitting after 2026-10-12, because the twelve new rows
+**"Invisible to a green suite" needs splitting after 2026-10-12, because the thirteen new rows
 got past it three different ways.** Three of them are the harder case — a guard that could not
 fail, a timeout that could not fire, and a default nothing pinned — where the suite was green
 *because* the check could never try, and a check that cannot fail is indistinguishable from
