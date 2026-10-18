@@ -44,6 +44,7 @@ if __package__ in (None, ""):  # invoked as `python train/<file>.py`, not `-m`
 
 from train.dead_group_probe import (
     BETA,
+    CHAT_TEMPLATE_KWARGS,
     GPU_MEMORY_UTILIZATION,
     LEARNING_RATE,
     LORA_RANK,
@@ -184,6 +185,10 @@ def training_config(
         "num_generations": NUM_GENERATIONS,
         "max_completion_length": cap.value,
         "mask_truncated_completions": True,
+        # Shared with the probe by import, not by convention: a run that generates
+        # with thinking on while the probe measured with it off is the same class of
+        # fault as two arms under two different caps.
+        "chat_template_kwargs": dict(CHAT_TEMPLATE_KWARGS),
         "beta": BETA,
         "learning_rate": LEARNING_RATE,
         "fp16": True,

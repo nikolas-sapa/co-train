@@ -956,6 +956,34 @@ def test_fp16_is_set_explicitly_in_both_configs():
     assert grpo_ptc.model_spec()["load_in_4bit"] is False
 
 
+def test_the_probe_renders_prompts_as_a_conversation_not_a_bare_string(tmp_path):
+    """A bare string is tokenized verbatim, so no generation prompt reaches the model.
+
+    v8's evidence: `clipped_ratio` 1.000, `mean_length == max_length == 3072`,
+    `mean_terminated_length` 0.0, all eight rollouts masked, reward never exercised,
+    completions that echoed the schema and kept writing. The model had no stop token
+    to emit because the template that places it was never applied.
+    """
+    path = tmp_path / "prompts.jsonl"
+    path.write_text(json.dumps({"prompt": "who?", "answer": "ada", "db_id": "x"}) + "\n")
+    (row,) = probe.load_prompts(path)
+    assert isinstance(row["prompt"], list) and len(row["prompt"]) == 1
+    assert row["prompt"][0] == {"role": "user", "content": "who?"}
+    assert row["answer"] == "ada" and row["db_id"] == "x"  # reward kwargs survive
+
+
+def test_both_configs_disable_thinking_by_the_same_value():
+    """The probe's geometry is about the policy the run trains. Thinking on in one
+    and off in the other is two policies, and nothing would raise."""
+    p = probe.probe_config()
+    r = grpo_ptc.training_config(("ptc",))
+    assert p["chat_template_kwargs"] == r["chat_template_kwargs"] == {"enable_thinking": False}
+    # a copy, not the module dict: a caller mutating one config must not reach the other
+    p["chat_template_kwargs"]["enable_thinking"] = True
+    assert probe.CHAT_TEMPLATE_KWARGS == {"enable_thinking": False}
+    assert grpo_ptc.training_config(("ptc",))["chat_template_kwargs"]["enable_thinking"] is False
+
+
 def test_the_probe_dry_run_needs_no_gpu(tmp_path, capsys):
     prompts = tmp_path / "prompts.jsonl"
     prompts.write_text(json.dumps({"prompt": "who?", "answer": "ada"}) + "\n")
