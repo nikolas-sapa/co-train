@@ -249,6 +249,29 @@ def _connect(db_path: str) -> sqlite3.Connection:
     return conn
 
 
+def rows_match(pred_rows: list[tuple], gold_rows: list[tuple], *,
+               compare: str = "set") -> bool:
+    """Do two result sets count as the same answer? BIRD's one comparison, in one place.
+
+    Factored out of `execution_accuracy` for the differential parity check
+    (`ptc/sql_diff.py`), which compares one arm's delivery against the other's. That
+    check exists because the two arms can disagree about a query NOBODY WROTE A
+    CAPABILITY FOR (`docs/harness-parity.md` §6), and a differential that re-implemented
+    the comparison could disagree with the scorer about what agreement means -- a second
+    implementation of the adjudicator is exactly the drift this project keeps finding.
+    `execution_accuracy` calls this function, so there is one definition.
+
+    `compare="set"` (default) is official BIRD `evaluation.py`'s
+    `set(predicted) == set(ground_truth)`; `"multiset"` is the stricter sensitivity
+    check. Raises on any other value, as the scorer always has.
+    """
+    if compare not in ("multiset", "set"):
+        raise ValueError(f"compare must be 'multiset' or 'set', got {compare!r}")
+    if compare == "multiset":
+        return Counter(pred_rows) == Counter(gold_rows)
+    return set(pred_rows) == set(gold_rows)
+
+
 def execution_accuracy(predicted_sql: str, task: SqlTask, *,
                        timeout_s: float = 30.0, max_rows: int = MAX_ROWS,
                        compare: str = "set") -> ExResult:
@@ -290,10 +313,7 @@ def execution_accuracy(predicted_sql: str, task: SqlTask, *,
             return ExResult(0.0, f"pred_{p_out}", True, p_detail,
                             n_gold_rows=len(gold_rows))
 
-        if compare == "multiset":
-            hit = Counter(pred_rows) == Counter(gold_rows)
-        else:
-            hit = set(pred_rows) == set(gold_rows)
+        hit = rows_match(pred_rows, gold_rows, compare=compare)
         return ExResult(
             1.0 if hit else 0.0,
             "match" if hit else "mismatch",
