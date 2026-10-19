@@ -744,6 +744,16 @@ def build_parser():
                         "from aggregate metrics with nobody reading a completion: the "
                         "default must not depend on someone remembering to ask, so "
                         "switching it off is the deliberate act.")
+    p.add_argument("--abort-window", type=int, default=ABORT_WINDOW,
+                   help="Consecutive steps above the 0.60 ceiling before the live abort "
+                        "fires. Default 1 is §282 verbatim. **A larger value is a power "
+                        "choice, not a softening**: at G=8 the ceiling sits on the band's "
+                        "lower edge, so a precisely viable policy breaches a single-step "
+                        "test 47.5%% of the time and one at p=0.10 breaches it 21.6%%. At "
+                        "3 those are 0.107 and 0.010, while a hopeless policy (p=0.02) "
+                        "still fires with probability 0.708. Recorded in the header -- a "
+                        "probe whose abort rule is unrecorded cannot be read after the "
+                        "fact.")
     p.add_argument("--dry-run", action="store_true",
                    help="Print the config, the derived expectations and the resolved "
                         "stack, then exit. No GPU, no model download, no cost.")
@@ -835,7 +845,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if sampler is not None:
         reward = sampling_reward(reward, sampler)
 
-    monitor = ProbeMonitor(sink=args.out, sampler=sampler)
+    if args.abort_window < 1:
+        raise SystemExit(f"--abort-window must be >= 1, got {args.abort_window}")
+    monitor = ProbeMonitor(sink=args.out, sampler=sampler, window=args.abort_window)
     monitor.header(
         probe="dead_group",
         taskset_id=args.taskset_id,
