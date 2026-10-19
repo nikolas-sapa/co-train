@@ -6,6 +6,45 @@ to overwrite.
 
 ---
 
+## Current state — 2026-10-19
+
+**The probe now measures the policy, and the policy is weak.** v9 is the first run in nine
+where generation, extraction and reward all worked: `clipped_ratio` 0.000,
+`mean_terminated_length` == `mean_length` == 58.8, and `grad_norm` non-zero for the first
+time. It aborted at step 0 on `frac_reward_zero_std` 1.000, and **that abort is a finding
+rather than a fault** — but on four groups, one step, so it licenses "solve rate at or
+below ~0.05", not a rate. Full write-up: `docs/probe-v9.md`.
+
+- **The generation fault is closed, and its cause was the prompt's shape.** The prompt was
+  a bare string, so TRL never applied the chat template: no `<|im_start|>assistant`, no stop
+  token, every completion rode to the 3072 cap and was masked. Fixed by rendering prompts as
+  one-message conversations plus `enable_thinking: False`, shared by both configs (#22).
+- **A repeated signature finally explained.** `grad_norm` 0.0 appeared in v7 and v8 and was
+  read against the reward both times. It meant the reward was never called.
+- **The taskset's validity threat is now measured, not assumed.** First contamination check:
+  question channel clean (AUC 0.455 / 0.508 against controls the instrument can *see* at
+  0.764 / 0.825); gold-SQL channel INCONCLUSIVE because the fresh control's length was not
+  matched to BIRD's, and length alone reproduced the whole signal. `docs/contamination.md`,
+  A10 drafted unsigned.
+- **The arm-parity gap has a check it did not have.** A differential sweep over all 1534
+  BIRD golds finds 8 real divergences, including 4 where the bash channel loses a trailing
+  all-NULL row. Closing those needs the channel to change — owner's call (#24).
+- **ProgAgent (arXiv 2610.14774) is the paper that scooped this, and `docs/related-work.md`
+  now says so.** It trains 8B/14B only, has no bash arm, and does not enter this project's
+  band. The open cell is PTC-trained vs bash-trained at 0.6–1.7B with a bidirectional swap.
+- **OSF `2hfzt` is public** as of 2026-10-18, files re-synced to the 26-defect ledger. There
+  is no DOI: OSF mints those for registrations and preprints, not project nodes.
+- **Still $0 spent, and the $6.29 main run remains unauthorised.** The pipeline gate is shut
+  and `bench/frontier/manifest.json` still does not exist.
+
+**The open decision, and it is the owner's:** v9's abort criterion (§282, any step over the
+ceiling) collides with `GROUPS_PER_STEP = 4` at step 0 — the first unlucky batch ends the
+probe before a rate exists. Three routes: more groups per step, a warm-up collecting k steps
+before adjudicating, or a taskset higher on the policy's frontier. Each replaces the
+measurement v9 produced.
+
+---
+
 ## Current state — 2026-10-12
 
 **A8 is signed and the instrument is replaced.** `ledger` is retired; BIRD-SQL dev is the
