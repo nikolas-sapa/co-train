@@ -36,7 +36,16 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 _VENV = REPO / ".venv-ptc" / "bin" / "python"
 PY = str(_VENV) if _VENV.exists() else sys.executable
 ENV = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
-COPY_DIRS = ("train", "ptc", "step2")
+COPY_DIRS = ("train", "ptc", "step2", "bench")
+"""Every package the target's tests import, not just the one under mutation.
+
+`bench` was missing until 2026-10-19, and `train/ex_reward.py` imports
+`bench.score` and `bench.task` at module scope, so four mutants died at
+*collection* with `ModuleNotFoundError` -- counted as killed while testing
+nothing. This is the defect `ptc/mutate.py` had on 2026-10-01 in the same shape:
+a sandbox that copies only its own package turns every mutant green-dead. The
+list is asserted against the import graph in `test_train.py` rather than
+maintained by memory."""
 COPY_FILES = ("docs/pre-registration.md",)
 
 # name, file under train/ or elsewhere in the copy, unique anchor, replacement.
@@ -95,7 +104,8 @@ MUTATIONS: list[tuple[str, str, str, str]] = [
     ("gate: unsigned amendment accepted", "train/guards.py",
      "    elif not _amendment_is_signed(amendment, root):", "    elif False:"),
     ("gate: missing manifest keys ignored", "train/guards.py",
-     "    if missing:\n        reasons.append", "    if False:\n        reasons.append"),
+     "    missing = [k for k in MANIFEST_REQUIRED if k not in manifest]\n    if missing:",
+     "    missing = [k for k in MANIFEST_REQUIRED if k not in manifest]\n    if False:"),
     ("gate: preflight skips the gate", "train/grpo_ptc.py",
      "    require_frontier_taskset(root)", "    pass"),
     ("gate: preflight skips the stack", "train/grpo_ptc.py",
@@ -142,8 +152,8 @@ MUTATIONS: list[tuple[str, str, str, str]] = [
     ("probe: non-binary reward accepted", "train/dead_group_probe.py",
      "    bad = sorted({v for v in values if v not in (0.0, 1.0)})", "    bad = []"),
     ("probe: reward matches a substring", "train/dead_group_probe.py",
-     '        out.append(float(" ".join(given.lower().split()) == expected.lower()))',
-     "        out.append(float(expected.lower() in given.lower()))"),
+     "        out.append(float(given is not None and given == expected.lower()))",
+     "        out.append(float(given is not None and expected.lower() in given.lower()))"),
     ("probe: becomes a study", "train/dead_group_probe.py",
      "    if not PROBE_STEPS_MIN <= steps <= PROBE_STEPS_MAX:", "    if False:"),
     ("probe: vllm_mode inherited", "train/dead_group_probe.py",
