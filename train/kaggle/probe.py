@@ -129,7 +129,14 @@ run([sys.executable, "-m", "train.dead_group_probe",
      # again. G is a training hyperparameter, so changing it needs no amendment --
      # restricting the taskset to easier tiers would be an instrument change and does.
      "--generations", "8",
-     "--steps", "5",
+     # 10 steps, not 5, and abort only after a 3-step breach. v9 aborted at step 0 on
+     # FOUR groups, which cannot separate "hopeless policy" from "unlucky batch": at
+     # p=0.05 one dead batch is 19% likely, and v9's 4-group step gave a single draw.
+     # Ten steps at 4 groups is 40 groups / 320 rollouts, so a zero there bounds p
+     # below ~0.01 rather than describing one batch. The window keeps a genuinely dead
+     # reward from riding 10 steps: at p=0.02 it fires with probability 0.708.
+     "--steps", "10",
+     "--abort-window", "3",
      "--out", OUT], cwd=REPO)
 
 # 5. Re-adjudicate in-session, so a failure is visible in the log and not only in a
