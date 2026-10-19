@@ -116,15 +116,37 @@ def completion_samples(logs: Sequence[dict]) -> list[tuple[int, dict]]:
 # -------------------------------------------------------------- criterion A
 
 
-def criterion_a_any_step(logs: Sequence[dict]) -> list[str]:
+def criterion_a_any_step(logs: Sequence[dict], window: int = 1) -> list[str]:
     """§282, the probe's form: abort if `frac_reward_zero_std` > 0.60 on **any** step.
+
+    `window` is the number of consecutive breaching steps required before the
+    criterion fires. It defaults to 1, which is §282 verbatim; a larger value is a
+    documented power choice, not a softening, and it is why this is a parameter
+    rather than a second criterion.
+
+    **Why a window can be justified without touching the ceiling.** At G=8 the
+    ceiling sits exactly on the band's lower edge: `zero_advantage_fraction` at
+    p=0.062 is 0.600, so a policy that is *precisely viable* breaches a
+    single-step test 47.5% of the time, and one at p=0.10 breaches it 21.6% of the
+    time. Those are false aborts of a policy the probe exists to certify. At
+    window 3 the same rates are 0.107 and 0.010, while a genuinely hopeless policy
+    (p=0.02) still fires with probability 0.708. The window buys power against
+    noise without letting a dead reward through.
+
+    The other reason this exists: `probe_verdict` requires `MIN_PROBE_STEPS`,
+    but a step-0 breach under the window-1 rule ends the run before five steps can
+    ever accumulate, so the probe could not satisfy its own verdict. Two
+    adjudicators over one run must not disagree about how much evidence there is.
 
     Fail-closed on absence. The metric is the probe's only instrument, so a run
     that did not log it has measured nothing, and a run that measured nothing
     must not read as a clean one.
     """
+    if window < 1:
+        raise ValueError(f"window must be >= 1, got {window!r}")
     reasons: list[str] = []
     steps = training_steps(logs)
+    breach_run: list[int] = []
     for i, row in enumerate(steps):
         value = row.get(ZERO_STD_KEY)
         if not _finite(value):
@@ -140,12 +162,23 @@ def criterion_a_any_step(logs: Sequence[dict]) -> list[str]:
             )
             continue
         if value > ZERO_STD_CEILING:
-            reasons.append(
-                f"step {i}: {ZERO_STD_KEY} is {value:.3f} > {ZERO_STD_CEILING} -- most "
-                "of the batch yields no gradient. The reward's shape, not the "
-                "pipeline, is the problem, and no taskset fixes a reward that cannot "
-                "separate."
-            )
+            breach_run.append(i)
+            if len(breach_run) >= window:
+                span = (f"step {i}" if window == 1
+                        else f"steps {breach_run[0]}-{i} ({window} consecutive)")
+                reasons.append(
+                    f"{span}: {ZERO_STD_KEY} is {value:.3f} > {ZERO_STD_CEILING} -- most "
+                    "of the batch yields no gradient. The reward's shape, not the "
+                    "pipeline, is the problem, and no taskset fixes a reward that cannot "
+                    "separate."
+                )
+                if window == 1:
+                    # Every breaching step is its own reason, as §282 reads.
+                    breach_run.clear()
+                else:
+                    break
+        else:
+            breach_run.clear()
     return reasons
 
 
@@ -263,7 +296,7 @@ def criterion_b(logs: Sequence[dict], required: bool = True) -> tuple[list[str],
 # ----------------------------------------------------------------- verdicts
 
 
-def probe_verdict(logs: Sequence[dict]) -> tuple[bool, list[str]]:
+def probe_verdict(logs: Sequence[dict], window: int = 1) -> tuple[bool, list[str]]:
     """Does this dead-group probe say the reward separates? (passed, reasons).
 
     Reports every failure, not just the first. Informational lines live in
@@ -287,7 +320,7 @@ def probe_verdict(logs: Sequence[dict]) -> tuple[bool, list[str]]:
             "probe result without its taskset is not quotable."
         )
 
-    reasons += criterion_a_any_step(logs)
+    reasons += criterion_a_any_step(logs, window=window)
     return (not reasons), reasons
 
 

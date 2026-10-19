@@ -517,6 +517,49 @@ def test_criterion_a_fails_closed_when_the_metric_was_never_logged():
     assert V.criterion_a_any_step(rows) != []
 
 
+def test_criterion_a_window_suppresses_one_unlucky_batch_and_not_a_dead_reward():
+    """The probe's own verdict needs five steps; the live abort used to end the run at
+    step 0, so the two adjudicators disagreed about how much evidence exists.
+
+    At G=8 the ceiling sits on the band's lower edge: a precisely viable policy breaches
+    a one-step test 47.5% of the time. A window of 3 takes that to 0.107 while a
+    hopeless policy (p=0.02) still fires with probability 0.708.
+    """
+    one_bad = [step(0.9)] + [step(0.4)] * 4
+    assert V.criterion_a_any_step(one_bad) != []          # §282 verbatim
+    assert V.criterion_a_any_step(one_bad, window=3) == []
+    # a dead reward breaches every step, so the window does not save it
+    assert V.criterion_a_any_step([step(0.95)] * 5, window=3) != []
+
+
+def test_the_window_does_not_fire_without_a_consecutive_run():
+    rows = [step(0.9), step(0.9), step(0.1), step(0.9), step(0.9)]
+    assert V.criterion_a_any_step(rows, window=3) == []
+    assert V.criterion_a_any_step(rows + [step(0.9)], window=3) != []
+
+
+def test_the_window_refuses_zero_rather_than_reading_as_never_abort():
+    with pytest.raises(ValueError, match="window"):
+        V.criterion_a_any_step([step(0.9)], window=0)
+
+
+def test_the_live_monitor_and_the_verdict_apply_the_same_window():
+    """One definition decides both, so a live stop cannot disagree with the file.
+
+    Under window 1 a single breaching step ends the run; under window 3 it records and
+    continues, and the re-read verdict agrees at every prefix.
+    """
+    for window in (1, 3):
+        monitor = probe.ProbeMonitor(window=window)
+        reason = None
+        for v in (0.9, 0.9, 0.9):
+            reason = monitor.observe(step(v)) or reason
+            if reason:
+                break
+        verdict_reasons = V.criterion_a_any_step(monitor.rows, window=window)
+        assert bool(reason) is bool(verdict_reasons), (window, reason, verdict_reasons)
+
+
 def logp(values) -> list[dict]:
     return [step(0.4, **{V.LOGP_DIFF_KEY: v}) for v in values]
 

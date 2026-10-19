@@ -47,6 +47,7 @@ from train.verdict import (
     COMPLETION_SAMPLES_KEY,
     ZERO_STD_CEILING,
     ZERO_STD_KEY,
+    criterion_a_any_step,
     training_steps,
 )
 
@@ -65,6 +66,17 @@ policy that has to realise it is Qwen3-0.6B.
 
 NUM_GENERATIONS = 4
 """G. Derived, not chosen for comfort -- see `expectation_table`."""
+
+ABORT_WINDOW = 1
+"""Consecutive breaching steps required before the probe aborts. 1 is §282.
+
+A larger value is a *power* choice with a stated derivation, not a softening of the
+ceiling: at G=8 the ceiling sits on the band's lower edge, so a policy that is
+precisely viable breaches a single-step test 47.5% of the time and one at p=0.10
+breaches it 21.6% of the time -- false aborts of a policy the probe exists to
+certify. At window 3 those become 0.107 and 0.010, while a hopeless policy (p=0.02)
+still fires with probability 0.708. Chosen per run and recorded in the header, never
+applied silently after an abort has been seen."""
 
 ABORT_CEILING = ZERO_STD_CEILING
 """Assumed, stated as assumed by the spec. Above this, most of the batch yields
@@ -379,6 +391,12 @@ class ProbeMonitor:
     """
 
     ceiling: float = ABORT_CEILING
+    window: int = ABORT_WINDOW
+    """Consecutive breaching steps before the live abort fires. 1 is §282 verbatim.
+
+    Threaded rather than duplicated: `verdict.criterion_a_any_step` applies the same
+    window to the written file, so the live abort and the after-the-fact verdict
+    cannot disagree about how much evidence a breach needs."""
     sink: pathlib.Path | None = None
     sampler: CompletionSampler | None = None
     rows: list[dict] = field(default_factory=list)
@@ -416,12 +434,15 @@ class ProbeMonitor:
                 "only instrument is not reporting; this is not a clean probe."
             )
         elif value > self.ceiling:
-            self.aborted = (
-                f"step {index}: {ZERO_STD_KEY} is {value:.3f}, above the {self.ceiling} "
-                f"ceiling (healthy ~{EXPECTED_HEALTHY:.2f} at G={NUM_GENERATIONS}). "
-                "Most of the batch yields no gradient. Stop; do not continue to a "
-                "training run."
-            )
+            # Delegated to the verdict's own criterion over the rows logged so far, so
+            # one definition decides both the live stop and the re-read file. Under
+            # window > 1 a single breaching step records nothing and the run continues.
+            reasons = criterion_a_any_step(self.rows, window=self.window)
+            if reasons:
+                self.aborted = reasons[-1] + (
+                    f" (healthy ~{EXPECTED_HEALTHY:.2f} at G={NUM_GENERATIONS}; "
+                    f"window {self.window}) Stop; do not continue to a training run."
+                )
         return self.aborted
 
     def _emit(self, row: dict) -> None:
