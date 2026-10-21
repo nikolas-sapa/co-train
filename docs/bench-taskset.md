@@ -1,10 +1,21 @@
 # `bench` — the BIRD-SQL taskset: the instrument's contract
 
-**Status: built, tested offline, and NOT SIGNED.** This instrument is the fourth change to
-this project's measuring apparatus and it requires a pre-registration amendment before any
-number produced with it is reportable. That amendment is drafted at
-`docs/amendment-A8-bird-sql-draft.md` and is unsigned. **No measurement has been run on
-this instrument**, and none may be until the owner signs.
+**Status: built, tested offline, and SIGNED 2026-10-12.** This instrument is the fourth
+change to this project's measuring apparatus and it required a pre-registration amendment
+before any number produced with it is reportable. That amendment is signed at
+`docs/pre-registration.md:376` (heading carries `signed`; `train/guards.py`'s
+`_amendment_is_signed("A8")` returns True). The draft at
+`docs/amendment-A8-bird-sql-draft.md` is kept as the record of what was put in front of the
+owner, not as the operative instrument.
+
+**CORRECTED 2026-10-19.** This paragraph read "NOT SIGNED … That amendment is drafted …
+and is unsigned. **No measurement has been run on this instrument**, and none may be until
+the owner signs." Both halves went stale on the same commit: A8 was signed 2026-10-12
+(`docs/pre-registration.md:376`), and the probe has since run over this instrument's own
+prompt file, `bench/probe_prompts_sql.jsonl` (800 BIRD dev questions), with `--reward ex`,
+scoring through `bench.score.extract_sql` and execution accuracy. It aborted at step 0 on
+four groups and produced **no solve rate** (`docs/probe-v9.md`). So: extraction and the EX
+reward are exercised; no EX number exists, and none is claimed here.
 
 ---
 
@@ -345,6 +356,15 @@ self-authored construct for a public benchmark trades one validity threat for an
 does not eliminate the category. The 25% frontier-band estimate is itself drawn from a
 *trained* published number and inherits the same exposure.
 
+**CORRECTED 2026-10-19.** The sentence above ("this lane has run no contamination check")
+is no longer true. One has been run, on 2026-10-18, and its verdict is **INCONCLUSIVE**:
+the question channel is clean (AUC 0.455 / 0.508 against positive controls the instrument
+can see at 0.764 / 0.825), and the gold-SQL channel cannot be read because the fresh
+control was not length-matched to BIRD's golds and length alone reproduced the whole
+signal. The primary FAIL was withdrawn as a length artifact. Full record, including the
+control defect: `docs/contamination.md`. The handicap stated above still stands as a
+category; what changed is that one instance of it is now measured rather than assumed.
+
 ### 6.4 Unchanged from before
 
 One model behind one unaudited relay, no run repeats, and a 0/1 reward. None of that is
@@ -361,8 +381,23 @@ collection count, not by a total: another lane added `train` to `testpaths` at 1
 2026-10-11, so the repo's overall test total is moving and is not a stable thing to assert
 against. `bench`'s contribution to a bare `pytest` run is 0.)
 
+**CORRECTED 2026-10-19. `bench` is in `testpaths` now, and the suite is no longer 50.** The
+gap above was closed on 2026-10-12 by the commit that landed this package, `9d2bb06`
+(`-testpaths = tests ptc ledger train` / `+testpaths = tests ptc ledger bench train`), so
+the claim "collected zero" and the "required change, not made" paragraph that followed it
+both stopped being true the same day. Measured 2026-10-19: `pytest bench -q` gives **126
+passed, 1 skipped** (127 collected) in the repo venv, and the default suite collects 587
+passed / 1 skipped. The count of 50 was already stale when written: §7 below records 67
+passing in `bench` on 2026-10-13. Kept visible because a reader should see that the
+"moving total" caveat in parentheses was right for a short time and then the totals were
+pinned.
+
 **The required change, not made** (this lane must not modify `pytest.ini`): add `bench` to
 `testpaths`. Until then the suite must be run explicitly:
+
+**Dated note, 2026-10-19:** this requirement was met on 2026-10-12 (`9d2bb06`); `bench` is
+in `testpaths` and a bare `pytest` collects it. The explicit invocation below is still the
+fast way to run just this package.
 
 ```
 .venv-ptc/bin/python -m pytest bench -q
@@ -372,8 +407,12 @@ against. `bench`'s contribution to a bare `pytest` run is 0.)
 
 ## 7. Mutation evidence — each test seen red before being trusted
 
-A green test proves nothing until it has been seen red. Three mutations were applied, each
-reverted, and every file verified byte-identical to its pre-mutation SHA-256 afterwards.
+A green test proves nothing until it has been seen red. **Five** mutations were applied,
+each reverted, and every file verified byte-identical to its pre-mutation SHA-256 afterwards.
+(This line said "Three … each" until 2026-10-19 while the table beneath it listed five; the
+text and its own table had disagreed since `9d2bb06`, and rows 4 and 5 are the two that
+cover the frontier manifest. Corrected as a description fault: the number of rows, not the
+number of findings, changed.)
 
 | # | mutation | result |
 |---|---|---|
@@ -397,6 +436,11 @@ exercise is not ceremonial:
 After both fixes, mutation 3 turns all three report tests red. Final state: **67 passed**
 in `bench`, and the repo's own suite unaffected (276 passed when measured at 15:05; other
 lanes have since added tests, so that total is theirs to report, not this lane's).
+
+**Dated note, 2026-10-19.** `pytest bench -q` now gives **126 passed, 1 skipped** (127
+collected) and the default suite **587 passed, 1 skipped**. The 67/276 figures are the
+state at the mutation session and are kept as the record of that session, not as a current
+count.
 
 ---
 
@@ -450,6 +494,13 @@ required `n_candidates` — would give the gate real teeth. As specified, `n_tas
 on a suite where 197 of 198 drawn tasks were discarded as untrainable, which is a finding
 that should stop a run rather than start one.
 
+**CORRECTED 2026-10-19.** The floor exists. `train/guards.py` gained
+`retention_floor(band)` (line 555) on 2026-10-12 in `d5f00bb`, and `_check_measurement`
+(line 645) applies it by default — the width of the trainable band, 0.760 at G=4 — so a
+suite that retains less than a difficulty-blind draw is refused. The "their call" framing
+above is stale; the suggestion was taken. `n_candidates` is still reported rather than
+gated, as that docstring states, because gating on both would double-count one constraint.
+
 ### 9.3 Derived, not restated
 
 `trainable_band(ceiling, g)` bisects `p**G + (1-p)**G <= ceiling` rather than storing a
@@ -469,6 +520,14 @@ instrument's draft was written as A7 while that file ended at A6, and A7 was app
 **The gate will still refuse A8, and should.** That draft is unsigned, is not in
 `docs/pre-registration.md`, and its heading deliberately does not contain the word
 `signed`. Only the owner can change that, and neither lane should work around it.
+
+**CORRECTED 2026-10-19.** The owner changed it. `docs/pre-registration.md:376` now carries
+`### A8 — 2026-10-12, BEFORE any run on it: the instrument is replaced … — signed`, and
+`train/guards.py:_amendment_is_signed("A8")` returns True (run 2026-10-19, not inferred
+from the heading). The gate is still shut, but for a different reason: it also requires a
+per-task solve-rate band, and `bench/frontier/manifest.json` is absent because the probe
+that would measure it has not produced a rate (`docs/probe-v9.md`). The sentence above
+conflated the two requirements and the second is the one still binding.
 
 
 ---

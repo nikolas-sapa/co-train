@@ -19,10 +19,31 @@ already logs it.
 gradient, the reward's *shape* is the problem rather than the pipeline, and no taskset
 fixes a reward that cannot separate. Expected healthy is about 0.40 at G=4.
 
+**CORRECTED 2026-10-19. The abort can now wait for evidence.** §282's any-step form is still
+the default (`ABORT_WINDOW = 1`), but `--abort-window k` makes the criterion fire only after
+`k` consecutive breaching steps; the Kaggle entry point runs `--steps 10 --abort-window 3`
+(`train/kaggle/probe.py:137-140`). This is a power choice with a stated derivation, not a
+softening of the ceiling: at G=8 the 0.60 ceiling sits on the band's lower edge, so a
+precisely viable policy trips the single-step test 47.5% of the time and one at p=0.10 trips
+it 21.6%; at window 3 those fall to 0.107 and 0.010, while a hopeless policy at p=0.02 still
+fires with probability 0.708 (`train/dead_group_probe.py:70-79`;
+`train/verdict.py:119-134`; amendment A11 draft). The window is written into the metrics
+header, so a run's verdict cannot be re-read under a window it did not use.
+
 Both tails degenerate: at G=8 a policy solving 10% of tasks yields 43% dead groups
 against 15.7% for one solving 79%. **A weak policy is the worse case**, and Qwen3-0.6B is
 the weak case, so the realised value could land anywhere from 0.15 to 0.60+. That is the
 entire reason to spend a free session before anything else.
+
+**Dated note, 2026-10-19: the session has been spent, and the value landed at the ceiling.**
+v9 measured `frac_reward_zero_std` 1.000 at step 0 on four groups and aborted, with
+generation and extraction both working (`clipped_ratio` 0.000, `grad_norm` non-zero). Four
+dead groups is consistent with a solve rate at or below roughly 0.05 and cannot separate
+p = 0 from p = 0.05, so the probe measured a *weak policy*, not a broken pipeline, and did
+not produce a rate. What is needed next is more groups before adjudicating, not a different
+reward: `docs/probe-v9.md` derives both the table and that conclusion. The reason to spend
+a free session still holds for any future taskset, but the reason stated above is now
+settled for this one.
 
 **Does NOT decide:** H2 through H5, whether co-training works, or whether to build the
 pipeline. A clean probe says the reward separates on the taskset it ran against. Nothing
@@ -84,9 +105,14 @@ The repo is **public**, so the notebook clones it directly — no token, no data
 
 ```bash
 cd ~/Developer/misc/co-train && git pull
-wc -l bench/probe_prompts.jsonl        # 573
-cat bench/probe_prompts.header.json
+wc -l bench/probe_prompts_sql.jsonl    # 800
+cat bench/probe_prompts_sql.header.json
 ```
+
+**Dated note, 2026-10-19:** this block read `bench/probe_prompts.jsonl  # 573` and
+`bench/probe_prompts.header.json` until today. Those are the retired scalar-answer prompts
+(the correction two paragraphs below); the kernel reads the `_sql` files, so checking the old
+pair would confirm the presence of a file the run does not use.
 
 The header records that this is a **scalar-answer subset** of BIRD dev: only tasks whose
 gold query returns exactly one row and one column. That is deliberate — the probe's reward
@@ -97,6 +123,19 @@ near-uniform failure and abort the probe over the comparison instead of the rewa
 **Carry that caveat into whatever you report:** a solve rate from this subset is not
 BIRD's solve rate.
 
+**CORRECTED 2026-10-19. The probe no longer runs this subset, and the commands above name
+the wrong file.** The kernel runs `bench/probe_prompts_sql.jsonl` (800 BIRD dev questions,
+`train/kaggle/probe.py:115`) with `--reward ex`, so the reward is execution accuracy on
+generated SQL, executed against the task's sqlite file, not exact match on a `<answer>`
+block. The scalar-answer set was retired on 2026-10-13 (`ce7e319`) because its prompts
+carried the schema and asked for a data value with no rows present: unanswerable at any
+skill level, so `frac_reward_zero_std` read 1.000 at step 0 and the probe measured its own
+prompt design. The reason is recorded in the `why` field of
+`bench/probe_prompts_sql.header.json` and in the `why_subset` field of the retired
+`bench/probe_prompts.header.json`. The
+caveat above still applies in a different form: a solve rate on the SQL draw is not BIRD's
+solve rate either, because the draw is 800 of 1534 questions over seven small databases.
+
 ### 3.3 The notebook
 
 **Already written and pushed** — both files are committed at `train/kaggle/`, and kernel version 1
@@ -104,6 +143,12 @@ went up 2026-10-13 as `nikolassapalidis/cotrain-dead-group-probe`. Reproduce it 
 `kaggle kernels init -p .` and the two files below; the metadata template changed in CLI
 2.x and now carries `enable_tpu`, `machine_shape` and `model_sources`, which the first
 version of this runbook omitted.
+
+**Dated note, 2026-10-19:** "version 1" is stale. The kernel has been pushed several times
+since; the current entry point is `train/kaggle/probe.py` at `f3565eb`, which runs
+`--steps 10 --abort-window 3` on the SQL prompts. Push from `train/kaggle/` as below and the
+log's `PROBE ABORT` / metrics header record which config actually ran, so read those rather
+than assume this paragraph's number.
 
 `kernel-metadata.json`:
 
@@ -167,6 +212,15 @@ point** — the only generation figure anyone has is 3.2 tok/s whole-loop at
 it should be minutes. `--steps 5` is the minimum `verdict.py` adjudicates, and it yields
 the step time so 20 is decided from data.
 
+**Dated note, 2026-10-19:** v9 ran and the step time **is** now measured, though not in the
+prose docs: `probe_metrics.jsonl` in `~/scratch/probe-v9/` carries `"step_time":
+429.696…` for step 0, i.e. about **7.2 minutes** including generation of 32 sequences.
+That is one step of a run that then aborted, so whether 10 steps average lower is still
+open. The step count has also moved off the 5 above: the entry point runs `--steps 10
+--abort-window 3` (`train/kaggle/probe.py:137-140`) so that ten steps give 40 groups before
+a verdict. Five is still `verdict.py`'s floor for adjudication (`MIN_PROBE_STEPS = 5`), not
+the configured run length.
+
 On `ERROR`, read the log before re-pushing:
 
 ```bash
@@ -211,6 +265,11 @@ cd ~/Developer/misc/co-train
   always solved and three quarters never are reads **1.000** and is not. The two are
   indistinguishable as a marginal.
 - **Do not commit secrets.** `~/.kaggle/kaggle.json` stays out of the repo.
+
+  **Dated note, 2026-10-19:** the filename is stale. Since the credential moved to a single
+  `KGAT_` access token (§2's 2026-10-13 correction), the secret is `~/.secrets/kaggle_token`,
+  with `~/.kaggle/access_token` a symlink to it. Neither belongs in the repo; the principle
+  above is unchanged and only the path was wrong.
 - **Do not `git push` to `main`.** Branch and open a PR if code needs changing.
 
 ---
@@ -227,6 +286,24 @@ cd ~/Developer/misc/co-train
    an undisclosed edit is not a result.
 7. Where `probe_metrics.jsonl` is saved locally.
 
+**Dated note, 2026-10-19.** Three of the items above need re-reading against the current
+config. (2) the run is 10 steps, not five. (3) one step's time is on disk from v9
+(`step_time` 429.7 s in `~/scratch/probe-v9/probe_metrics.jsonl`); what is still missing is
+an average over a run that does not abort at step 0. (4) no saved log reports peak VRAM, so
+the 12.59 GB prediction remains unconfirmed either way. (5) the taskset is now 800 BIRD dev
+questions scored by execution accuracy, not the scalar-answer subset, so a rate from it is
+still not BIRD's solve rate but for a different reason (an 800-of-1534 draw over seven small
+databases).
+
 If the probe aborts, that is a **successful** outcome for a $0 session: it means the
 binary reward cannot separate for this policy, and the project has learned that before
 spending anything.
+
+**Dated note, 2026-10-19: an abort is only a successful outcome if it can be read.** v9
+aborted at step 0 on four groups, and four dead groups cannot distinguish a hopeless policy
+from an unlucky batch: at p = 0.05 there is a ~19% chance of exactly that, so the abort
+licenses "solve rate at or below roughly 0.05" and no rate at all. That is why the window
+exists. An abort under `--abort-window 3` over 10 steps reads far more sharply (a hopeless
+p=0.02 policy fires with probability 0.708, and a zero over 40 groups bounds p below about
+0.01); an abort in the first three steps of a windowed run is still a single unlucky batch
+and should be read as such. `docs/probe-v9.md` derives both figures.
