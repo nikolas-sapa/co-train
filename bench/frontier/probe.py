@@ -98,6 +98,8 @@ class ProbeResult:
     not, so the discarded ones stay auditable."""
     retained: list[str] = field(default_factory=list)
     void: dict[str, str] = field(default_factory=dict)
+    compare: str = "set"
+    """The result-set comparison the rates were scored under, recorded in the manifest."""
     """Tasks excluded because the TASK was defective (a gold that will not run), keyed to
     the status that said so. Never counted as a solve rate of 0 -- a defective task is not
     the policy failing."""
@@ -161,6 +163,7 @@ class ProbeResult:
                 "mean_dead_fraction": self.mean_dead_fraction,
                 "n_void_tasks": len(self.void),
                 "scorer": "bench.score.execution_accuracy",
+                "compare": self.compare,
             },
         }
 
@@ -169,7 +172,7 @@ def probe(tasks: Sequence[SqlTask],
           generate: Callable[[SqlTask], str],
           *, policy: str, g: int = DEFAULT_G,
           dead_ceiling: float = DEFAULT_DEAD_CEILING,
-          compare: str = "multiset",
+          compare: str = "set",
           timeout_s: float = 30.0) -> ProbeResult:
     """Sample each task `g` times and measure its solve rate.
 
@@ -183,6 +186,11 @@ def probe(tasks: Sequence[SqlTask],
     policy -- which would look exactly like a frontier-band problem while not being one,
     and would shut this gate for the wrong reason.
 
+    `compare` defaults to `"set"`, the value `train/ex_reward.py` trains on. It read
+    `"multiset"` until 2026-10-20, left behind when `bench/score.py`'s default moved to
+    `"set"` on 2026-10-12: the frontier would have retained tasks by a stricter reward than
+    the one the run optimises, so the manifest's band would describe a different reward.
+
     A task whose gold does not run is recorded in `void` and given NO solve rate. Scoring
     it 0 would push it below the band and discard it as "too hard for the policy", which
     is a lie about a defective task.
@@ -191,7 +199,7 @@ def probe(tasks: Sequence[SqlTask],
         raise ValueError(f"g must be at least 2 for a group to have variance, got {g}")
     lo, hi = trainable_band(dead_ceiling, g)
     res = ProbeResult(policy=policy, g=g, dead_ceiling=dead_ceiling,
-                      band_lo=lo, band_hi=hi, rates={})
+                      band_lo=lo, band_hi=hi, rates={}, compare=compare)
     for t in tasks:
         wins = 0
         voided = ""

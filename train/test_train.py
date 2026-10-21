@@ -1197,3 +1197,15 @@ def test_a_longer_cap_moves_the_context_with_it():
     assert large > small
     for cap in (512, 1024, 3072, 4258, 8192):
         assert max_seq_length_for(cap) >= MEASURED_MAX_PROMPT_TOKENS + cap, cap
+
+
+def test_the_verdict_rejudges_a_file_under_the_window_it_ran_with(tmp_path, capsys):
+    """v10 ran window 3 and its header could not say so; re-read as window 1 it would
+    report an abort the run itself never applied."""
+    rows = [{"probe": "dead_group", "taskset_id": "t", "abort_window": 3}]
+    rows += [step(v) for v in (0.9, 0.4, 0.4, 0.4, 0.4)]
+    path = tmp_path / "m.jsonl"
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    assert V.main([str(path)]) == 0
+    assert "abort window: 3" in capsys.readouterr().out
+    assert V.main([str(path), "--abort-window", "1"]) == 1

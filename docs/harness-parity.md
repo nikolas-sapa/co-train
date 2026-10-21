@@ -37,7 +37,7 @@ anyway: the one task PTC won and bash lost. bash's action space was a strict **s
 PTC's, which is not a harness comparison at all. Five of the nine harness faults in the
 defect ledger (`docs/deviations.md`) penalised PTC, one penalised bash, two were symmetric,
 and one is symmetric in principle but falls roughly three times harder on bash per unit of
-work. **Every one of the thirty-three was invisible to a green test suite, bar one**, and in
+work. **Every one of the thirty-eight was invisible to a green test suite, bar one**, and in
 the thirteenth's case worse than invisible: `test_metrics.py` pinned the two failure prefixes
 against drift in the strings, so the suite locked in the blindness it was meant to guard
 against. (It read "every one of the thirteen" until 2026-10-13. The count was stated in a
@@ -417,11 +417,24 @@ an error rather than a test result. Green at the state this file documents:
 20 passed in 5.80s
 ```
 
+**Dated note, 2026-10-19: the count above is stale; the file now collects 28.**
+`ptc/test_sql_arms.py -q` measures **28 passed** in the repo venv. The transcript is kept as
+the state this document was written at on 2026-10-13; eight tests were added to the same
+file since, so a reader comparing a local run against "20 passed" would think collection
+had broken.
+
 **A guard that has never gone red is not evidence.** Verified on 2026-10-13: emptying
 `SQL_PRIMITIVES` in `ptc/sql_runtime.py` (`{"join": join}` to `{}`) costs the sandbox `join`,
 which the bash arm has via `paste` and `tr`, and the suite goes to **3 failed, 17 passed**:
 the two capabilities whose answers are multi-value (`compare_and_filter`,
 `format_multi_value`) and the one-sided check that names them together.
+
+**RE-RUN 2026-10-19: the guard still goes red, and the counts have moved with the file.**
+The same mutation applied to a scratch copy turns the same three tests red --
+`test_every_capability_is_reachable_on_both_arms[compare_and_filter]`,
+`…[format_multi_value]` and `test_no_capability_is_one_sided` -- at **3 failed, 25 passed**
+of 28 collected, and reverting every file returns **28 passed**. The failure text below is
+from 2026-10-13 and is unchanged by this re-run.
 
 ```
 AssertionError: format_multi_value: bash=reaches, ptc=CANNOT
@@ -437,6 +450,11 @@ reach an answer the other can, by arm, on the axis it was lost on. The mutation 
 reverted and `ptc/sql_runtime.py` confirmed byte-identical by sha256
 (`fe35aed58eca47984b4842f438680d18d7b7a220e4376b374ce84cd4225aa0b4` before and after), with
 the suite back to 20 passed.
+
+**Dated note, 2026-10-19:** "back to 20 passed" is now **28 passed**. The sha256 is still
+`fe35aed58eca47984b4842f438680d18d7b7a220e4376b374ce84cd4225aa0b4` (checked in the repo
+working tree today); the re-run above was done in a scratch copy and this file was not
+touched by it.
 
 The second mutation worth knowing, not re-run here because the first is sufficient and
 cheaper: removing the subquery `COUNT(*)` check and the line-count guard from
