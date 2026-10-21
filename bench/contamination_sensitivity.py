@@ -11,7 +11,12 @@ exclude a moderate effect, which is why the final verdict is **INCONCLUSIVE**, n
 Run it after `--out` has produced a results JSON:
 
     ~/scratch/cotrain-contam/venv/bin/python -m bench.contamination_sensitivity \
-        bench/contamination_results.json
+        bench/contamination_results_v2.json
+
+The fresh control is read from the results file's own `fresh_control.path`, so a v2 result
+is analysed against v2 and a v1 result against v1 with no flag; a second positional
+argument overrides it. The per-bin length table it prints is the measured length match,
+not a claim about one.
 
 It needs torch only for the tokenizer; the statistics are the same pure functions as
 `bench.contamination`.
@@ -73,20 +78,51 @@ def stratified_ci(bird_scores, bird_lens, fresh_scores, fresh_lens, *,
     return stats[int(0.025 * (len(stats) - 1))], stats[int(0.975 * (len(stats) - 1))]
 
 
-def main(path: str) -> int:
+def bin_table(ls, label: str) -> list[dict]:
+    """Per-bin count, share, mean and median for one length vector. The published
+    length-match table is built from this and nothing else, so the numbers in
+    `docs/contamination.md` are a rendering of it rather than a re-derivation."""
+    out = []
+    for lo, hi in LENGTH_BINS:
+        xs = [x for x in ls if lo <= x <= hi]
+        out.append({
+            "bin": f"{lo}-{hi}" if hi < 1000 else f"{lo}+",
+            "n": len(xs),
+            "share": len(xs) / len(ls),
+            "mean": float(np.mean(xs)) if xs else None,
+            "median": float(np.median(xs)) if xs else None,
+        })
+    return out
+
+
+def main(path: str, fresh_path: str | None = None) -> int:
     from transformers import AutoTokenizer
 
     tok = AutoTokenizer.from_pretrained("unsloth/Qwen3-0.6B")
     d = json.load(open(path))
     rs = d["raw_scores"]
     bird_lens = token_lengths([t["gold_sql"] for t in d["bird"]], tok)
-    fresh = C.load_fresh()
+    if fresh_path is None:
+        fresh_path = (d.get("fresh_control") or {}).get("path") or str(C.FRESH_PATH)
+    fresh = C.load_fresh(fresh_path)
     fresh_lens = token_lengths([p["sql"] for p in fresh], tok)
 
     print(f"lengths: BIRD mean {bird_lens.mean():.1f} median {np.median(bird_lens):.0f}"
           f" | fresh mean {fresh_lens.mean():.1f} median {np.median(fresh_lens):.0f}")
+    print(f"fresh control: {fresh_path}")
+    print("bin      BIRD n  share   mean  median | fresh n  share   mean  median")
+    bt, ft = bin_table(bird_lens, "bird"), bin_table(fresh_lens, "fresh")
+    for b, f in zip(bt, ft):
+        print(f"{b['bin']:<8} {b['n']:6d}  {b['share']:.3f}  "
+              f"{(b['mean'] or 0):5.1f}  {(b['median'] or 0):6.1f} | "
+              f"{f['n']:6d}  {f['share']:.3f}  "
+              f"{(f['mean'] or 0):5.1f}  {(f['median'] or 0):6.1f}")
     out = {"lengths": {"bird_mean": float(bird_lens.mean()),
-                       "fresh_mean": float(fresh_lens.mean())}}
+                       "bird_median": float(np.median(bird_lens)),
+                       "fresh_mean": float(fresh_lens.mean()),
+                       "fresh_median": float(np.median(fresh_lens)),
+                       "fresh_path": str(fresh_path)},
+           "bins": {"bird": bt, "fresh": ft}}
     for method in ("min_k", "min_kpp"):
         b = rs[f"bird_sql_{method}"]
         f = rs[f"fresh_sql_{method}"]
@@ -103,4 +139,5 @@ def main(path: str) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1]))
+    fresh_arg = sys.argv[2] if len(sys.argv) > 2 else None
+    raise SystemExit(main(sys.argv[1], fresh_arg))

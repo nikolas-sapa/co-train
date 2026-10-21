@@ -1,0 +1,536 @@
+{
+ "description": "Length-matched fresh non-member control (v2) for the contamination check. Question/gold-SQL pairs authored 2026-10-19 over the SAME seven BIRD dev databases as v1, with gold-SQL token lengths drawn to BIRD's own distribution over the n=300 seed=0 draw: mean 54.05, median 51. These strings did not exist before this date and cannot be in any pretraining corpus. Every sql executes against dev_databases/<db_id>/<db_id>.sqlite and returns rows. v1 (bench/contamination_fresh.json, mean 21.2 tokens) is kept in place as the record of the defect this set repairs.",
+ "authored": "2026-10-19",
+ "n": 58,
+ "length_match_target": {
+  "bird_draw_n": 300,
+  "bird_seed": 0,
+  "bird_mean_tokens": 54.05,
+  "bird_median_tokens": 51
+ },
+ "tokenizer": "unsloth/Qwen3-0.6B",
+ "pairs": [
+  {
+   "name": "freshv2-000",
+   "db_id": "superhero",
+   "tier": "simple",
+   "question": "How many heroes have amber eyes?",
+   "evidence": "",
+   "sql": "SELECT COUNT(*) FROM superhero WHERE eye_colour_id = 2",
+   "tokens": 12
+  },
+  {
+   "name": "freshv2-001",
+   "db_id": "toxicology",
+   "tier": "simple",
+   "question": "How many molecules are labelled as carcinogenic?",
+   "evidence": "",
+   "sql": "SELECT COUNT(*) FROM molecule AS T1 WHERE T1.label = '+'",
+   "tokens": 14
+  },
+  {
+   "name": "freshv2-002",
+   "db_id": "debit_card_specializing",
+   "tier": "simple",
+   "question": "How many gas stations belong to chain 3?",
+   "evidence": "",
+   "sql": "SELECT COUNT(*) FROM gasstations AS T1 WHERE T1.ChainID = 3",
+   "tokens": 17
+  },
+  {
+   "name": "freshv2-003",
+   "db_id": "thrombosis_prediction",
+   "tier": "simple",
+   "question": "How many patients in the cohort are male?",
+   "evidence": "",
+   "sql": "SELECT COUNT(*) FROM Patient AS T1 WHERE T1.SEX = 'M'",
+   "tokens": 17
+  },
+  {
+   "name": "freshv2-004",
+   "db_id": "california_schools",
+   "tier": "simple",
+   "question": "How many schools are run by a county office of education?",
+   "evidence": "",
+   "sql": "SELECT COUNT(*) FROM schools AS T1 WHERE T1.SOCType = 'County Community'",
+   "tokens": 19
+  },
+  {
+   "name": "freshv2-005",
+   "db_id": "debit_card_specializing",
+   "tier": "moderate",
+   "question": "How many gas stations in Slovakia belong to the chain with the most stations in the sample?",
+   "evidence": "",
+   "sql": "SELECT COUNT(*) FROM gasstations AS T1 WHERE T1.Country = 'SVK' AND T1.ChainID = (SELECT ChainID FROM gasstations GROUP BY ChainID ORDER BY COUNT(*) DESC LIMIT 1)",
+   "tokens": 44
+  },
+  {
+   "name": "freshv2-006",
+   "db_id": "california_schools",
+   "tier": "moderate",
+   "question": "How many schools in Los Angeles County were chartered and directly funded?",
+   "evidence": "",
+   "sql": "SELECT COUNT(*) FROM schools WHERE County = 'Los Angeles' AND Charter = 1 AND FundingType = 'Directly funded'",
+   "tokens": 26
+  },
+  {
+   "name": "freshv2-007",
+   "db_id": "student_club",
+   "tier": "moderate",
+   "question": "Which members attended the officers meeting held in April 2020?",
+   "evidence": "",
+   "sql": "SELECT T2.first_name, T2.last_name FROM attendance AS T1 INNER JOIN member AS T2 ON T1.link_to_member = T2.member_id INNER JOIN event AS T3 ON T1.link_to_event = T3.event_id WHERE T3.event_name = 'Officers meeting - April'",
+   "tokens": 61
+  },
+  {
+   "name": "freshv2-008",
+   "db_id": "superhero",
+   "tier": "moderate",
+   "question": "Which DC Comics heroes have the power Mind Control?",
+   "evidence": "",
+   "sql": "SELECT T1.superhero_name, T1.height_cm FROM superhero AS T1 INNER JOIN hero_power AS T2 ON T1.id = T2.hero_id INNER JOIN superpower AS T3 ON T2.power_id = T3.id WHERE T3.power_name = 'Mind Control' AND T1.publisher_id IN (SELECT id FROM publisher WHERE publisher_name = 'DC Comics')",
+   "tokens": 77
+  },
+  {
+   "name": "freshv2-009",
+   "db_id": "toxicology",
+   "tier": "moderate",
+   "question": "List the molecules in which a carbon atom is joined by a double bond.",
+   "evidence": "",
+   "sql": "SELECT DISTINCT T1.molecule_id FROM bond AS T1 INNER JOIN connected AS T2 ON T1.bond_id = T2.bond_id INNER JOIN atom AS T3 ON T2.atom_id = T3.atom_id WHERE T1.bond_type = '=' AND T3.element = 'c'",
+   "tokens": 62
+  },
+  {
+   "name": "freshv2-010",
+   "db_id": "formula_1",
+   "tier": "moderate",
+   "question": "Which drivers finished on the podium at the 2014 Belgian Grand Prix?",
+   "evidence": "",
+   "sql": "SELECT T1.surname FROM drivers AS T1 INNER JOIN results AS T2 ON T1.driverId = T2.driverId INNER JOIN races AS T3 ON T2.raceId = T3.raceId WHERE T3.name = 'Belgian Grand Prix' AND T3.year = 2014 AND T2.positionOrder <= 3",
+   "tokens": 73
+  },
+  {
+   "name": "freshv2-011",
+   "db_id": "debit_card_specializing",
+   "tier": "moderate",
+   "question": "Which customer segment bought the most fuel at the stations of chain 3?",
+   "evidence": "",
+   "sql": "SELECT T2.Segment FROM transactions_1k AS T1 INNER JOIN customers AS T2 ON T1.CustomerID = T2.CustomerID WHERE T1.GasStationID IN (SELECT GasStationID FROM gasstations WHERE ChainID = 3) GROUP BY T2.Segment ORDER BY SUM(T1.Amount) DESC LIMIT 1",
+   "tokens": 69
+  },
+  {
+   "name": "freshv2-012",
+   "db_id": "thrombosis_prediction",
+   "tier": "moderate",
+   "question": "Which patients were diagnosed with MCTD and also have a recorded symptom of AMI on their examination record?",
+   "evidence": "",
+   "sql": "SELECT DISTINCT T1.ID, T1.Birthday FROM Patient AS T1 INNER JOIN Examination AS T2 ON T1.ID = T2.ID WHERE T1.Diagnosis = 'MCTD' AND T2.Symptoms = 'AMI'",
+   "tokens": 50
+  },
+  {
+   "name": "freshv2-013",
+   "db_id": "student_club",
+   "tier": "moderate",
+   "question": "What is the total income recorded for the member whose first name is Angela and last name Sanders?",
+   "evidence": "",
+   "sql": "SELECT SUM(T2.amount) FROM member AS T1 INNER JOIN income AS T2 ON T1.member_id = T2.link_to_member WHERE T1.first_name = 'Angela' AND T1.last_name = 'Sanders'",
+   "tokens": 47
+  },
+  {
+   "name": "freshv2-014",
+   "db_id": "superhero",
+   "tier": "moderate",
+   "question": "Which aliens have the power Super Strength?",
+   "evidence": "",
+   "sql": "SELECT T1.superhero_name FROM superhero AS T1 INNER JOIN race AS T2 ON T1.race_id = T2.id WHERE T2.race = 'Alien' AND T1.id IN (SELECT hero_id FROM hero_power WHERE power_id IN (SELECT id FROM superpower WHERE power_name = 'Super Strength'))",
+   "tokens": 67
+  },
+  {
+   "name": "freshv2-015",
+   "db_id": "toxicology",
+   "tier": "moderate",
+   "question": "For each molecule label, how many single bonds exist in molecules carrying that label?",
+   "evidence": "",
+   "sql": "SELECT T1.label, COUNT(T2.bond_id) FROM molecule AS T1 INNER JOIN bond AS T2 ON T1.molecule_id = T2.molecule_id WHERE T2.bond_type = '-' GROUP BY T1.label",
+   "tokens": 48
+  },
+  {
+   "name": "freshv2-016",
+   "db_id": "formula_1",
+   "tier": "moderate",
+   "question": "How many points did McLaren score in total across the 2013 season?",
+   "evidence": "",
+   "sql": "SELECT SUM(T1.points) FROM constructorResults AS T1 INNER JOIN races AS T2 ON T1.raceId = T2.raceId INNER JOIN constructors AS T3 ON T1.constructorId = T3.constructorId WHERE T3.name = 'McLaren' AND T2.year = 2013",
+   "tokens": 66
+  },
+  {
+   "name": "freshv2-017",
+   "db_id": "debit_card_specializing",
+   "tier": "moderate",
+   "question": "Which gas station chain has the highest total transaction amount on 2012-08-24?",
+   "evidence": "",
+   "sql": "SELECT T2.ChainID FROM transactions_1k AS T1 INNER JOIN gasstations AS T2 ON T1.GasStationID = T2.GasStationID WHERE T1.Date = '2012-08-24' GROUP BY T2.ChainID ORDER BY SUM(T1.Price) DESC LIMIT 1",
+   "tokens": 68
+  },
+  {
+   "name": "freshv2-018",
+   "db_id": "california_schools",
+   "tier": "moderate",
+   "question": "Which school had the highest average reading score among the schools in Alameda county, and how many students took the test?",
+   "evidence": "",
+   "sql": "SELECT T1.sname, T1.NumTstTakr FROM satscores AS T1 WHERE T1.cname = 'Alameda' AND T1.rtype = 'S' ORDER BY T1.AvgScrRead DESC LIMIT 1",
+   "tokens": 52
+  },
+  {
+   "name": "freshv2-019",
+   "db_id": "student_club",
+   "tier": "moderate",
+   "question": "Which members hold an officer position and belong to the College of Education and Human Services?",
+   "evidence": "",
+   "sql": "SELECT T1.first_name, T1.last_name, T1.position FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T2.college = 'College of Education & Human Services' AND T1.position <> 'Member'",
+   "tokens": 58
+  },
+  {
+   "name": "freshv2-020",
+   "db_id": "superhero",
+   "tier": "moderate",
+   "question": "What is the average weight of female heroes published by Marvel Comics?",
+   "evidence": "",
+   "sql": "SELECT AVG(T1.weight_kg) FROM superhero AS T1 INNER JOIN gender AS T2 ON T1.gender_id = T2.id INNER JOIN publisher AS T3 ON T1.publisher_id = T3.id WHERE T2.gender = 'Female' AND T3.publisher_name = 'Marvel Comics'",
+   "tokens": 61
+  },
+  {
+   "name": "freshv2-021",
+   "db_id": "toxicology",
+   "tier": "moderate",
+   "question": "List the distinct molecule identifiers whose label is negative and which contain nitrogen.",
+   "evidence": "",
+   "sql": "SELECT DISTINCT T1.molecule_id FROM atom AS T1 INNER JOIN molecule AS T2 ON T1.molecule_id = T2.molecule_id WHERE T1.element = 'n' AND T2.label = '-'",
+   "tokens": 44
+  },
+  {
+   "name": "freshv2-022",
+   "db_id": "formula_1",
+   "tier": "moderate",
+   "question": "Who set the fastest lap at the 2012 British Grand Prix?",
+   "evidence": "",
+   "sql": "SELECT T1.surname FROM drivers AS T1 INNER JOIN results AS T2 ON T1.driverId = T2.driverId INNER JOIN races AS T3 ON T2.raceId = T3.raceId WHERE T3.name = 'British Grand Prix' AND T3.year = 2012 AND T2.rank = 1",
+   "tokens": 70
+  },
+  {
+   "name": "freshv2-023",
+   "db_id": "debit_card_specializing",
+   "tier": "moderate",
+   "question": "What is the average monthly gas consumption of customers in the SME segment during 2013?",
+   "evidence": "",
+   "sql": "SELECT AVG(T2.Consumption) FROM customers AS T1 INNER JOIN yearmonth AS T2 ON T1.CustomerID = T2.CustomerID WHERE T1.Segment = 'SME' AND T2.Date LIKE '2013%'",
+   "tokens": 51
+  },
+  {
+   "name": "freshv2-024",
+   "db_id": "california_schools",
+   "tier": "moderate",
+   "question": "What is the average number of students taking the SAT among the schools in Alameda County that enrolled more than a thousand twelfth graders?",
+   "evidence": "",
+   "sql": "SELECT AVG(T1.NumTstTakr) FROM satscores AS T1 INNER JOIN schools AS T2 ON T1.cds = T2.CDSCode WHERE T2.County = 'Alameda' AND T1.enroll12 > 1000",
+   "tokens": 58
+  },
+  {
+   "name": "freshv2-025",
+   "db_id": "superhero",
+   "tier": "moderate",
+   "question": "Which heroes are rated above 80 on both intelligence and strength?",
+   "evidence": "",
+   "sql": "SELECT T1.superhero_name FROM superhero AS T1 INNER JOIN hero_attribute AS T2 ON T1.id = T2.hero_id INNER JOIN attribute AS T3 ON T2.attribute_id = T3.id WHERE T3.attribute_name IN ('Intelligence','Strength') AND T2.attribute_value > 80 GROUP BY T1.id HAVING COUNT(*) = 2",
+   "tokens": 75
+  },
+  {
+   "name": "freshv2-026",
+   "db_id": "formula_1",
+   "tier": "moderate",
+   "question": "What is the average pit stop duration for the race named German Grand Prix in 2011?",
+   "evidence": "",
+   "sql": "SELECT AVG(T1.duration) FROM pitStops AS T1 INNER JOIN races AS T2 ON T1.raceId = T2.raceId WHERE T2.name = 'German Grand Prix' AND T2.year = 2011",
+   "tokens": 51
+  },
+  {
+   "name": "freshv2-027",
+   "db_id": "toxicology",
+   "tier": "moderate",
+   "question": "What is the ratio of double bonds to single bonds in the molecule TR015?",
+   "evidence": "",
+   "sql": "SELECT CAST(SUM(CASE WHEN T1.bond_type = '=' THEN 1 ELSE 0 END) AS REAL) / SUM(CASE WHEN T1.bond_type = '-' THEN 1 ELSE 0 END) FROM bond AS T1 WHERE T1.molecule_id = 'TR015'",
+   "tokens": 63
+  },
+  {
+   "name": "freshv2-028",
+   "db_id": "california_schools",
+   "tier": "moderate",
+   "question": "Which counties have an average percentage of free meal eligible students above 60 percent, counting only schools with at least five hundred enrolled, and what is that average?",
+   "evidence": "",
+   "sql": "SELECT T1.`County Name`, AVG(T1.`Percent (%) Eligible Free (K-12)`) FROM frpm AS T1 WHERE T1.`Enrollment (K-12)` >= 500 GROUP BY T1.`County Name` HAVING AVG(T1.`Percent (%) Eligible Free (K-12)`) > 0.6",
+   "tokens": 77
+  },
+  {
+   "name": "freshv2-029",
+   "db_id": "student_club",
+   "tier": "moderate",
+   "question": "Which members hold an office and are enrolled in a humanities programme?",
+   "evidence": "",
+   "sql": "SELECT T1.first_name, T1.last_name, T1.position FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T2.college = 'College of Humanities and Social Sciences' AND T1.position IN ('President','Vice President')",
+   "tokens": 62
+  },
+  {
+   "name": "freshv2-030",
+   "db_id": "toxicology",
+   "tier": "moderate",
+   "question": "For each molecule label, how many distinct molecules contain a nitrogen atom and none contain oxygen?",
+   "evidence": "",
+   "sql": "SELECT T2.label, COUNT(DISTINCT T1.molecule_id) FROM atom AS T1 INNER JOIN molecule AS T2 ON T1.molecule_id = T2.molecule_id WHERE T1.element = 'n' AND NOT EXISTS (SELECT 1 FROM atom AS T3 WHERE T3.molecule_id = T1.molecule_id AND T3.element = 'o') GROUP BY T2.label ORDER BY T2.label",
+   "tokens": 88
+  },
+  {
+   "name": "freshv2-031",
+   "db_id": "student_club",
+   "tier": "moderate",
+   "question": "Which budgets belong to guest speaker events and are still open?",
+   "evidence": "",
+   "sql": "SELECT T1.budget_id, T1.category FROM budget AS T1 INNER JOIN event AS T2 ON T1.link_to_event = T2.event_id WHERE T2.type = 'Guest Speaker' AND T1.event_status = 'Open'",
+   "tokens": 50
+  },
+  {
+   "name": "freshv2-032",
+   "db_id": "superhero",
+   "tier": "moderate",
+   "question": "Which heroes share the same eye colour as Batman and are published by DC Comics?",
+   "evidence": "",
+   "sql": "SELECT T1.superhero_name FROM superhero AS T1 INNER JOIN superhero AS T2 ON T1.eye_colour_id = T2.eye_colour_id INNER JOIN publisher AS T3 ON T1.publisher_id = T3.id WHERE T2.superhero_name = 'Batman' AND T3.publisher_name = 'DC Comics'",
+   "tokens": 64
+  },
+  {
+   "name": "freshv2-033",
+   "db_id": "toxicology",
+   "tier": "moderate",
+   "question": "For each label, how many distinct molecules contain a sulphur atom?",
+   "evidence": "",
+   "sql": "SELECT T1.label, COUNT(DISTINCT T2.molecule_id) FROM molecule AS T1 INNER JOIN atom AS T2 ON T1.molecule_id = T2.molecule_id WHERE T2.element = 's' GROUP BY T1.label",
+   "tokens": 51
+  },
+  {
+   "name": "freshv2-034",
+   "db_id": "debit_card_specializing",
+   "tier": "moderate",
+   "question": "How many transactions were made at premium gas stations by customers with a Spanish currency account?",
+   "evidence": "",
+   "sql": "SELECT COUNT(*) FROM transactions_1k AS T1 INNER JOIN gasstations AS T2 ON T1.GasStationID = T2.GasStationID INNER JOIN customers AS T3 ON T1.CustomerID = T3.CustomerID WHERE T2.Segment = 'Premium' AND T3.Currency = 'EUR'",
+   "tokens": 65
+  },
+  {
+   "name": "freshv2-035",
+   "db_id": "thrombosis_prediction",
+   "tier": "moderate",
+   "question": "Which symptom appears most often among patients whose diagnosis mentions SLE?",
+   "evidence": "",
+   "sql": "SELECT T1.Symptoms FROM Examination AS T1 INNER JOIN Patient AS T2 ON T1.ID = T2.ID WHERE T2.Diagnosis LIKE '%SLE%' AND T1.Symptoms IS NOT NULL GROUP BY T1.Symptoms ORDER BY COUNT(*) DESC LIMIT 1",
+   "tokens": 59
+  },
+  {
+   "name": "freshv2-036",
+   "db_id": "california_schools",
+   "tier": "moderate",
+   "question": "For each school type, what is the average enrollment and how many schools are there?",
+   "evidence": "",
+   "sql": "SELECT T1.`School Type`, AVG(T1.`Enrollment (K-12)`) AS avg_enrollment, COUNT(*) AS n_schools FROM frpm AS T1 GROUP BY T1.`School Type` ORDER BY n_schools DESC",
+   "tokens": 51
+  },
+  {
+   "name": "freshv2-037",
+   "db_id": "student_club",
+   "tier": "moderate",
+   "question": "Which members enrolled in the College of Engineering have never attended an event?",
+   "evidence": "",
+   "sql": "SELECT T1.first_name, T1.last_name FROM member AS T1 INNER JOIN major AS T2 ON T1.link_to_major = T2.major_id WHERE T2.college = 'College of Engineering' AND T1.member_id NOT IN (SELECT link_to_member FROM attendance)",
+   "tokens": 58
+  },
+  {
+   "name": "freshv2-038",
+   "db_id": "toxicology",
+   "tier": "moderate",
+   "question": "How many labelled molecules contain a bromine atom, grouped by their label?",
+   "evidence": "",
+   "sql": "SELECT T2.label, COUNT(DISTINCT T1.molecule_id) FROM atom AS T1 INNER JOIN molecule AS T2 ON T1.molecule_id = T2.molecule_id WHERE T1.element = 'br' GROUP BY T2.label",
+   "tokens": 51
+  },
+  {
+   "name": "freshv2-039",
+   "db_id": "formula_1",
+   "tier": "moderate",
+   "question": "For each nationality with at least five drivers, what is the youngest driver's date of birth and how many drivers does it have?",
+   "evidence": "",
+   "sql": "SELECT T1.nationality, MIN(T1.dob) AS youngest, COUNT(*) AS n_drivers FROM drivers AS T1 WHERE T1.dob IS NOT NULL GROUP BY T1.nationality HAVING COUNT(*) >= 5 ORDER BY n_drivers DESC",
+   "tokens": 55
+  },
+  {
+   "name": "freshv2-040",
+   "db_id": "debit_card_specializing",
+   "tier": "moderate",
+   "question": "Which customers consumed more than 2000 units of gas in 2012, what is their segment and their total consumption?",
+   "evidence": "",
+   "sql": "SELECT T1.CustomerID, T2.Segment, SUM(T1.Consumption) FROM yearmonth AS T1 INNER JOIN customers AS T2 ON T1.CustomerID = T2.CustomerID WHERE T1.Date LIKE '2012%' GROUP BY T1.CustomerID HAVING SUM(T1.Consumption) > 2000",
+   "tokens": 72
+  },
+  {
+   "name": "freshv2-041",
+   "db_id": "california_schools",
+   "tier": "moderate",
+   "question": "What is the average number of free meals and the average percentage eligible for elementary schools with at least five hundred students?",
+   "evidence": "",
+   "sql": "SELECT AVG(T1.`Free Meal Count (K-12)`), AVG(T1.`Percent (%) Eligible Free (K-12)`) FROM frpm AS T1 WHERE T1.`School Type` = 'Elementary Schools (Public)' AND T1.`Enrollment (K-12)` >= 500",
+   "tokens": 69
+  },
+  {
+   "name": "freshv2-042",
+   "db_id": "california_schools",
+   "tier": "challenging",
+   "question": "How many schools in Alameda County are active and have more than five hundred students enrolled?",
+   "evidence": "",
+   "sql": "SELECT COUNT(*) FROM schools AS T1 INNER JOIN frpm AS T2 ON T1.CDSCode = T2.CDSCode WHERE T1.County = 'Alameda' AND T1.StatusType = 'Active' AND T2.`Enrollment (K-12)` > 500",
+   "tokens": 63
+  },
+  {
+   "name": "freshv2-043",
+   "db_id": "student_club",
+   "tier": "challenging",
+   "question": "Which members spent more than the average expense?",
+   "evidence": "",
+   "sql": "SELECT DISTINCT T3.first_name, T3.last_name FROM expense AS T1 INNER JOIN member AS T3 ON T3.member_id = T1.link_to_member WHERE T1.cost > (SELECT AVG(cost) FROM expense)",
+   "tokens": 46
+  },
+  {
+   "name": "freshv2-044",
+   "db_id": "superhero",
+   "tier": "challenging",
+   "question": "Which heroes have combat rated above 70?",
+   "evidence": "",
+   "sql": "SELECT T1.superhero_name FROM superhero AS T1 INNER JOIN hero_attribute AS T2 ON T1.id = T2.hero_id INNER JOIN attribute AS T3 ON T2.attribute_id = T3.id WHERE T3.attribute_name = 'Combat' AND T2.attribute_value > 70",
+   "tokens": 60
+  },
+  {
+   "name": "freshv2-045",
+   "db_id": "california_schools",
+   "tier": "challenging",
+   "question": "List the five schools in San Diego county with the highest average mathematics score among schools that reported one.",
+   "evidence": "",
+   "sql": "SELECT T1.sname FROM satscores AS T1 WHERE T1.cname = 'San Diego' AND T1.rtype = 'S' AND T1.AvgScrMath IS NOT NULL ORDER BY T1.AvgScrMath DESC LIMIT 5",
+   "tokens": 53
+  },
+  {
+   "name": "freshv2-046",
+   "db_id": "california_schools",
+   "tier": "challenging",
+   "question": "List the schools in Los Angeles County with more than one thousand students enrolled.",
+   "evidence": "",
+   "sql": "SELECT T1.School FROM schools AS T1 INNER JOIN frpm AS T2 ON T1.CDSCode = T2.CDSCode WHERE T1.County = 'Los Angeles' AND T2.`Enrollment (K-12)` > 1000",
+   "tokens": 57
+  },
+  {
+   "name": "freshv2-047",
+   "db_id": "toxicology",
+   "tier": "challenging",
+   "question": "How many distinct atoms of sulphur are there, and in how many molecules do they occur?",
+   "evidence": "",
+   "sql": "SELECT COUNT(DISTINCT CASE WHEN T1.element = 's' THEN T1.atom_id ELSE NULL END) AS sulfur_nums, COUNT(DISTINCT T1.molecule_id) AS molecules FROM atom AS T1 WHERE T1.element = 's'",
+   "tokens": 52
+  },
+  {
+   "name": "freshv2-048",
+   "db_id": "superhero",
+   "tier": "moderate",
+   "question": "What is the heaviest hero published by Marvel Comics?",
+   "evidence": "",
+   "sql": "SELECT T1.superhero_name FROM superhero AS T1 INNER JOIN publisher AS T2 ON T1.publisher_id = T2.id WHERE T2.publisher_name = 'Marvel Comics' ORDER BY T1.weight_kg DESC LIMIT 1",
+   "tokens": 47
+  },
+  {
+   "name": "freshv2-049",
+   "db_id": "toxicology",
+   "tier": "moderate",
+   "question": "Which molecules contain more than ten atoms and are labelled negative?",
+   "evidence": "",
+   "sql": "SELECT T1.molecule_id FROM atom AS T1 INNER JOIN molecule AS T2 ON T1.molecule_id = T2.molecule_id WHERE T2.label = '-' GROUP BY T1.molecule_id HAVING COUNT(*) > 10",
+   "tokens": 50
+  },
+  {
+   "name": "freshv2-050",
+   "db_id": "thrombosis_prediction",
+   "tier": "moderate",
+   "question": "What is the average age at 2020 of patients with a diagnosis of SLE, and how many such patients are there?",
+   "evidence": "",
+   "sql": "SELECT AVG(2020 - CAST(SUBSTR(T1.Birthday, 1, 4) AS INT)), COUNT(*) FROM Patient AS T1 WHERE T1.Diagnosis = 'SLE' AND T1.Birthday IS NOT NULL",
+   "tokens": 51
+  },
+  {
+   "name": "freshv2-051",
+   "db_id": "california_schools",
+   "tier": "moderate",
+   "question": "How many schools are in each funding type?",
+   "evidence": "",
+   "sql": "SELECT T1.FundingType, COUNT(*) FROM schools AS T1 GROUP BY T1.FundingType ORDER BY COUNT(*) DESC",
+   "tokens": 26
+  },
+  {
+   "name": "freshv2-052",
+   "db_id": "formula_1",
+   "tier": "moderate",
+   "question": "Which circuits hosted more than ten races?",
+   "evidence": "",
+   "sql": "SELECT T1.name FROM circuits AS T1 INNER JOIN races AS T2 ON T1.circuitId = T2.circuitId GROUP BY T1.circuitId HAVING COUNT(*) > 10",
+   "tokens": 42
+  },
+  {
+   "name": "freshv2-053",
+   "db_id": "debit_card_specializing",
+   "tier": "moderate",
+   "question": "Which customer segments bought fuel at the premium stations in the sample?",
+   "evidence": "",
+   "sql": "SELECT DISTINCT T2.Segment FROM transactions_1k AS T1 INNER JOIN customers AS T2 ON T1.CustomerID = T2.CustomerID INNER JOIN gasstations AS T3 ON T1.GasStationID = T3.GasStationID WHERE T3.Segment = 'Premium'",
+   "tokens": 60
+  },
+  {
+   "name": "freshv2-054",
+   "db_id": "student_club",
+   "tier": "challenging",
+   "question": "Which events were held in the same month as the March Meeting, and how many members attended each of them?",
+   "evidence": "",
+   "sql": "SELECT T1.event_name, COUNT(T2.link_to_member) AS attendees FROM event AS T1 LEFT JOIN attendance AS T2 ON T1.event_id = T2.link_to_event WHERE T1.event_date LIKE '2020-03%' AND T1.event_name <> 'March Meeting' GROUP BY T1.event_id ORDER BY attendees DESC",
+   "tokens": 72
+  },
+  {
+   "name": "freshv2-055",
+   "db_id": "toxicology",
+   "tier": "moderate",
+   "question": "Which molecules contain exactly three atoms of chlorine and at least one atom of carbon?",
+   "evidence": "",
+   "sql": "SELECT T1.molecule_id FROM atom AS T1 WHERE T1.element = 'cl' GROUP BY T1.molecule_id HAVING COUNT(*) = 3 AND T1.molecule_id IN (SELECT molecule_id FROM atom WHERE element = 'c')",
+   "tokens": 52
+  },
+  {
+   "name": "freshv2-056",
+   "db_id": "california_schools",
+   "tier": "moderate",
+   "question": "For each county, how many schools have an enrollment above five hundred students?",
+   "evidence": "",
+   "sql": "SELECT T1.County, COUNT(*) FROM schools AS T1 INNER JOIN frpm AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.`Enrollment (K-12)` > 500 GROUP BY T1.County",
+   "tokens": 55
+  },
+  {
+   "name": "freshv2-057",
+   "db_id": "thrombosis_prediction",
+   "tier": "challenging",
+   "question": "Among patients with SLE, what is the average number of days between their first visit and their examination?",
+   "evidence": "",
+   "sql": "SELECT AVG(JULIANDAY(T3.`Examination Date`) - JULIANDAY(T1.`First Date`)) FROM Patient AS T1 INNER JOIN Examination AS T3 ON T1.ID = T3.ID WHERE T1.Diagnosis = 'SLE'",
+   "tokens": 55
+  }
+ ]
+}
