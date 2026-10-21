@@ -6,6 +6,16 @@ live in `train/README.md`; this file is the record of what had to be judged.
 
 Nothing here has run on a GPU. The probe is runnable and has not been run.
 
+**Dated note, 2026-10-19: both sentences went stale on 2026-10-18.** The probe has now run
+nine times on a free Kaggle T4, and v9 is the first that measured rather than faulted:
+generation and extraction worked (`completions/clipped_ratio` 0.000, every completion
+terminated, `grad_norm` non-zero) and the run aborted at step 0 on `frac_reward_zero_std`
+1.000 across four groups, which is a weak-policy reading and not a rate. Everything below
+that describes design reasoning rather than executed code should be read against
+`docs/probe-v9.md`. In particular the trainer call shapes this file called unexecuted
+(`train/dead_group_probe.py`, the `FastLanguageModel.from_pretrained` / `GRPOConfig` /
+`GRPOTrainer` sequence) have now executed on that hardware.
+
 ## The abort threshold is stated twice, and the two statements are different tests
 
 The spec gives criterion A in two places with two different forms:
@@ -37,6 +47,16 @@ it is an edit to the spec — which this lane does not own. Flagged, not chosen.
 instrument, so it can abort on a spike that a run would ride out. That direction
 is the cheap error: it costs one wasted free-tier session and `verdict.py` can
 re-adjudicate the saved JSONL under either criterion with no GPU.
+
+**Dated note, 2026-10-19: the argument above was overtaken by a third option, and v9 priced
+the "cheap error".** A `--abort-window k` flag now exists: the any-step criterion fires only
+after `k` consecutive breaching steps, default 1 (§282 verbatim), so the probe can require
+a little evidence without adopting the run's 10-step form. The current entry point uses
+`--steps 10 --abort-window 3` (`train/kaggle/probe.py:137-140`), and the power derivation is
+in `train/dead_group_probe.py:70-79` and `train/verdict.py:119-134` (amendment A11 draft,
+unsigned). v9 also showed what the single-step form costs: four dead groups at step 0 end
+the probe with no rate at all, so "one wasted session" is the actual price and the design
+choice was the owner's, taken after v9.
 
 ## Criterion B detects direction, not size
 
@@ -182,6 +202,13 @@ free, the real allocation is larger than the derivation assumes and it needs
 lowering. The probe's first run on hardware settles it, and the dry run prints
 the value so it is visible before launch rather than after an OOM.
 
+**Dated note, 2026-10-19: the first run happened and did not settle it.** v9's log shows
+vLLM resolved `gpu_memory_utilization` 0.689913113455469 on a 14.562 GB T4, but no saved
+log or metrics file reports **peak VRAM**, so whether the base is total or free is not
+derived by any file here. The question stays open as stated; only "the first run settles it"
+is false. What the log does show is that the trainer and vLLM colocated without an OOM at
+that setting, which is weaker than the §361 answer but worth recording.
+
 ## What `grpo_ptc.py` does not contain
 
 The trainer call shapes (`FastLanguageModel.from_pretrained`, `GRPOConfig`,
@@ -191,6 +218,17 @@ the spec's own largest unverified assumption (§51). So `main()` does not load a
 model and then refuse — `preflight()` refuses first, for free, and the line after
 it raises `NotImplementedError` so that removing the gate cannot silently produce
 a run.
+
+**CORRECTED 2026-10-19: the sentence above is true of `grpo_ptc.py` and false of the
+probe.** v9 executed `FastLanguageModel.from_pretrained`, `FastLanguageModel.get_peft_model`,
+`GRPOConfig` and `GRPOTrainer` on a Kaggle T4 under unsloth 2026.10.3 / trl 1.13.0 / torch
+2.11.0+cu128, with fp16 training and bf16 false, and `grad_norm` came back non-zero
+(`docs/probe-v9.md`). So §51's fp16-on-Turing question is answered for the probe's path.
+What remains unexecuted is this lane's own trainer path: `PTCEnvironment.step` raises by
+design and `main()` raises `NotImplementedError` after `preflight()`, so no co-training
+rollout has run and the `NotImplementedError` above still protects it as described.
+(`environment_factory()` itself is constructed inside `preflight` and by the tests, so
+"never executed" is too broad even for the arm: what has not run is the trainer loop.)
 
 `PTCEnvironment.step` spends a turn and then raises rather than returning a
 plausible string, for the same reason: a stub that returned program output would
@@ -211,3 +249,12 @@ failure mode the whole spec is organised around.
    taken.
 5. **The main run** ($6.29 / 13.2 h) is not implied by any of this. The pipeline
    is gated and the gate is shut.
+
+**Dated note, 2026-10-19: items 1 and 2 are no longer open.** The probe launch happened:
+nine runs on free Kaggle T4, the last measuring rather than faulting, aborting at step 0 on
+four groups (`docs/probe-v9.md`). The prompts question was answered by the run itself: the
+scalar-answer subset was unanswerable, and the taskset is now
+`bird-dev-sql-shippable-seed0` over `bench/probe_prompts_sql.jsonl` with execution accuracy
+as the reward. What is open instead: whether to adopt `--abort-window 3` formally (A11 is a
+draft and unsigned), and the frontier measurement the manifest still needs. Items 3, 4 and 5
+stand as written.

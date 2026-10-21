@@ -26,6 +26,12 @@ and N1 against it cell by cell.
 ~6,500 lines of markdown across 24 documents. One row per question a reader actually arrives
 with; read the one file, not the pile.
 
+**Dated note, 2026-10-19:** the totals have moved. `docs/` alone is **23 markdown files,
+8,445 lines** (6,494 of them at its top level; the difference is `docs/superpowers/`), so
+both the file count and the line count above undercount. They are kept because the sentence
+is a reading instruction rather than a measurement, but a reader who checks will find more
+documents than 24.
+
 | If you arrived asking | Read |
 |---|---|
 | **What is the result?** | **`docs/results-untrained.md`** — the pre-committed report on the untrained premise check. Read it before the framing below on this page, which was written before the run. |
@@ -80,6 +86,26 @@ GPU via `python step2/verdict.py step2/results/step2_metrics.jsonl`.
 > has started.** Note the other session argues in `docs/spike-verifiers.md`
 > that the PTC arm should come before the verifier; reconcile the two orderings first.
 
+**CORRECTED 2026-10-19. Read the paragraphs above for the framing, not for the current
+state.** Three statements in them are stale:
+
+- **"what it produced were instrument defects rather than a result"** was true of the runs
+  before v9. v9 measured: generation and extraction worked (`clipped_ratio` 0.000,
+  `grad_norm` 2.996e-06) and the run aborted at step 0 on four dead groups, which is a
+  statement about the policy, not the pipeline. It produced no solve rate.
+  `docs/probe-v9.md` is the record.
+- **"the defect ledger moved from 13 to 25"** is stale whatever number replaces it: the count
+  is whatever `docs/deviations.md`'s ledger currently derives (it read 33 on 2026-10-19 and
+  another lane was editing it while this note was written, so this file states no number
+  rather than a number that can drift). And `extract_sql` no longer
+  takes the first fenced block: it takes the **last** SQL fence, fixed by `db37523` on
+  2026-10-14, so the example given as "the most recent" is neither recent nor current.
+- **the gate's requirements are still exactly as listed**, but the reason it is shut has
+  narrowed: the signed amendment now exists (A8, signed 2026-10-12,
+  `docs/pre-registration.md:376`). What is missing is the measured per-task band, because no
+  run has produced one. `bench/frontier/manifest.json` is still absent and `preflight()`
+  still raises.
+
 ---
 
 ## Quick start
@@ -106,12 +132,31 @@ No GPU needed for any of it. Step 1's suite is stdlib-only and offline; Step 2's
 .venv-ptc/bin/python -m pytest tests -q   # Step 1's gate alone — 51 tests, nothing imports torch
 ```
 
+**Dated note, 2026-10-19:** the default suite's own comment is incomplete; it covers
+`tests ptc ledger bench train`. Use these three commands unchanged; only the counts after
+`#` are stale (see the table below).
+
 A bare `pytest` is now safe to type: `pytest.ini`'s `testpaths` covers all three default
 suites. It used to read `testpaths = tests`, so `pytest` collected 51 and silently skipped
 `ptc` and `ledger` — the two suites that adjudicate the result. **Expect 528 passed** from the
 default suite (measured 2026-10-14; it read 266 on 2026-10-10, before `bench` and `train`
 landed); a sharply lower number means collection is being skipped again, which is a failure
 this config has already had once.
+
+**CORRECTED 2026-10-19: the three counts in the block above are stale.** Measured today with
+`.venv-ptc/bin/python -m pytest`, in the repo venv:
+
+| command | collected | result |
+|---|---|---|
+| `pytest -q` (default) | 588 | **587 passed, 1 skipped** |
+| `pytest tests -q` | 58 | 58 passed |
+| `pytest step2 -q` | 81 | 79 passed, 2 skipped |
+
+So "528 passed", "51 tests" for Step 1 and "54 tests" for Step 2 all undercount; `testpaths`
+also covers **five** suites now, `tests ptc ledger bench train`, not three. The stale numbers
+are kept because this file's convention is to correct visibly. The Step 2 comments are still
+right in substance: `step2/` is outside `testpaths` and its two skips are the
+transformers/HF-hub-dependent tests, which is why it stays out of the default suite.
 
 `step2/` is deliberately left out of `testpaths` so the default suite stays offline.
 
@@ -125,6 +170,13 @@ uv pip install --python .venv-tok/bin/python transformers tokenizers jinja2 pyte
 
 That `trl` is for the dev-side template helpers only and is **not** the training pin — the Kaggle
 stack is `trl==0.24.0` with `transformers<5`, for the reason in the constraints below.
+
+**CORRECTED 2026-10-19:** the training pin sentence above names the Stack 2 pin, not the
+probe's. The Kaggle probe stack is `unsloth==2026.10.3`, which pins `trl==1.13.0` with
+`transformers>=4.56.2,<5` (`train/kaggle/probe.py:61`); `trl<=0.24.0` is what unsloth
+installs *below* 2026.10.3, and that is the version where the four seams this project
+needs are absent (`train/guards.py`, `docs/RUNBOOK-probe.md` §3.3). The `trl==0.29.0` above
+is neither: it is the dev venv's, for template helpers only.
 
 Training runs nowhere locally — the dev machine is darwin/arm64 and prime-rl requires NVIDIA.
 Everything trains on Kaggle or rented hardware.
@@ -164,6 +216,12 @@ before trusting green. Both test suites are mutation-tested:
 |---|---|---|
 | Step 1 gate | 51 | Six rounds; each found what the last missed — 5 surviving mutants in the contract, 4 in the agents, 3 dormant guards in the gate, then a whole exploit class. Total mutants run was not recorded. |
 | Step 2 | 73 | 59 mutants, 0 survivors, re-run against the final code state. |
+
+**Dated note, 2026-10-19:** the two "Tests" cells are the counts at the mutation rounds, not
+now. `pytest tests -q` collects **58** and `pytest step2 -q` collects **81** (79 passed, 2
+skipped) today. The mutation results themselves are unaffected: neither suite has been
+re-mutated since those counts were taken, so a reader should treat the rows as evidence for
+the round they describe, not for the current files.
 
 `step2/mutate.py` is the harness — fresh copy per mutation and `PYTHONDONTWRITEBYTECODE=1`, both
 mandatory. A byte-length-identical mutation restored within the same second leaves identical mtime
