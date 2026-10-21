@@ -446,3 +446,213 @@ def test_recorded_result_keeps_both_the_primary_verdict_and_the_correction():
     sens = d["sensitivity"]
     assert sens["min-k"]["stratified_auc"] < 0.6
     assert sens["lengths"]["bird_mean_tokens"] > 2 * sens["lengths"]["fresh_mean_tokens"]
+
+
+# ---------------------------------------------------------------------------
+# v2: the length-matched fresh control, and the machinery that keeps it separate
+# ---------------------------------------------------------------------------
+#
+# Every guard added for v2 is exercised here, and each was mutated to prove it can fail;
+# the mutation and its observed result are in the docstring of the test that caught it.
+# The v1 tests above are unchanged: the v1 record stays readable on its own terms.
+
+def test_fresh_group_names_put_the_tag_in_every_key():
+    """**Mutation: drop the tag from the continuation group only** (return
+    `("fresh-question", "fresh-sql", "fresh")`) and this test goes red, because a v2 run
+    would then read v1's continuation scores; `test_two_tags_do_not_share_a_cache_entry`
+    is the behavioural version of the same fact."""
+    q, s, c = C.fresh_group_names("v2")
+    assert q == "fresh-v2-question" and s == "fresh-v2-sql" and c == "fresh-v2"
+    assert C.fresh_group_names("v1") != C.fresh_group_names("v2")
+    assert q != s and s != c and q != c
+
+
+def test_two_tags_do_not_share_a_cache_entry():
+    """The property the tags exist for. **Mutation: return a constant tag** and this goes
+    red on the second assertion, with the v2 lookup returning v1's value."""
+    cache = C.Cache(None)
+    q1, s1, c1 = C.fresh_group_names("v1")
+    q2, s2, c2 = C.fresh_group_names("v2")
+    cache.put("min-k", s1, "SELECT 1", [-3.0, 1.5])
+    assert cache.get("min-k", s2, "SELECT 1") is None
+    assert cache.get("min-k", s1, "SELECT 1") == [-3.0, 1.5]
+    cache.put("continuation", c1 + ":0", "SELECT", [True])
+    assert cache.get("continuation", c2 + ":0", "SELECT") is None
+
+
+def test_score_texts_scores_only_misses():
+    """**Mutation: score every item regardless of a hit** (move the score_one call above
+    the cache lookup) and the call list reads 3 rather than 2. That mutation is what a v2
+    run would pay for: 300 BIRD texts re-scored for no reason."""
+    cache = C.Cache(None)
+    cache.put("min-k", "g", "cached", [-4.0, 1.0])
+    calls = []
+
+    def score_one(text):
+        calls.append(text)
+        return -9.0, 2.0
+
+    mk, mkpp = C.score_texts(cache, ["cached", "new-a", "new-b"], "g", score_one)
+    assert mk == [-4.0, -9.0, -9.0]
+    assert mkpp == [1.0, 2.0, 2.0]
+    assert calls == ["new-a", "new-b"]
+    # And a second pass over the same texts is served entirely from the cache.
+    mk2, mkpp2 = C.score_texts(cache, ["cached", "new-a", "new-b"], "g", score_one)
+    assert (mk2, mkpp2) == (mk, mkpp)
+    assert calls == ["new-a", "new-b"]
+
+
+def test_score_texts_writes_through_so_a_rerun_is_free():
+    """The resume property, asserted through the same function the run uses. **Mutation:
+    drop the cache write** and the second call's list grows from two to four."""
+    cache = C.Cache(None)
+    calls = []
+
+    def score_one(text):
+        calls.append(text)
+        return float(len(text)), 0.0
+
+    C.score_texts(cache, ["aa", "bbbb"], "g", score_one)
+    C.score_texts(cache, ["aa", "bbbb"], "g", score_one)
+    assert calls == ["aa", "bbbb"]
+
+
+def test_promote_positive_control_keeps_a_passing_short_control():
+    """The branch that must not change behaviour for a healthy run. **Mutation: always
+    return the long control** and this test still passes (the long one also passes), which
+    is why the next two tests exist as well."""
+    short = C.Reading("min-k", "sql", 12, 58, 300, 0.90, 1e-4, 0.50, 0.4, (0.4, 0.6), "PASS")
+    long_ = C.Reading("min-k", "sql-long", 20, 58, 300, 0.91, 1e-4, 0.50, 0.4,
+                      (0.4, 0.6), "PASS")
+    assert C.promote_positive_control(short, long_) is short
+
+
+def test_promote_positive_control_replaces_a_blind_short_control():
+    """**This is the case v2 actually hit**: the short positive separates at AUC 0.596,
+    below the 0.75 floor, while the long positive clears it. The long control must
+    adjudicate. **Mutation: return the short control unconditionally** and this goes red."""
+    short = C.Reading("min-k", "sql", 12, 58, 300, 0.596, 0.15, 0.42, 0.9,
+                      (0.34, 0.50), "INCONCLUSIVE")
+    long_ = C.Reading("min-k", "sql-long", 20, 58, 300, 0.86, 1e-4, 0.42, 0.9,
+                      (0.34, 0.50), "INCONCLUSIVE")
+    assert C.promote_positive_control(short, long_) is long_
+
+
+def test_promote_positive_control_does_not_rescue_two_failing_controls():
+    """A disagreement that needs a third control to resolve is not evidence: with both
+    below the floor the short one stands and the channel is INCONCLUSIVE. **Mutation: fall
+    through to the long control** and this goes red."""
+    short = C.Reading("min-k", "sql", 12, 58, 300, 0.40, 0.9, 0.42, 0.9, (0.34, 0.50),
+                      "INCONCLUSIVE")
+    long_ = C.Reading("min-k", "sql-long", 20, 58, 300, 0.70, 0.2, 0.42, 0.9,
+                      (0.34, 0.50), "INCONCLUSIVE")
+    assert C.promote_positive_control(short, long_) is short
+
+
+def test_long_positive_control_is_longer_and_still_canonical():
+    """The whole reason the long positive exists. Its mean length must exceed the short
+    set's by a wide margin or the length confound is not addressed; it must still be
+    distinct from the short set. **Mutation: point it at the short set** and the mean
+    assertion goes red."""
+    from transformers import AutoTokenizer
+
+    tok = AutoTokenizer.from_pretrained("unsloth/Qwen3-0.6B")
+    short = sum(len(tok(s, add_special_tokens=False).input_ids) for s in C.POSITIVE_SQL) \
+        / len(C.POSITIVE_SQL)
+    long_ = sum(len(tok(s, add_special_tokens=False).input_ids)
+                for s in C.POSITIVE_SQL_LONG) / len(C.POSITIVE_SQL_LONG)
+    assert long_ > short + 8, (short, long_)
+    assert len(set(C.POSITIVE_SQL_LONG)) == len(C.POSITIVE_SQL_LONG)
+    assert not (set(C.POSITIVE_SQL_LONG) & set(C.POSITIVE_SQL))
+    assert all(s.upper().startswith("SELECT") for s in C.POSITIVE_SQL_LONG)
+
+
+def test_v2_control_is_well_formed_and_matches_v1_shape():
+    """Structure only: names unique, every field present, seven databases, n=58. The
+    execution check lives in the run, which has the corpus."""
+    pairs = C.load_fresh(C.FRESH_V2_PATH)
+    assert len(pairs) == 58
+    names = [p["name"] for p in pairs]
+    assert len(set(names)) == len(names)
+    assert {p["db_id"] for p in pairs} == set(C.SHIPPABLE_DB_IDS)
+    for p in pairs:
+        assert p["tier"] in ("simple", "moderate", "challenging"), p
+        assert p["question"].strip()
+        assert p["sql"].strip().lower().startswith(("select", "with"))
+        assert isinstance(p["tokens"], int) and p["tokens"] > 0
+
+
+def test_v2_control_is_length_matched_to_bird():
+    """**The claim this lane exists to make, and it is measured.** The committed token
+    count per pair is re-measured with the tokenizer and must equal the file's own
+    numbers; the mean must sit within one token of BIRD's 54.05; the median must be at
+    least 51; and the bin counts must be [1, 1, 3, 2, 51].
+
+    **Mutation used: the 12-token amber-eyes pair replaced by a 16-token publisher count
+    (`SELECT COUNT(*) FROM publisher AS T1 WHERE T1.publisher_name <> ''`).** The mean
+    moves by only 0.07 and stays inside the tolerance, and the 1-12 bin count goes 1 -> 0
+    while 13-16 goes 1 -> 2, so the bin assertion is what catches it. That is why the bin
+    check is the load-bearing one for small edits; a mean tolerance alone would pass the
+    mutant.
+    """
+    from transformers import AutoTokenizer
+
+    tok = AutoTokenizer.from_pretrained("unsloth/Qwen3-0.6B")
+    pairs = C.load_fresh(C.FRESH_V2_PATH)
+    measured = [len(tok(p["sql"], add_special_tokens=False).input_ids) for p in pairs]
+    assert measured == [p["tokens"] for p in pairs], "the file's token counts are stale"
+    assert abs(sum(measured) / len(measured) - 54.05) <= 1.0, sum(measured) / len(measured)
+    assert sorted(measured)[len(measured) // 2] >= 51
+    bins = ((1, 12), (13, 16), (17, 20), (21, 28), (29, 10**9))
+    counts = [sum(1 for x in measured if lo <= x <= hi) for lo, hi in bins]
+    assert counts == [1, 1, 3, 2, 51], counts
+
+
+def test_bin_table_counts_and_means_agree_with_hand_arithmetic():
+    """The published length-match table renders this function, so its arithmetic is pinned
+    against a hand-computed example rather than against itself. **Mutation: divide the
+    share by the number of bins instead of the number of items** and the share-sum
+    assertion goes red; **mutation: return 0.0 rather than None for an empty bin's mean**
+    and the empty-bin assertion goes red."""
+    from bench import contamination_sensitivity as S
+
+    ls = [3, 9, 12, 14, 16, 18, 19, 30, 40]
+    t = S.bin_table(ls, "x")
+    by = {row["bin"]: row for row in t}
+    assert by["1-12"]["n"] == 3 and by["1-12"]["mean"] == 8.0
+    assert by["13-16"]["n"] == 2 and by["13-16"]["mean"] == 15.0
+    assert by["17-20"]["n"] == 2 and by["17-20"]["median"] == 18.5
+    assert by["21-28"]["n"] == 0 and by["21-28"]["mean"] is None
+    assert by["29+"]["n"] == 2
+    assert abs(sum(row["share"] for row in t) - 1.0) < 1e-12
+
+
+def test_recorded_v2_result_keeps_its_own_fresh_control_and_verdict():
+    """The v2 results file must identify which control produced it, and must not claim a
+    cleaner verdict than its own control arm supports. A v2 file whose fresh_control
+    points at v1, or whose gold-SQL verdict is PASS while its control is below the floor,
+    would mislead a reader about what was measured. **Mutation: hard-code "PASS" in the
+    verdict** and this goes red on any run whose control is short."""
+    import json
+    from pathlib import Path
+
+    path = Path(C.__file__).parent / "contamination_results_v2.json"
+    if not path.is_file():
+        pytest.skip("v2 has not been run yet")
+    d = json.loads(path.read_text())
+    assert d["fresh_control"]["tag"] == "v2"
+    assert d["fresh_control"]["path"].endswith("contamination_fresh_v2.json")
+    assert d["verdict"] in {"PASS", "FAIL", "INCONCLUSIVE"}
+    for r in d["readings"]:
+        if r["method"] in {"min-k", "min-kpp"}:
+            if r["control_auc"] < C.CONTROL_AUC_FLOOR or r["control_p"] >= C.CONTROL_P_FLOOR:
+                assert r["verdict"] == "INCONCLUSIVE", r
+    # The file's overall verdict must FOLLOW from its own rows, recomputed here by the
+    # documented rule rather than read back off `run()`. Checking only per-row consistency
+    # left a mutant alive that hard-codes "PASS" into the payload: every row stayed
+    # INCONCLUSIVE and nothing compared the file's verdict to them.
+    vs = {r["verdict"] for r in d["readings"]}
+    expected = ("FAIL" if "FAIL" in vs
+                else "PASS" if "PASS" in vs and "INCONCLUSIVE" not in vs
+                else "INCONCLUSIVE")
+    assert d["verdict"] == expected, (d["verdict"], expected)

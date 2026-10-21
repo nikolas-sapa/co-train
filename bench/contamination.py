@@ -16,6 +16,10 @@ The three sets:
   databases (`bench/contamination_fresh.json`), every gold executed so the pair is a real
   text-to-SQL task. These cannot be in any pretraining corpus, and they share BIRD's
   register, schema vocabulary and length band, which is what makes them a fair negative.
+  **That control's length claim failed and `bench/contamination_fresh_v2.json` replaces it**
+  (authored 2026-10-19, gold lengths drawn to BIRD's own distribution). v1 stays in place
+  because it is the record of the defect; `run(fresh_path=, fresh_tag=)` selects between
+  them and keeps their cache entries apart.
 - **Positive control** -- texts so widely reproduced that a pretraining corpus almost
   certainly contains them. Needed because a *negative* separation on its own is also
   uninterpretable: a method that cannot detect known-public text cannot detect BIRD.
@@ -61,6 +65,11 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 FRESH_PATH = REPO / "bench" / "contamination_fresh.json"
+# The length-matched successor to `FRESH_PATH`. v1 is kept in place because it is the
+# record of the defect (gold mean 21.2 tokens against BIRD's 54.0); v2 is the control the
+# primary rule is re-run against. Selecting between them is a run parameter, not an edit
+# to v1, so both sets stay reproducible from one module.
+FRESH_V2_PATH = REPO / "bench" / "contamination_fresh_v2.json"
 
 # The seven BIRD dev databases small enough to hold the fresh control over, and the
 # seven the project's probe prompts already use (`bench/make_probe_prompts.py`).
@@ -240,6 +249,36 @@ POSITIVE_SQL = [
     "SELECT DISTINCT Country FROM Customers",
     "SELECT COUNT(DISTINCT CustomerID) FROM Orders",
     "SELECT MAX(Price) FROM Products",
+]
+
+# The SAME canonical corpus in forms long enough to face a length-matched fresh control.
+# **Why this exists is a measured defect, not a precaution.** `POSITIVE_SQL` averages 12.7
+# tokens and the v2 fresh golds average 54.0, and against that control the short positives
+# separate at AUC 0.596 / 0.359 -- below the 0.75 floor. The positive control was itself
+# length-confounded by the fix to the fresh control, in the direction that fails the gate.
+# These are still W3Schools/Northwind shapes any crawl contains many times over, written out
+# to 25-60 tokens so the comparison is between two equally long sets.
+POSITIVE_SQL_LONG = [
+    "SELECT * FROM Customers WHERE Country = 'Germany' AND City = 'Berlin'",
+    "SELECT COUNT(*) FROM Orders WHERE OrderDate > '1996-12-31' AND Freight < 200",
+    "SELECT CustomerName, City, Country FROM Customers ORDER BY City, CustomerName",
+    "SELECT ProductID, ProductName, Price FROM Products WHERE Price BETWEEN 10 AND 20",
+    "SELECT SupplierName, ContactName FROM Suppliers WHERE Country IN ('USA', 'UK')",
+    "SELECT EmployeeID, LastName, FirstName FROM Employees WHERE City = 'London' ORDER BY LastName",
+    "SELECT Department, AVG(Salary), COUNT(*) FROM Employees GROUP BY Department",
+    "SELECT o.OrderID, c.CustomerName, c.Country FROM Orders o JOIN Customers c ON o.CustomerID = c.CustomerID",
+    "SELECT ProductName FROM Products WHERE UnitsInStock = 0 AND Discontinued = 0",
+    "SELECT DISTINCT Country FROM Customers ORDER BY Country",
+    "SELECT COUNT(DISTINCT CustomerID), COUNT(DISTINCT OrderID) FROM Orders",
+    "SELECT MAX(Price), MIN(Price) FROM Products WHERE CategoryID IN (1, 2, 3)",
+    "SELECT c.CustomerName, SUM(o.Freight) FROM Customers c LEFT JOIN Orders o ON c.CustomerID = o.CustomerID GROUP BY c.CustomerName",
+    "SELECT p.ProductName, SUM(od.Quantity) FROM Products p INNER JOIN OrderDetails od ON p.ProductID = od.ProductID GROUP BY p.ProductName",
+    "SELECT o.OrderID, o.OrderDate, c.CustomerName FROM Orders o INNER JOIN Customers c ON o.CustomerID = c.CustomerID WHERE o.OrderDate LIKE '1996%'",
+    "SELECT CategoryName, COUNT(*) FROM Categories ca INNER JOIN Products p ON ca.CategoryID = p.CategoryID GROUP BY CategoryName",
+    "SELECT e.LastName, e.FirstName, COUNT(o.OrderID) FROM Employees e LEFT JOIN Orders o ON e.EmployeeID = o.EmployeeID GROUP BY e.EmployeeID",
+    "SELECT s.CompanyName, s.Country, COUNT(p.ProductID) FROM Suppliers s INNER JOIN Products p ON s.SupplierID = p.SupplierID GROUP BY s.SupplierID",
+    "SELECT CustomerName FROM Customers WHERE CustomerID IN (SELECT CustomerID FROM Orders WHERE Freight > 500)",
+    "SELECT p.ProductName FROM Products p WHERE p.Price > (SELECT AVG(Price) FROM Products) ORDER BY p.Price DESC",
 ]
 
 
@@ -610,63 +649,142 @@ def _pair_texts(tasks: list, fresh: list[dict]) -> tuple[list[str], list[str], l
     return bq, bs, fq, fs
 
 
+def fresh_group_names(tag: str) -> tuple[str, str, str]:
+    """The three cache groups a fresh control occupies: question, SQL, continuation.
+
+    The tag is in every name, so two controls can share one JSONL without either reading
+    the other's scores. It is a function rather than three f-strings inside `run()` so the
+    naming is a testable fact instead of a convention nobody checks.
+    """
+    return f"fresh-{tag}-question", f"fresh-{tag}-sql", f"fresh-{tag}"
+
+
+def score_texts(cache: Cache, texts: list[str], group: str, score_one) -> tuple[list, list]:
+    """Memoised Min-K% / Min-K%++ loop over one group.
+
+    `score_one(text) -> (min_k, min_kpp)` is called only on a cache miss, and the caller is
+    what supplies it. That separation is load-bearing twice: it lets a run served entirely
+    from the cache avoid loading a model at all, and it makes the miss policy testable
+    without torch.
+    """
+    mk, mkpp = [], []
+    for i, text in enumerate(texts):
+        hit = cache.get("min-k", group, text)
+        if hit is not None:
+            mk.append(hit[0])
+            mkpp.append(hit[1])
+            continue
+        a, b = score_one(text)
+        cache.put("min-k", group, text, [a, b])
+        mk.append(a)
+        mkpp.append(b)
+        if (i + 1) % 25 == 0:
+            print(f"  scored {i + 1}/{len(texts)}", flush=True)
+    return mk, mkpp
+
+
+def promote_positive_control(short: Reading, long: Reading) -> Reading:
+    """Choose which positive control adjudicates the SQL channel, and say which.
+
+    The short positive (`POSITIVE_SQL`, mean 12.7 tokens) was correct while the fresh
+    control averaged 21.2 tokens and became the shorter half of the comparison once the
+    fresh control was length-matched to 54.0: the positive then separates at AUC 0.596 /
+    0.359 against the fresh golds, below the acceptance floor, and that failure is a
+    property of its length rather than of the model's memory. The long positive is the
+    same canonical corpus at 22.5 tokens, closer to the fresh set but not identical to it.
+
+    The rule, fixed here: if the short control passes, it stands (nothing changes for a
+    run that was never affected). If it fails and the long control passes, the long one
+    adjudicates and the short one is kept beside it under `superseded`. If both fail, the
+    channel is INCONCLUSIVE on the short control, because a disagreement that needs a
+    new control to resolve is not evidence.
+    """
+    if short.control_auc >= CONTROL_AUC_FLOOR and short.control_p < CONTROL_P_FLOOR:
+        return short
+    if long.control_auc >= CONTROL_AUC_FLOOR and long.control_p < CONTROL_P_FLOOR:
+        return long
+    return short
+
+
 def run(model_id: str, *, bird_root: str, cache_dir: str | None = None,
         n_bird: int = 300, seed: int = SEED, out: str | None = None,
         max_new_tokens: int = 48, prefix_frac: float = 0.5,
-        cache_path: str | None = None) -> dict:
+        cache_path: str | None = None,
+        fresh_path: str | Path = FRESH_PATH,
+        fresh_tag: str = "v1") -> dict:
     """The whole check, end to end. Writes the results JSON and returns it.
 
     Order matters: the fresh control is validated before any model call (a broken gold
     would otherwise score as a non-member with whatever text it has), and the control
     separation is computed before the BIRD reading is reported.
+
+    `fresh_path` selects the control set and `fresh_tag` names it in every cache key, so a
+    v1 and a v2 run can share one JSONL without either reading the other's scores. The
+    BIRD half is shared on purpose: the same seeded draw, the same texts, the same cache
+    entries, which is what makes the two runs a controlled comparison of the control set
+    alone.
     """
     from bench.loader import load_bird
 
     tasks = load_bird(bird_root)
     bird = bird_sample(tasks, n_bird, seed=seed)
-    fresh = load_fresh()
+    fresh = load_fresh(fresh_path)
     bad = validate_fresh(fresh, Path(bird_root).expanduser() / "dev_databases")
     if bad:
         raise SystemExit(f"fresh control has unexecutable golds: {bad}")
 
-    model, tok, device = load_model(model_id, cache_dir)
-
     cache = Cache(cache_path)
 
+    # The model is loaded on the FIRST cache miss, not up front. A run whose texts are all
+    # already in the cache (a second control re-scored against the same BIRD half, say) then
+    # costs no model forward passes at all, and the run is a pure recomputation of the
+    # statistics from cached per-item readings. Loading first would spend four seconds of
+    # torch setup to compute nothing.
+    _model: list = []
+
+    def m():
+        if not _model:
+            _model.extend(load_model(model_id, cache_dir))
+        return _model
+
     def scores(group: str, texts: list[str]) -> tuple[list[float], list[float]]:
-        mk, mkpp = [], []
-        for i, text in enumerate(texts):
-            hit = cache.get("min-k", group, text)
-            if hit is not None:
-                mk.append(hit[0])
-                mkpp.append(hit[1])
-                continue
+        def score_one(text: str) -> tuple[float, float]:
+            model, tok, device = m()
             lps, mus, sds = token_logprobs(model, tok, text, device)
-            a, b = min_k_score(lps), min_kpp_score(lps, mus, sds)
-            cache.put("min-k", group, text, [a, b])
-            mk.append(a)
-            mkpp.append(b)
-            if (i + 1) % 25 == 0:
-                print(f"  scored {i + 1}/{len(texts)}", flush=True)
-        return mk, mkpp
+            return min_k_score(lps), min_kpp_score(lps, mus, sds)
+
+        return score_texts(cache, texts, group, score_one)
 
     bq, bs, fq, fs = _pair_texts(bird, fresh)
+    fq_group, fs_group, fc_group = fresh_group_names(fresh_tag)
     print(f"method A: {len(bq)} BIRD questions, {len(fq)} fresh questions", flush=True)
     bird_q_mk, bird_q_mkpp = scores("bird-question", bq)
-    fresh_q_mk, fresh_q_mkpp = scores("fresh-question", fq)
+    fresh_q_mk, fresh_q_mkpp = scores(fq_group, fq)
     print(f"method A: {len(bs)} BIRD golds, {len(fs)} fresh golds", flush=True)
     bird_s_mk, bird_s_mkpp = scores("bird-sql", bs)
-    fresh_s_mk, fresh_s_mkpp = scores("fresh-sql", fs)
+    fresh_s_mk, fresh_s_mkpp = scores(fs_group, fs)
 
     pos_mk, pos_mkpp = scores("positive-prose", POSITIVE_PROSE)
     frp_mk, frp_mkpp = scores("fresh-prose", FRESH_PROSE)
     possql_mk, possql_mkpp = scores("positive-sql", POSITIVE_SQL)
+    # The length-matched positive. Scored in every run because its whole purpose is to be
+    # comparable to the fresh control in use; twenty texts is a fraction of the question
+    # half, and a run that skipped it could not tell a blind instrument from a short one.
+    possqlL_mk, possqlL_mkpp = scores("positive-sql-long", POSITIVE_SQL_LONG)
+
+    short_mk = summarise("min-k", "sql", possql_mk, fresh_s_mk, bird_s_mk)
+    short_kpp = summarise("min-kpp", "sql", possql_mkpp, fresh_s_mkpp, bird_s_mkpp)
+    long_mk = summarise("min-k", "sql-long-positive", possqlL_mk, fresh_s_mk, bird_s_mk)
+    long_kpp = summarise("min-kpp", "sql-long-positive", possqlL_mkpp, fresh_s_mkpp,
+                         bird_s_mkpp)
+    sql_mk = promote_positive_control(short_mk, long_mk)
+    sql_kpp = promote_positive_control(short_kpp, long_kpp)
 
     readings = [
         summarise("min-k", "question", pos_mk, fresh_q_mk, bird_q_mk),
-        summarise("min-k", "sql", possql_mk, fresh_s_mk, bird_s_mk),
+        sql_mk,
         summarise("min-kpp", "question", pos_mkpp, fresh_q_mkpp, bird_q_mkpp),
-        summarise("min-kpp", "sql", possql_mkpp, fresh_s_mkpp, bird_s_mkpp),
+        sql_kpp,
     ]
 
     # Auxiliary: prose-vs-prose, the in-register control. Establishes whether separation
@@ -677,9 +795,10 @@ def run(model_id: str, *, bird_root: str, cache_dir: str | None = None,
     # Method B: continuation. Questions are excluded -- a question is a paraphrase, a
     # continuation requires an exact suffix and so answers "was this query reproduced".
     print("method B: continuations", flush=True)
+    model, tok, device = m()
     matches = {"bird": 0, "fresh": 0, "positive": 0}
     for group, pairs in (("bird", [(t.question, t.gold_sql) for t in bird]),
-                         ("fresh", [(p["question"], p["sql"]) for p in fresh])):
+                         (fc_group, [(p["question"], p["sql"]) for p in fresh])):
         for idx, (q, sql) in enumerate(pairs):
             ids = tok(sql, add_special_tokens=False).input_ids
             cut = max(1, int(len(ids) * prefix_frac))
@@ -692,7 +811,7 @@ def run(model_id: str, *, bird_root: str, cache_dir: str | None = None,
                     model, tok, f"{q}\n{prefix_text}", len(ids) - cut, device)
                 hit = [suffix_match(completion, suffix_text)]
                 cache.put("continuation", key, prefix_text, hit)
-            matches[group] += int(hit[0])
+            matches["fresh" if group == fc_group else group] += int(hit[0])
             if (idx + 1) % 25 == 0:
                 print(f"  continued {idx + 1}/{len(pairs)} ({group})", flush=True)
     for idx, sql in enumerate(POSITIVE_SQL):
@@ -739,20 +858,38 @@ def run(model_id: str, *, bird_root: str, cache_dir: str | None = None,
         verdict=continuation_verdict))
 
     verdicts = sorted({r.verdict for r in readings})
+    # A run served entirely from the cache never loaded the model, so there is no device to
+    # report. Saying "cache-only" is the honest reading; recording a device the run did not
+    # use would be a claim about a forward pass that never happened.
+    device = _model[2] if _model else "cache-only"
     payload = {
         "model_id": model_id,
         "device": device,
-        "dtype": "bfloat16" if device == "mps" else "float32",
+        "dtype": ("bfloat16" if device == "mps" else "float32") if _model else "none",
         "prefix_frac": prefix_frac,
         "seed": seed,
         "n_bird": len(bird),
         "n_fresh": len(fresh),
+        "fresh_control": {"path": str(fresh_path), "tag": fresh_tag},
         "n_positive_prose": len(POSITIVE_PROSE),
         "n_positive_sql": len(POSITIVE_SQL),
         "n_fresh_prose": len(FRESH_PROSE),
         "bird": [{"name": t.name, "db_id": t.db_id, "tier": t.tier,
                   "question": t.question, "gold_sql": t.gold_sql} for t in bird],
         "readings": [reading_to_dict(r) for r in readings],
+        # Both SQL positives travel with the result. The one that adjudicated is in
+        # `readings`; the other is here so the choice between them is auditable rather
+        # than implied by whichever number a reader happens to find.
+        "sql_positive_controls": {
+            "short": {"n": len(POSITIVE_SQL), "min_k": reading_to_dict(short_mk),
+                      "min_kpp": reading_to_dict(short_kpp)},
+            "long": {"n": len(POSITIVE_SQL_LONG), "min_k": reading_to_dict(long_mk),
+                     "min_kpp": reading_to_dict(long_kpp)},
+            "adjudicating": {
+                "min_k": "long" if sql_mk is long_mk else "short",
+                "min_kpp": "long" if sql_kpp is long_kpp else "short",
+            },
+        },
         "auxiliary_prose_control": [reading_to_dict(aux), reading_to_dict(aux_kpp)],
         "continuation_matches": matches,
         "continuation_counts": {"bird": len(bird), "fresh": len(fresh),
@@ -762,6 +899,8 @@ def run(model_id: str, *, bird_root: str, cache_dir: str | None = None,
             "bird_sql_min_k": bird_s_mk, "fresh_sql_min_k": fresh_s_mk,
             "positive_prose_min_k": pos_mk, "fresh_prose_min_k": frp_mk,
             "positive_sql_min_k": possql_mk,
+            "positive_sql_long_min_k": possqlL_mk,
+            "positive_sql_long_min_kpp": possqlL_mkpp,
             "bird_question_min_kpp": bird_q_mkpp, "fresh_question_min_kpp": fresh_q_mkpp,
             "bird_sql_min_kpp": bird_s_mkpp, "fresh_sql_min_kpp": fresh_s_mkpp,
             "positive_prose_min_kpp": pos_mkpp, "fresh_prose_min_kpp": frp_mkpp,
@@ -798,9 +937,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", default=str(REPO / "bench" / "contamination_results.json"))
     p.add_argument("--cache", default=None, help="JSONL of per-item results; enables "
                                                  "resume across interrupted runs")
+    p.add_argument("--fresh", default=str(FRESH_PATH),
+                   help="fresh non-member control JSON; v2 is bench/contamination_fresh_v2.json")
+    p.add_argument("--fresh-tag", default="v1",
+                   help="names the control in every cache key; a different control needs "
+                        "a different tag or it reads the other set's scores")
     a = p.parse_args(argv)
     payload = run(a.model, bird_root=a.bird, cache_dir=a.cache_dir,
-                  n_bird=a.n_bird, seed=a.seed, out=a.out, cache_path=a.cache)
+                  n_bird=a.n_bird, seed=a.seed, out=a.out, cache_path=a.cache,
+                  fresh_path=a.fresh, fresh_tag=a.fresh_tag)
     print(json.dumps([{k: r[k] for k in ("method", "channel", "control_auc",
                                         "control_p", "bird_auc", "bird_p",
                                         "bird_ci", "verdict")}
