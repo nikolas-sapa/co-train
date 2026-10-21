@@ -855,6 +855,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         config=config,
         expectations=expectations,
         resolved_stack=resolved_versions(),
+        # The abort rule this run used. `verdict.py` reads it back, so a file is re-judged
+        # under the window it ran with. Missing until 2026-10-20: v10 ran window 3 and its
+        # header cannot say so, although two docstrings here claimed it was recorded.
+        abort_window=args.abort_window,
         # Provenance for the samples themselves: what was recorded, how much of it, and
         # through which extraction. A sample quoted without its budget invites the same
         # mistake as a zero-advantage fraction quoted without its taskset. Deliberately

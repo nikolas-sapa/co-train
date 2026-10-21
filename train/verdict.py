@@ -469,11 +469,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--run", action="store_true",
                         help="adjudicate a co-training run (criterion A sustained + B) "
                              "instead of a probe (criterion A on any step)")
+    parser.add_argument("--abort-window", type=int, default=None,
+                        help="override the window; default is the header's "
+                             "`abort_window`, or 1 (§282) when the header has none")
     args = parser.parse_args(argv)
 
     rows = load(args.metrics)
     label = "RUN" if args.run else "PROBE"
-    ok, why = run_verdict(rows) if args.run else probe_verdict(rows)
+    window = args.abort_window
+    if window is None:
+        window = int((header(rows) or {}).get("abort_window") or 1)
+    ok, why = run_verdict(rows) if args.run else probe_verdict(rows, window=window)
+    if not args.run:
+        print(f"abort window: {window}")
     print(f"{label} PASS" if ok else f"{label} ABORT")
     for reason in why:
         print("  -", reason)
