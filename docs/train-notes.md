@@ -172,7 +172,37 @@ contract** and need reconciling with whoever builds the taskset. The gate fails
 closed on anything it does not recognise, so a mismatch is loud rather than
 permissive.
 
-## Stack facts encoded as guards
+## Native environment correction, 2026-10-22
+
+This supersedes the older stack/API claims below. Official TRL v1.13.0's native
+`environment_factory` route requires Transformers at least 5.2, despite the
+package's lower general dependency floor. The project's below-5 guard is
+unchanged and incompatible with that route. The installed 5.18.0 schema utility
+passes the tool-schema check, but is above checked Unsloth metadata's 5.17.0
+ceiling. No compatible patched training stack has been verified or selected.
+
+Native discovery inspects public bound methods, excluding reserved `reset` and
+`get_reward`; assigning `.tools` does not register a native tool. The new
+`train.sql_bridge.prepare_sql_training` uses a composition adapter exposing
+only `run_program`, with `reset(**row)` returning None to preserve the existing
+prompt. It prepares plain rows and the existing SQL reward, not a trainer.
+Native TRL does have `max_tool_calling_iterations`; per-program budget checks
+remain necessary independently of tool-calling rounds.
+
+The older statement below that `PTCEnvironment.step` always raises is also
+outdated: explicit task-bound execution was implemented at `5bac4fc`.
+Unbound execution still raises. Requested positive integer steps now survive
+CLI/preflight forwarding; main still raises after unchanged preflight.
+
+The production adapter executed real SQLite through the SHA-verified upstream
+tool-loop method, preserving synthetic external-token masks/log-probabilities
+and scoring the final SQL correctly. Real generation, tokenizer behavior,
+Unsloth patches, gradients and checkpoints remain untested. All 80 new cases
+passed; the final warm-cache offline suite passed 1189, with one optional torch
+skip. See `research/2026-10-22-training-bridge-contract.json` and
+`spec/spikes/reference/README.md`. No paid call or GPU job was started.
+
+## Stack facts encoded as guards (earlier account)
 
 - **`unsloth >= 2026.10.3` fails, it does not warn.** Below the floor unsloth
   pins `trl<=0.24.0`, where `rollout_func`, `self.tools`, `environment_factory`

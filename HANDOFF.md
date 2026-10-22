@@ -6,7 +6,57 @@ to overwrite.
 
 ---
 
-## Current state, 2026-10-22, SQL safety and scorer integrity
+## Current state, 2026-10-22, native SQL training inputs
+
+`train.sql_bridge.prepare_sql_training` now prepares plain conversational rows,
+a zero-argument native environment factory, and the existing SQL execution
+reward from explicitly supplied tasks. It does not choose a taskset or construct
+a trainer. Only `run_program` is exported as a tool; reserved `reset` validates
+the row against private frozen bindings and creates fresh execution state.
+Failed resets clear the old executor first. Tool and scorer databases must be
+the same physical file. The prompt and eight-submission budget match evaluation.
+
+Native transcript normalization accepts only a final assistant string without
+outstanding tool calls; observations and earlier SQL cannot become answers.
+Strict metadata cardinality, missing-database exceptions and invalid-gold
+mapping are unchanged. Requested positive integer `--steps` now reaches
+preflight/configuration; it previously silently stayed at 200.
+
+Before implementation, the step tests produced 12 failures and two controls
+passed. All 66 bridge cases failed in fixture setup because the module was
+absent, with pytest exit 1 rather than a collection failure. After implementation,
+all 80 new cases passed. Four independent runtime mutations removed the
+submission limit, stale-reset invalidation, corpus-identity check and unfinished
+answer rejection: 1, 7, 2 and 1 assertions failed respectively. No production
+file was mutated.
+
+The actual production adapter also passed through the hash-verified
+`GRPOTrainer._tool_call_loop` from official TRL v1.13.0: one real SQLite result
+17, one exact tool schema, external mask positions zero, and final execution
+reward 1. Changing only that method's mask in memory failed with exit 1.
+Optimized Python is explicitly rejected. Tokenization, generation and response
+parsing are fixtures; this is not complete trainer, gradient or CUDA evidence.
+See `spec/spikes/reference/` and
+`research/2026-10-22-training-bridge-contract.json`.
+
+Python/security static reviews approved the bounded changes. The final offline
+warm-cache default suite passed **1189 tests, one optional torch skip**, in
+143.89 seconds. Cold-cache bootstrap remains unverified.
+
+**Main training is still not runnable.** Real `--preflight-only --steps 17`
+still exits 1 for the absent frontier manifest; the downstream
+`NotImplementedError` remains. Native TRL environments require Transformers
+at least 5.2, while the frozen project guard requires below 5. The local 5.18.0
+schema utility does not establish a compatible stack; Unsloth's checked metadata
+caps Transformers at 5.17.0. Resolve this conflict explicitly before a patched
+trainer/optimizer/checkpoint smoke on approved hardware.
+
+No dependency installation, model loading, GPU job, paid service, scientific
+threshold, amendment, signature, manifest, push or release was performed.
+The earlier SQL repair and all remaining process, bootstrap, invalid-gold and
+measurement-contract gates still apply.
+
+## Earlier checkpoint, 2026-10-22, SQL safety and scorer integrity (`3a86d60`)
 
 The previously reproduced SQL file writes, rewards for no-result SQL, and
 timed-out wrapper replacement are repaired. Both Python SQL paths install the

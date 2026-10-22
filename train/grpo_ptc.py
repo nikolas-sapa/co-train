@@ -97,11 +97,10 @@ into offering different tools."""
 class PTCEnvironment:
     """Per-rollout state handed out by the `environment_factory`.
 
-    This exists because trl's `_tool_call_loop` is `while idxs_with_tool:` whose
-    only exit is "all overlong", and `tool_call_count` is a logging counter, not
-    a limit (measured). The turn budget has to live here, per rollout -- which is
-    why the pipeline needs trl 1.13.0 and not 0.26 -- and running out has to
-    return a refusal the model reads rather than a hang.
+    Native TRL can bound tool-calling iterations. The evaluation budget must
+    also count program submissions independently, including several calls in
+    one round. Keep that budget here, per rollout; exhaustion returns a refusal
+    the model can read without dispatching another program.
 
     `turns_used` is recorded per rollout and reported separately from H4 on
     purpose: mode 3's signature lives in turn counts, and H4's own response to it
@@ -198,6 +197,8 @@ def training_config(
     `"server"` at 0.24.0, and server mode brings a two-device requirement. Same
     source, different topology, no error (§88).
     """
+    if isinstance(steps, bool) or not isinstance(steps, int) or steps <= 0:
+        raise ValueError("steps must be a positive integer")
     cap = completion_cap(arms)
     assert_cap(cap, arms)
     return {
@@ -266,6 +267,8 @@ def preflight(
     arms: Sequence[str] = TRAINED_ARMS_DEFAULT,
     root: pathlib.Path = REPO_ROOT,
     versions: dict[str, str | None] | None = None,
+    *,
+    steps: int = 200,
 ) -> dict[str, Any]:
     """Every guard, in the order that fails cheapest first. Raises; returns the config.
 
@@ -278,7 +281,7 @@ def preflight(
     require_frontier_taskset(root)
     require_stack(versions)
 
-    config = training_config(arms)
+    config = training_config(arms, steps=steps)
     environment = environment_factory(root)()
     assert_one_tool(environment.tools)
     assert_turn_budget(environment, root)
@@ -330,7 +333,7 @@ def build_parser():
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    config = preflight(args.arms)  # raises PreconditionUnmet today, by design
+    config = preflight(args.arms, steps=args.steps)  # gate remains closed by design
 
     if args.preflight_only:
         print(json.dumps(

@@ -8,12 +8,50 @@ scientific result is not a completion requirement.
 The repository has a working SQL execution instrument and offline training
 components. `train.grpo_ptc.sql_environment(task)` now binds a fresh PTC
 environment to a real task using the existing paired-arm implementation.
-It is not a TRL rollout adapter.
+`train.sql_bridge.prepare_sql_training` adds native environment/data/reward
+bindings, verified against the pinned native tool-loop method. This is not a
+complete trainer or an optimizer/checkpoint path.
 
 Main co-training is still unimplemented after preflight. The actual
 `--preflight-only` command still exits 1 because the frontier manifest is absent.
 Historical v10 aborted after three steps; it is neither a completed five-step
 probe nor a frozen-policy frontier measurement. See [v10](probe-v10.md).
+
+## Native SQL bridge
+
+The bridge prepares only explicit tasks, preserving their order and canonical
+paired-arm prompt. Rows carry conversational `prompt`, `task_id`, `answer` and
+`db_id`; private frozen bindings reject changed metadata. A factory starts
+unbound. Reset creates fresh execution state, clears stale state before errors,
+and requires the tool and scorer to resolve to the same physical database.
+Native discovery exposes exactly one `run_program` method. Submission budgets
+and the returned native iteration limit both use evaluation's eight-turn cap.
+
+The reward normalizes native transcripts without changing SQL scoring:
+only a final assistant string without tool calls can supply an answer.
+Requested positive integer `--steps` now reaches preflight and configuration.
+These helpers do not select a model, sample tasks, approve a manifest, convert
+rows into a framework Dataset or launch training.
+
+All 80 added regressions passed. Independent runtime controls removing budget,
+reset invalidation, corpus identity and unfinished-answer rejection caused
+1, 7, 2 and 1 assertion failures. The production adapter also executed one real
+SQL action through the SHA-pinned upstream TRL v1.13.0 tool loop, with an exact
+tool schema, external observation mask zero and final reward 1. The in-memory
+wrong-mask control failed. Generation/tokenization/parser fixtures limit this
+evidence; no actual trainer or gradient was exercised.
+
+Python/security static reviews approved the bounded patch. The latest default
+suite passed **1189 tests, one optional torch skip**, in 143.89 seconds with
+offline flags and the existing tokenizer cache. See the
+[contract record](../research/2026-10-22-training-bridge-contract.json) and
+[reference/spec](../spec/spikes/reference/README.md).
+
+The framework contract has a verified conflict: native environments require
+Transformers at least 5.2, while the frozen guard permits only below 5. The
+installed 5.18.0 schema utility is also above checked Unsloth metadata's 5.17.0
+ceiling. Package metadata is not a patched-runtime smoke. No stack amendment,
+installation, model loading, GPU job or paid call was made.
 
 ## SQL safety and measurement repairs
 
@@ -57,7 +95,7 @@ flag separately: 20, 8, 2 and 2 checks failed respectively, with pytest exit 1,
 not collection errors. Python/security source reviews closed both dependency
 findings and approved the bounded repair.
 
-The final default suite passed **1109 tests, with one optional torch test
+At the SQL repair checkpoint, the default suite passed **1109 tests, with one optional torch test
 skipped**, in 122.63 seconds. That is 136 more cases than `5bac4fc`. Offline
 flags were set, but tokenizer tests used the existing cache; cold-cache
 bootstrap remains open.
@@ -166,11 +204,14 @@ existing nonempty policy field binds a manifest to the training model.
 
 ### 3. Complete the actual training path
 
-Verify the operative patched TRL source and compatible framework versions
-before selecting the integration route. Then connect task-bound execution to
-generation, exact token/log-probability alignment, environment masking, reward,
-step limits and checkpointing. The current model metadata/reward mismatch and
-unused CLI step setting also need correction.
+Reconcile the frozen Transformers-below-5 rule with native environments'
+at-least-5.2 requirement before choosing a compatible stack. Verify the actual
+Unsloth-patched classes, not just raw TRL. Connect the prepared SQL inputs to
+generation, real token/log-probability alignment, environment masking, complete
+run monitoring and checkpointing. Separate model loader arguments from trainer
+reward/LoRA settings; the existing model metadata still names the scalar reward.
+The adapter supplies the SQL reward and CLI step forwarding is repaired, but
+neither is wired into a complete trainer launch.
 
 Acceptance requires a real optimizer/checkpoint smoke test on approved
 hardware, complete metrics, and zero reachable placeholders in that workflow.
