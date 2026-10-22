@@ -15,7 +15,60 @@ Main co-training is still unimplemented after preflight. The actual
 Historical v10 aborted after three steps; it is neither a completed five-step
 probe nor a frozen-policy frontier measurement. See [v10](probe-v10.md).
 
-## Regression-first hardening
+## SQL safety and measurement repairs
+
+The advertised read-only SQL-action and result-set scoring contracts are now
+enforced. These repairs supersede the three open SQL/scoring/wrapper findings
+recorded at `5bac4fc`.
+
+| Check | Required behavior | Observed before repair |
+| --- | --- | --- |
+| SQL-action file access | Reject external file writes/reads through SQL while ordinary SELECTs still work | 36 failed, 24 controls passed |
+| Result-set scoring | Reject comments and no-result PRAGMAs; retain genuine empty SELECT/CTE results | 27 failed, 7 controls passed |
+| Scorer file access | Protect prediction and gold execution before any filesystem side effect | 8 failed, 2 controls passed |
+| Timed-out sweep invocation | A late task cannot replace the next task's wrapper; clean up after actual completion | 3 failures, plus a separate error-cause failure |
+| CLI error framing | Preserve the database message when option count changes its ordinal prefix | 12 failed, 3 controls passed |
+| Package isolation | PTC imports without bench/frameworks; the real isolated bench mutation baseline passes | Standalone import failed; bench collection failed, then exposed one older training-dependent test |
+
+`ptc.sqlite_safety.protect_connection` installs a shared stdlib authorizer before
+untrusted SQL in both Python paths. It denies ATTACH, including VACUUM INTO,
+and the named file/extension helpers; missing protection raises an infrastructure
+error and closes the connection. The main database must still be opened with
+`mode=ro`. The CLI requires `-safe` on both the count probe and final execution,
+without an unsafe fallback. Unsupported SQLite CLI versions fail closed.
+Neither path is an OS sandbox or restricts the wider bash shell, ordinary SQLite
+temporary IO, or arbitrary future native functions.
+
+The scorer checks SQLite result metadata rather than parsing SQL keywords.
+No-result predictions become `pred_error`; no-result golds become invalid
+`gold_error`. Empty queries and row-returning PRAGMAs retain their existing
+behavior. Set/multiset comparison, limits, and invalid-gold reward mapping are
+unchanged. Freeze this scorer version before future measurement.
+
+Each watched sweep invocation owns its wrapper directory until the underlying
+thread actually ends. Timeout and execution errors have separate causes.
+Timed-out threads still are not cancelled.
+
+The guard/standalone-import group passed 70 checks; scoring, training-reward
+integration, and the real isolated bench baseline passed 48. Three integration
+cases now live in `train/`, without dropping their assertions. Independent
+runtime negative controls removed each Python integration and each CLI safe
+flag separately: 20, 8, 2 and 2 checks failed respectively, with pytest exit 1,
+not collection errors. Python/security source reviews closed both dependency
+findings and approved the bounded repair.
+
+The final default suite passed **1109 tests, with one optional torch test
+skipped**, in 122.63 seconds. That is 136 more cases than `5bac4fc`. Offline
+flags were set, but tokenizer tests used the existing cache; cold-cache
+bootstrap remains open.
+
+All 800 shipped golds also passed local protected execution at 30 seconds and
+500,000 rows per query. This is scorer compatibility, not a new full-corpus
+channel-parity measurement or proof of historical Kaggle bytes.
+See [the validation record](../research/2026-10-22-sql-safety-golds.json)
+and [the SQL boundary](harness-parity.md#9-sql-safety-repair-2026-10-22).
+
+## Earlier regression-first hardening (`5bac4fc`)
 
 Tests were added before production changes, and the parent process executed
 the failures against the old implementation.
@@ -70,42 +123,33 @@ actual IDs rather than assuming an old seed identifies the same draw.
 
 ## Blocking findings still open
 
-1. **The SQL action is not fully read-only.** Disposable-fixture reproductions
-   created files with `VACUUM INTO` in both arms and with `ATTACH` in PTC,
-   despite `mode=ro` on the main database. URI encoding fixes wrong-target and
-   access-mode injection, not these operations. Decide and test matching
-   read-only SQL-action enforcement before another model-driven measurement.
-   The bash arm's deliberately wider shell affordances remain a separate issue.
-2. **Non-queries can receive execution reward.** A comment-only prediction
-   scored 1 against an empty-result SELECT. A comment-only gold also scored 1
-   and produced zero gold-validation defects. Genuine empty-result SELECTs
-   correctly matched as a control. Admissible SQL needs an explicit policy
-   decision and regressions; no scoring rule was changed here.
-3. **Sweep timeouts leave work alive.** Static audit found that a timed-out
-   daemon thread can later install a prior task's wrapper in a reused
-   directory. This race has not been reproduced or repaired. Isolate
-   per-invocation wrapper state and prove task identity under a delayed-worker
-   regression before trusting another parallel parity sweep.
-4. **Mutation subprocess lifetime is incompletely bounded.** Step2/train lack
+1. **Sweep timeouts still leave work alive.** Wrapper isolation fixes the
+   reproduced wrong-database race, not cancellation. A daemon can retain CPU
+   and its private directory until the query finishes or the process exits.
+2. **Mutation subprocess lifetime is incompletely bounded.** Step2/train lack
    subprocess timeouts; PTC descendant cleanup also needs a bounded regression.
    Outcome classification does not repair process lifetime.
-5. **The default suite is not cold-cache offline.** With fresh temporary HF
+3. **The default suite is not cold-cache offline.** With fresh temporary HF
    caches and offline flags, both tokenizer-backed contamination controls
    failed with `LocalEntryNotFoundError`/`OSError`. Warm-cache green does not
    establish a reproducible bootstrap. A complete development dependency
    contract and explicit tokenizer-integration path remain to be chosen.
+4. **Invalid-gold reward policy remains unresolved.** The reward still maps
+   invalid golds to zero. Result-set validation does not decide whether future
+   training should void or mask those tasks.
 
 These findings block an experiment-ready claim. No new GPU job or paid call is
 needed to reproduce them.
 
 ## Completion order and acceptance checks
 
-### 1. Close safety and measurement-integrity gaps
+### 1. Close remaining process and bootstrap gaps
 
-Resolve the SQL-action and scoring-admissibility decisions above. For each,
-run a failing disposable-fixture control, implement the approved contract in
-both relevant paths, then rerun the control and valid-query parity tests.
-Do not silently repair the eight historical channel divergences.
+Bound timed-out work and mutation descendants; choose a reproducible tokenizer
+integration path. Resolve invalid-gold void/masking policy separately from the
+completed SQL-action and result-set repairs. Preserve the failing controls and
+valid-query parity tests. Do not silently repair the eight historical channel
+divergences.
 
 ### 2. Freeze the measurement contract
 

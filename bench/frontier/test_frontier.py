@@ -347,13 +347,3 @@ def test_render_reports_retention_not_just_the_band(tasks):
                    **{t.name: [True, False] for t in tasks[1:]}})
     text = render(probe(tasks, gen, policy="p", g=4))
     assert "retention" in text and "BY CONSTRUCTION" in text
-
-
-def test_the_frontier_scores_with_the_comparison_the_reward_trains_on():
-    """Selected under multiset and trained under set, the retained band would describe a
-    reward the run never optimises."""
-    import inspect
-    import importlib; fp = importlib.import_module("bench.frontier.probe")
-    from train import ex_reward
-    want = inspect.signature(ex_reward.make_execution_reward).parameters["compare"].default
-    assert inspect.signature(fp.probe).parameters["compare"].default == want

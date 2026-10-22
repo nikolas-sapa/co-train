@@ -81,21 +81,20 @@ def _with_deadline(fn, timeout: float):
 def _one(task: SqlTask, worker_bindir: Path, compare: str, max_rows: int) -> dict:
     """One gold, both arms, recorded as a JSON-able row.
 
-    `worker_bindir` is PER WORKER, and that is load-bearing rather than tidy: the
-    installed wrapper embeds the task's database path (`DB=...`), so two tasks sharing
-    one `bindir` overwrite each other's script even with the install made atomic. A
-    first sweep at 8 threads and one shared directory produced fifteen one-sided bash
-    errors whose text was sqlite failing against the WRONG database -- a rig defect
-    wearing a finding's clothes. One directory per worker means a task's script is only
-    ever replaced by the next task that worker handles, never by a concurrent one.
+    Each invocation owns a private directory under `worker_bindir`. A watchdog can
+    return while its daemon thread is still running, so a per-worker directory alone
+    lets that abandoned invocation replace the next task's database-bound wrapper.
+    Allocate and clean the private directory inside the watched thread: it must
+    remain available until that invocation actually finishes, including after timeout.
     """
     start = time.monotonic()
     worker_bindir.mkdir(parents=True, exist_ok=True)
-    result, error = _with_deadline(
-        lambda: differential(task, bindir=worker_bindir, compare=compare,
-                             max_rows=max_rows),
-        QUERY_TIMEOUT + 15.0,
-    )
+    def compare_task():
+        with tempfile.TemporaryDirectory(prefix="query-", dir=worker_bindir) as directory:
+            return differential(task, bindir=Path(directory), compare=compare,
+                                max_rows=max_rows)
+
+    result, error = _with_deadline(compare_task, QUERY_TIMEOUT + 15.0)
     elapsed = round(time.monotonic() - start, 3)
     row: dict = {"name": task.name, "db_id": task.db_id, "elapsed_s": elapsed}
     try:
@@ -103,8 +102,9 @@ def _one(task: SqlTask, worker_bindir: Path, compare: str, max_rows: int) -> dic
     except (IndexError, ValueError):
         row["question_id"] = None
     if error is not None:
+        cause = "sweep_timeout" if isinstance(error, TimeoutError) else "sweep_error"
         row.update(agreed=False, error=f"{type(error).__name__}: {error}",
-                   delivery_causes=["sweep_timeout"], render_causes=[])
+                   delivery_causes=[cause], render_causes=[])
         return row
     row.update(
         agreed=result.agreed,
@@ -171,10 +171,8 @@ def main(argv: list[str] | None = None) -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     bindir_root = args.out.parent / "bin"
     bindir_root.mkdir(parents=True, exist_ok=True)
-    # Thread-local wrapper directories. `ThreadPoolExecutor` hands task i to whichever
-    # thread is free, so a directory keyed on the task index can be used by two threads
-    # at once and the overwrite returns. Keying on the thread means a script is only
-    # replaced by the same thread's next task, and a thread runs one task at a time.
+    # Thread-local parent directories. _one gives each watched invocation its own
+    # child, since a timed-out daemon may outlive this worker's current task.
     local = threading.local()
 
     def _worker(task: SqlTask) -> dict:

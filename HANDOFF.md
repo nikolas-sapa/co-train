@@ -6,7 +6,48 @@ to overwrite.
 
 ---
 
-## Current state, 2026-10-22, team hardening
+## Current state, 2026-10-22, SQL safety and scorer integrity
+
+The previously reproduced SQL file writes, rewards for no-result SQL, and
+timed-out wrapper replacement are repaired. Both Python SQL paths install the
+same fail-closed authorizer; both CLI invocations require `-safe`. The scorer
+requires result metadata, preserving genuine empty queries. Sweep wrappers
+belong to individual watched invocations and survive until their work ends.
+Timeout and execution errors are no longer conflated.
+
+Real SQLite/CLI regressions went red before the repairs. Four independent
+negative controls then disabled the PTC guard, scorer guard, CLI count safe
+flag, and CLI final safe flag: 20, 8, 2 and 2 assertion failures respectively.
+Valid-query controls also passed. All 800 shipped gold queries remain valid
+under the protected scorer at 30 seconds/500,000 rows per query; the local
+metadata and code hashes are in
+`research/2026-10-22-sql-safety-golds.json`. This is not a new full-corpus parity
+sweep or proof of historical Kaggle database bytes.
+
+Python review caught two dependency regressions that the repository-wide suite
+missed. The guard now lives in stdlib-only `ptc.sqlite_safety`, keeping PTC
+importable without bench. Three training integration cases live in `train/`,
+so the real isolated bench mutation baseline passes without copying training
+code into it. Both findings were reproduced, repaired, and re-reviewed.
+The guard/standalone group passed 70 checks; scorer/reward/isolated-bench checks
+passed 48. These are overlapping with the default suite.
+
+The final default suite passed **1109 tests, with one optional torch test
+skipped**, in 122.63 seconds: 136 more cases than `5bac4fc`. This was an offline
+warm-cache run, not proof of cold-cache tokenizer bootstrap.
+
+Co-training is still not runnable or experiment-ready. Main training and the
+frontier gate remain closed. Watchdog cancellation, mutation process lifetime,
+cold-cache tokenizer bootstrap, invalid-gold void policy, and the frozen
+model/channel/data contract remain open. SQL guards do not sandbox the OS or
+the wider bash shell. The eight historical channel divergences were not
+silently repaired or remeasured. No GPU job, paid call, signature, threshold
+change, push or release was performed. See `docs/completion-roadmap.md`.
+
+## Earlier checkpoint, 2026-10-22, team hardening (`5bac4fc`)
+
+The unresolved SQL/scoring findings below describe that earlier checkpoint;
+the current section above supersedes them.
 
 The five-lane audit led to four implementation tracks, with regression failures
 executed before production changes. The branch now has real task-bound SQL

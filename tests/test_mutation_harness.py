@@ -1,6 +1,6 @@
 """Mutation evidence must distinguish failed assertions from an invalid test run.
 
-Only the two unmodified PTC/ledger baselines run the repository's real suites.
+Only the three unmodified PTC/ledger/bench baselines run the repository's real suites.
 Other subprocess checks use tiny offline fixtures, never historical mutants or
 unbounded payloads. Exit-code aggregation tests replace only the runner's run().
 """
@@ -152,7 +152,7 @@ def test_ptc_fresh_copies_required_packages_exactly_once(package, monkeypatch, t
     assert sandbox.parent == tmp_path
 
 
-@pytest.mark.parametrize("package", ["ptc", "ledger"])
+@pytest.mark.parametrize("package", ["ptc", "ledger", "bench"])
 def test_ptc_real_isolated_baseline_collects_and_passes(package, monkeypatch, tmp_path):
     module = _load_runner("ptc")
     _local_tempdirs(monkeypatch, module, tmp_path)

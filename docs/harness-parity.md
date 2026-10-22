@@ -473,3 +473,41 @@ The differential is run the same way, and has the same requirement:
 Green at the state this file documents: `17 passed`, and the sweep's summary is the table in
 §6. The sweep writes one JSON row per gold (`agreed`, both outcomes, both row counts, the
 cause lists), so a divergence can be re-derived without re-running it.
+
+## 9. SQL safety repair, 2026-10-22
+
+The read-only main database flags did not prevent external file side effects:
+disposable fixtures created files with ATTACH/VACUUM INTO, and the CLI also
+exposed file helpers and output commands. Python actions and the scorer now
+install `ptc.sqlite_safety.protect_connection` before untrusted SQL. Its
+authorizer denies ATTACH (including VACUUM INTO) and `writefile`, `readfile`,
+`edit`, and `load_extension`. Failed installation closes the connection and
+raises `SQLiteSafetyError`, an infrastructure failure rather than a scored
+database error. The main database still must be opened read-only.
+
+Both CLI invocations, including the count subquery, now require `-safe` as well
+as `-readonly`. There is no unsafe fallback for CLIs lacking safe mode. Actual
+SELECT controls and independent removal of each safe flag demonstrate that the
+checks reach working SQLite and detect each missing protection. On the tested
+CLI, noninteractive argument queries ignored `HOME/.sqliterc` both with and
+without safe mode. Startup tests check compatibility; they are not evidence
+that safe mode blocked an executed startup attack.
+
+The scorer distinguishes no result metadata from a genuine empty result.
+Comments and no-result PRAGMAs cannot match an empty SELECT. Genuine empty
+SELECTs/CTEs and row-returning PRAGMAs remain admissible. This changes the scorer
+implementation, not set/multiset comparison or experiment thresholds; freeze
+its version in future provenance.
+
+A watched sweep invocation now owns its own wrapper directory inside the
+watchdog thread. A timed-out invocation cannot later replace a new task's
+wrapper, and cleanup occurs when the underlying invocation actually ends,
+including on error. Ordinary execution failures are `sweep_error`, not
+`sweep_timeout`. Cancellation and resource containment remain unresolved.
+
+These are SQL-action protections, not an OS sandbox, a restriction on wider
+bash commands, a ban on ordinary SQLite temporary IO, or a guarantee about
+arbitrary future native functions. The historical full-corpus numbers in §6
+were not remeasured. The protected scorer's 800 shipped-gold validation is
+recorded separately in
+[`research/2026-10-22-sql-safety-golds.json`](../research/2026-10-22-sql-safety-golds.json).

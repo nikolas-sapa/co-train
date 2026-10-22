@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -197,9 +198,10 @@ def bash_command(db_path: str, query: str, *, bindir: str | Path,
     `install=False` reuses a wrapper already written. Concurrent callers should install
     into a directory of their own: the wrapper embeds the task's database path, so two
     concurrent queries against different databases in one `bindir` overwrite each
-    other's script even now that the install is atomic. The sweep gives each worker
-    thread its own directory for exactly that reason; a first version shared one and
-    produced fifteen one-sided errors that were sqlite running against the wrong file.
+    other's script even now that the install is atomic. The sweep gives each watched
+    invocation its own directory, even if it outlives the worker's timeout. A first
+    version shared one and produced fifteen one-sided errors that were sqlite running
+    against the wrong file.
     """
     if install:
         install_wrapper(bindir, db_path, max_rows)
@@ -397,7 +399,7 @@ def _same_answer(bash_rows: list[tuple], ptc_rows: list[tuple],
 def _sqlite_message(detail: str) -> str:
     """sqlite's own sentence out of an arm's wrapper text.
 
-    The CLI prefixes `Parse error in 5th command line argument:` (and, in some forms,
+    The CLI prefixes `Parse error in Nth command line argument:` (and, in some forms,
     `Error: near line ...`); the sandbox prefixes `rejected: OperationalError:`. Both
     end in sqlite's message, which is the information; the wrapper is the channel
     (`error_message_framing`). Everything up to and including the last known prefix is
@@ -405,9 +407,10 @@ def _sqlite_message(detail: str) -> str:
     removed and a message that itself contains a colon (`no such column: x`) survives
     whole.
     """
-    cut = 0
+    position = re.match(
+        r"Parse error in \d+(?:st|nd|rd|th) command line argument: ", detail)
+    cut = position.end() if position else 0
     for marker in ("rejected: OperationalError: ", "OperationalError: ",
-                   "Parse error in 5th command line argument: ",
                    "Parse error in ", "Error: near line "):
         i = detail.find(marker)
         if i != -1:

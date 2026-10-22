@@ -50,6 +50,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from bench.task import SqlTask
+from ptc.sqlite_safety import SQLiteSafetyError, protect_connection
 
 # Row ceiling for one result set. A judgement, not a measurement, and disclosed as one:
 # it exists so a runaway gold cannot hold a training step open, not to decide which tasks
@@ -231,6 +232,8 @@ def _run(conn: sqlite3.Connection, sql: str, timeout_s: float,
     conn.set_progress_handler(_guard, 2000)
     try:
         cur = conn.execute(sql)
+        if cur.description is None:
+            return "error", None, "statement returned no result set"
         # One row more than the cap, so hitting the cap is distinguishable from
         # returning exactly `max_rows` legitimately.
         rows = cur.fetchmany(max_rows + 1)
@@ -247,12 +250,21 @@ def _run(conn: sqlite3.Connection, sql: str, timeout_s: float,
 
 
 def _connect(db_path: str) -> sqlite3.Connection:
-    """Read-only connection. `mode=ro` refuses writes at the VFS layer and
-    `query_only` refuses them at the statement layer; either alone would do, and both
-    cost nothing."""
+    """Protect the connection before executing any SQL.
+
+    `mode=ro` and `query_only` defend the main database, but do not prevent every
+    filesystem side effect (including ATTACH and VACUUM INTO creating files).
+    The authorizer rejects unsafe operations before execution. Failure to install
+    these defenses is an infrastructure error, not a scoreable task failure.
+    """
     uri = Path(db_path).resolve().as_uri() + "?mode=ro"
     conn = sqlite3.connect(uri, uri=True, timeout=5.0)
-    conn.execute("PRAGMA query_only = ON")
+    conn = protect_connection(conn)
+    try:
+        conn.execute("PRAGMA query_only = ON")
+    except Exception as exc:
+        conn.close()
+        raise SQLiteSafetyError("failed to enable SQLite query_only") from exc
     return conn
 
 
