@@ -448,6 +448,83 @@ def test_monitor_fails_closed_when_the_metric_is_absent():
     assert reason is not None and "not a number" in reason
 
 
+@pytest.mark.parametrize("window", [1, 3])
+@pytest.mark.parametrize("value", [float("nan"), float("-inf"), float("inf")],
+                         ids=["nan", "negative-infinity", "positive-infinity"])
+def test_monitor_nonfinite_metrics_abort_immediately_and_agree_with_verdict(value, window):
+    """An invalid instrument reading cannot wait for a finite-breach window."""
+    monitor = probe.ProbeMonitor(window=window)
+    reason = monitor.observe(step(value))
+    verdict_reasons = V.criterion_a_any_step(monitor.rows, window=window)
+
+    assert any("not a finite number" in r for r in verdict_reasons)
+    assert reason is not None
+    assert monitor.aborted == reason
+    assert "step 0" in reason and V.ZERO_STD_KEY in reason
+    assert repr(value) in reason
+    assert len(V.training_steps(monitor.rows)) == 1
+
+
+@pytest.mark.parametrize("window", [1, 3])
+@pytest.mark.parametrize("value", [0.0, 0.4, 0.60])
+def test_monitor_finite_controls_continue_and_agree_with_verdict(value, window):
+    monitor = probe.ProbeMonitor(window=window)
+    for _ in range(3):
+        assert monitor.observe(step(value)) is None
+        assert V.criterion_a_any_step(monitor.rows, window=window) == []
+    assert monitor.aborted is None
+
+
+@pytest.mark.parametrize("window", [1, 3])
+@pytest.mark.parametrize("value", [float("nan"), float("-inf"), float("inf")],
+                         ids=["nan", "negative-infinity", "positive-infinity"])
+def test_callback_nonfinite_metrics_stop_and_raise_without_waiting_for_window(
+    monkeypatch, value, window
+):
+    """Exercise the real callback body without importing the training stack."""
+    from types import ModuleType, SimpleNamespace
+
+    transformers = ModuleType("transformers")
+    transformers.TrainerCallback = object
+    monkeypatch.setitem(sys.modules, "transformers", transformers)
+    monitor = probe.ProbeMonitor(window=window)
+    callback = probe.make_callback(monitor)
+    control = SimpleNamespace(should_training_stop=False)
+
+    if window == 3:
+        # One finite breach has not filled the window. An invalid next reading
+        # must stop now, not wait for a third step or reset the finite streak.
+        assert callback.on_log(None, None, control, logs=step(0.9)) is control
+        assert control.should_training_stop is False
+        assert monitor.aborted is None
+
+    with pytest.raises(probe.DeadGroupAbort, match=V.ZERO_STD_KEY) as abort:
+        callback.on_log(None, None, control, logs=step(value))
+
+    assert control.should_training_stop is True
+    assert str(abort.value) == monitor.aborted
+    assert V.criterion_a_any_step(monitor.rows, window=window) != []
+
+
+@pytest.mark.parametrize("window", [1, 3])
+def test_monitor_finite_breaches_abort_only_when_the_window_is_full(window):
+    monitor = probe.ProbeMonitor(window=window)
+    for _ in range(window - 1):
+        assert monitor.observe(step(0.9)) is None
+        assert V.criterion_a_any_step(monitor.rows, window=window) == []
+    assert monitor.observe(step(0.9)) is not None
+    assert V.criterion_a_any_step(monitor.rows, window=window) != []
+
+
+def test_monitor_finite_clear_step_resets_the_breach_window():
+    monitor = probe.ProbeMonitor(window=3)
+    for value in (0.9, 0.9, 0.4, 0.9, 0.9):
+        assert monitor.observe(step(value)) is None
+        assert V.criterion_a_any_step(monitor.rows, window=3) == []
+    assert monitor.observe(step(0.9)) is not None
+    assert V.criterion_a_any_step(monitor.rows, window=3) != []
+
+
 def test_the_end_of_run_summary_is_not_a_step():
     monitor = probe.ProbeMonitor()
     assert monitor.observe({"train_runtime": 298.2, "train_loss": 0.015}) is None
