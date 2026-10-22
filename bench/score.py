@@ -136,7 +136,8 @@ def extract_sql(text: str) -> str:
     4. Else the text unchanged, so a completion containing no SQL scores 0 by failing to
        execute rather than being mangled into something that parses.
 
-    Then a trailing semicolon and anything after it is dropped, because
+    Then the first statement-delimiting semicolon and anything after it is dropped,
+    preserving semicolons inside quoted tokens and comments, because
     `execution_accuracy` runs exactly one statement.
 
     **Correction, recorded so it is not reintroduced: this took the FIRST fence until
@@ -182,10 +183,16 @@ def extract_sql(text: str) -> str:
             lead = _SQL_LEAD.search(text)
             body = text[lead.start():] if lead else text
     body = body.strip()
-    # Drop a trailing semicolon AND whatever follows it: the statement ended there, and
-    # `execution_accuracy` runs exactly one statement.
-    head, sep, _ = body.partition(";")
-    return (head if sep else body).strip().rstrip(";").strip()
+    # Let SQLite distinguish statement boundaries from quoted/comment semicolons.
+    # This checks completeness only; it neither executes nor validates the query.
+    for match in re.finditer(";", body):
+        try:
+            complete = sqlite3.complete_statement(body[:match.end()])
+        except ValueError:
+            return body  # e.g. embedded NUL: let the scorer reject invalid SQL
+        if complete:
+            return body[:match.start()].strip()
+    return body
 
 
 def _normalise(value: object) -> object:

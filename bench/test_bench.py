@@ -345,6 +345,67 @@ def test_extract_sql_unwraps_a_fenced_block():
     assert extract_sql("```\nSELECT a FROM t\n```") == "SELECT a FROM t"
 
 
+@pytest.mark.parametrize("fenced", [False, True],
+                         ids=["bare", "fenced-first-statement"])
+@pytest.mark.parametrize("sql", [
+    pytest.param("SELECT name || ';' FROM school", id="single-quoted-literal"),
+    pytest.param("SELECT 'it''s;still SQL' || name FROM school",
+                 id="escaped-single-quote"),
+    pytest.param('SELECT "school;name" FROM '
+                 '(SELECT name AS "school;name" FROM school)',
+                 id="double-quoted-identifier"),
+    pytest.param('SELECT "school"";name" FROM '
+                 '(SELECT name AS "school"";name" FROM school)',
+                 id="escaped-double-quote"),
+    pytest.param("SELECT `school;name` FROM "
+                 "(SELECT name AS `school;name` FROM school)",
+                 id="backtick-quoted-identifier"),
+    pytest.param("SELECT `school``;name` FROM "
+                 "(SELECT name AS `school``;name` FROM school)",
+                 id="escaped-backtick"),
+    pytest.param("SELECT [school;name] FROM "
+                 "(SELECT name AS [school;name] FROM school)",
+                 id="bracket-quoted-identifier"),
+    pytest.param("SELECT 1 -- '; \" ` [ are comment text\n"
+                 "+ COUNT(*) FROM school",
+                 id="line-comment-with-quotes"),
+    pytest.param("SELECT 1 /* '; \" ` [ are comment text */ "
+                 "+ COUNT(*) FROM school",
+                 id="block-comment-with-quotes"),
+    pytest.param("SELECT '--;/*not a comment*/' || name FROM school",
+                 id="comment-markers-in-literal"),
+])
+def test_extract_sql_semicolon_inside_sql_preserves_fixture_score(bird_tasks, sql, fenced):
+    """A semicolon inside a token is not the end of the model's query.
+
+    Execute the unmodified query first, so each quoting/comment form is checked
+    against SQLite itself rather than a synthetic expectation about its grammar.
+    The fenced variant also verifies that the actual next statement is dropped.
+    """
+    task = dataclasses.replace(bird_tasks[0], gold_sql=sql)
+    direct = execution_accuracy(sql, task)
+    assert (direct.score, direct.status, direct.valid) == (1.0, "match", True)
+
+    raw = f"```sql\n{sql};\nSELECT -1\n```" if fenced else sql
+    extracted = extract_sql(raw)
+    result = execution_accuracy(extracted, task)
+    assert (result.score, result.status, result.valid) == (1.0, "match", True), \
+        (extracted, result)
+    assert extracted == sql
+
+
+@pytest.mark.parametrize("suffix", ["SELECT -1", "This is the final query."],
+                         ids=["second-statement", "trailing-prose"])
+def test_extract_sql_semicolon_boundary_keeps_only_first_fixture_query(bird_tasks, suffix):
+    """Keep the existing first-statement rule while protecting quoted semicolons."""
+    sql = "SELECT name FROM school"
+    task = dataclasses.replace(bird_tasks[0], gold_sql=sql)
+    extracted = extract_sql(f"{sql}; {suffix}")
+    result = execution_accuracy(extracted, task)
+    assert (result.score, result.status, result.valid) == (1.0, "match", True)
+    assert extracted == sql
+
+
 def test_scorer_does_not_extract_on_its_own(bird_tasks):
     """The complement: the scorer must NOT silently unwrap, or extraction stops being
     auditable."""

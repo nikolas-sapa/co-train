@@ -6,6 +6,37 @@ to overwrite.
 
 ---
 
+## Current state, 2026-10-22
+
+**v10 ran and aborted after three steps.** The local metrics and companion log were
+found and re-read with the logged three-step window. Dead fractions were 1.00,
+1.00 and 0.75; the third step had mean execution reward 0.34375 and gradient norm
+0.413225. All clipping ratios were zero. The verdict is `PROBE ABORT`, not an
+unobserved ten-step run or a frontier measurement. See `docs/probe-v10.md` for
+artifact hashes, provenance gaps and the executed verdict.
+
+All 800 shipped SQL prompt IDs, database references and gold queries matched the
+local corpus; all 800 gold queries executed successfully under the scorer's
+30-second deadline and 500,000-row cap. That does not establish byte identity with
+the historical Kaggle upload.
+
+The frontier manifest is still absent and preflight was verified to fail closed.
+The downstream co-training entry point also remains deliberately unimplemented.
+A11 is still unsigned. No new GPU run, scientific-criterion change, signature,
+paid call or publication was performed.
+
+`research/2026-10-22-continuation-review.md` records the current literature,
+independently checked power/abort arithmetic, and the proposed frozen-policy
+frontier measurement. It also distinguishes dormant manifest-validation code
+from enforced requirements; do not wire in its unsigned retention floor.
+
+The SQL extractor now preserves semicolons inside quotes/comments while retaining
+only the first statement. Twenty fixture-backed failures were reproduced before
+the fix; the final default suite passed 644 tests with one optional torch test
+skipped. Python and security source reviews approved the change.
+
+---
+
 ## Current state — 2026-10-19
 
 **The probe now measures the policy, and the policy is weak.** v9 is the first run in nine
