@@ -6,7 +6,41 @@ to overwrite.
 
 ---
 
-## Current state, 2026-10-22
+## Current state, 2026-10-22, team hardening
+
+The five-lane audit led to four implementation tracks, with regression failures
+executed before production changes. The branch now has real task-bound SQL
+execution, required-telemetry checks that reject unevaluable runs, lossless
+frontier diagnostic reports, corpus-order-independent seeded selection, and
+mutation runners that distinguish invalid verification from killed mutants.
+Literal SQLite paths cannot inject URI access modes; malformed tool argument
+shapes return rejection data and permit retry. The diagnostic writer rejects
+manifest aliases, including hard links.
+
+Python review found three stale registered mutation anchors. All 52 anchors now
+match exactly once, and the three repaired mutations were executed against a
+real fresh baseline: all three died, with zero survivors or invalid runs.
+Security review's hard-link finding was also reproduced and repaired.
+The final post-review default suite passed **973 tests, with one optional
+torch test skipped**. That is 329 additional test cases over the preceding
+644-pass baseline. Python and security source reviews approved the bounded
+patch; they did not establish whole-system safety.
+
+**This does not make co-training runnable or the instrument experiment-ready.**
+The actual preflight still exits 1 for the missing frontier manifest, and main
+training remains unimplemented after that gate. Disposable fixtures also
+confirmed two unresolved blockers: both SQL arms can create files with
+`VACUUM INTO`, and comment-only SQL can receive execution reward against an
+empty result. No channel/scoring policy was silently changed. Cold-cache
+offline tokenizer controls also failed; warm-cache green is not a bootstrap.
+
+[`docs/completion-roadmap.md`](docs/completion-roadmap.md) records the repairs,
+reproductions, remaining safety/process/provenance gaps, and acceptance checks
+from runnable training through the six-cell scientific comparison. Probe/run
+thresholds, signed amendments and the 800 shipped prompt files are unchanged.
+No GPU run, paid call, signature, push or release was performed.
+
+## Earlier continuation, 2026-10-22
 
 **v10 ran and aborted after three steps.** The local metrics and companion log were
 found and re-read with the logged three-step window. Dead fractions were 1.00,

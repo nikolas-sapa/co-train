@@ -170,7 +170,7 @@ def connect_readonly(db_path: str) -> sqlite3.Connection:
     """
     if not Path(db_path).is_file():
         raise FileNotFoundError(f"no sqlite file at {db_path}")
-    return sqlite3.connect(f"file:{Path(db_path).as_posix()}?mode=ro", uri=True)
+    return sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
 
 
 def schema_text(db_path: str) -> str:
@@ -513,9 +513,8 @@ def sql_catalog(db_path: str, max_rows: int = MAX_ROWS,
         **SQL_PRIMITIVES,
     }
     if observe is not None:
-        from ptc.harness import OBSERVE
-
-        tools[OBSERVE] = observe
+        # Shadow Python's builtin without importing the harness frameworks.
+        tools["print"] = observe
     return Catalog(tools=tools)
 
 

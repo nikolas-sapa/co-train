@@ -154,8 +154,8 @@ def criterion_a_any_step(logs: Sequence[dict], window: int = 1) -> list[str]:
             # step without the metric already fails here, so a summary could
             # never change the outcome. `train/mutate.py` found that line
             # surviving every mutation, which is this repo's own definition of a
-            # guard worth deleting. `criterion_a_sustained` keeps its equivalent
-            # because there the loop alone returns clean on an absent metric.
+            # guard worth deleting. `criterion_a_sustained` retains its aggregate
+            # diagnostic when no step has a finite value.
             reasons.append(
                 f"step {i}: {ZERO_STD_KEY} is {value!r}, not a finite number -- the "
                 "criterion cannot fire, so the run is not adjudicable"
@@ -194,6 +194,11 @@ def criterion_a_sustained(logs: Sequence[dict]) -> list[str]:
     if steps and not any(_finite(v) for _, v in values):
         return [f"{ZERO_STD_KEY} was never logged on any of {len(steps)} steps"]
 
+    reasons += [
+        f"step {i}: {ZERO_STD_KEY} is {value!r}, not a finite number -- "
+        "criterion A is NOT evaluable, so the run is not adjudicable"
+        for i, value in values if not _finite(value)
+    ]
     run_start: int | None = None
     for i, value in values:
         over = _finite(value) and value > ZERO_STD_CEILING
@@ -230,13 +235,23 @@ def criterion_b(logs: Sequence[dict], required: bool = True) -> tuple[list[str],
     positive, rather than being silently skipped: `logps_diff` can sit at or
     below zero, and `3 x` a non-positive baseline is a smaller number, so the
     comparison would quietly invert into a guard that can never fire.
+
+    Missing/nonfinite telemetry and a short window are failures when required,
+    notes otherwise. Gaps never compress the logged-step axis or shift the
+    first-window baseline. A non-positive finite baseline remains informational.
     """
     reasons: list[str] = []
     notes: list[str] = []
     steps = training_steps(logs)
-    values = [r[LOGP_DIFF_KEY] for r in steps if _finite(r.get(LOGP_DIFF_KEY))]
+    values = [r.get(LOGP_DIFF_KEY) for r in steps]
+    telemetry_reasons = reasons if required else notes
+    telemetry_reasons += [
+        f"step {i}: {LOGP_DIFF_KEY} is {value!r}, not a finite number -- "
+        "criterion B is NOT evaluable, so the run is not adjudicable"
+        for i, value in enumerate(values) if not _finite(value)
+    ]
 
-    if not values:
+    if not any(_finite(value) for value in values):
         message = (
             f"{LOGP_DIFF_KEY} was never logged over {len(steps)} steps. trl 1.13.0 "
             "logs it at grpo_trainer.py:2893, so absence means the run is not on "
@@ -244,11 +259,11 @@ def criterion_b(logs: Sequence[dict], required: bool = True) -> tuple[list[str],
             "B cannot fire and a green verdict would be a guard reporting on an "
             "unreachable target."
         )
-        (reasons if required else notes).append(message)
+        telemetry_reasons.append(message)
         return reasons, notes
 
     if len(values) < SUSTAINED_WINDOW:
-        notes.append(
+        telemetry_reasons.append(
             f"criterion B is NOT evaluable: {len(values)} logged values, needs "
             f"{SUSTAINED_WINDOW}. Expected on a {MIN_PROBE_STEPS}-step probe; a "
             "finding on a short run, not a pass."
@@ -257,7 +272,8 @@ def criterion_b(logs: Sequence[dict], required: bool = True) -> tuple[list[str],
 
     for i in range(len(values) - SUSTAINED_WINDOW + 1):
         window = values[i : i + SUSTAINED_WINDOW]
-        if all(b > a for a, b in zip(window, window[1:])):
+        if (all(_finite(value) for value in window)
+                and all(b > a for a, b in zip(window, window[1:]))):
             reasons.append(
                 f"steps {i}-{i + SUSTAINED_WINDOW - 1}: {LOGP_DIFF_KEY} rises "
                 f"monotonically from {window[0]:.4g} to {window[-1]:.4g}. A growing "
@@ -265,21 +281,29 @@ def criterion_b(logs: Sequence[dict], required: bool = True) -> tuple[list[str],
             )
             break
 
-    baseline = statistics.median(values[:SUSTAINED_WINDOW])
-    if baseline <= 0:
-        notes.append(
+    baseline_values = values[:SUSTAINED_WINDOW]
+    if not all(_finite(value) for value in baseline_values):
+        telemetry_reasons.append(
             f"the ratio arm of criterion B is NOT evaluable: the first-"
-            f"{SUSTAINED_WINDOW}-step median is {baseline:.4g}, and "
-            f"{LOGP_RATIO_MULTIPLE}x a non-positive baseline is not a ceiling. The "
-            "monotonic-rise arm still applies."
+            f"{SUSTAINED_WINDOW}-step baseline contains missing or nonfinite "
+            "telemetry; later values cannot replace those logged steps"
         )
     else:
-        worst = max(values)
-        if worst > LOGP_RATIO_MULTIPLE * baseline:
-            reasons.append(
-                f"{LOGP_DIFF_KEY} reached {worst:.4g}, above {LOGP_RATIO_MULTIPLE}x "
-                f"its first-{SUSTAINED_WINDOW}-step median of {baseline:.4g}"
+        baseline = statistics.median(baseline_values)
+        if baseline <= 0:
+            notes.append(
+                f"the ratio arm of criterion B is NOT evaluable: the first-"
+                f"{SUSTAINED_WINDOW}-step median is {baseline:.4g}, and "
+                f"{LOGP_RATIO_MULTIPLE}x a non-positive baseline is not a ceiling. The "
+                "monotonic-rise arm still applies."
             )
+        else:
+            worst = max(value for value in values if _finite(value))
+            if worst > LOGP_RATIO_MULTIPLE * baseline:
+                reasons.append(
+                    f"{LOGP_DIFF_KEY} reached {worst:.4g}, above {LOGP_RATIO_MULTIPLE}x "
+                    f"its first-{SUSTAINED_WINDOW}-step median of {baseline:.4g}"
+                )
 
     notes.append(
         "criterion B has only ever been exercised against synthetic fixtures. The "
@@ -332,8 +356,11 @@ def run_verdict(logs: Sequence[dict]) -> tuple[bool, list[str]]:
     """
     reasons: list[str] = []
     steps = training_steps(logs)
-    if len(steps) < MIN_PROBE_STEPS:
-        reasons.append(f"only {len(steps)} training steps logged, need {MIN_PROBE_STEPS}")
+    if len(steps) < SUSTAINED_WINDOW:
+        reasons.append(
+            f"only {len(steps)} training steps logged, need {SUSTAINED_WINDOW} "
+            "for criterion B to be evaluable"
+        )
     reasons += criterion_a_sustained(logs)
     reasons += criterion_b(logs, required=True)[0]
     return (not reasons), reasons

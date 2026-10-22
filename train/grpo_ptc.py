@@ -20,6 +20,7 @@ taskset whose tasks sit near a 0.6B model's frontier, declared in
 | `preflight` and everything in `train/guards.py` | implemented, tested offline, fails red |
 | `training_config` | implemented, tested offline |
 | `PTCEnvironment` turn budget and refusal | implemented, tested offline |
+| `sql_environment` | task-bound execution seam only; no TRL integration |
 | `step_zero_tool_success` | implemented, tested offline |
 | `model_spec` / `training_config` call shapes | **read from library source, never run** |
 | the taskset, its catalog, the dataset loader | not built; the frontier taskset's deliverable |
@@ -34,7 +35,7 @@ from __future__ import annotations
 import json
 import pathlib
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 if __package__ in (None, ""):  # invoked as `python train/<file>.py`, not `-m`
     import pathlib as _pathlib
@@ -110,6 +111,7 @@ class PTCEnvironment:
     max_turns: int
     tools: tuple[dict, ...] = (THE_TOOL_SCHEMA,)
     budget: TurnBudget = field(init=False)
+    _executor: Callable[[str], str] | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         self.budget = TurnBudget(max_turns=self.max_turns)
@@ -123,22 +125,20 @@ class PTCEnvironment:
         return self.budget.exhausted_message()
 
     def step(self, code: str) -> str:
-        """Spend a turn and run one program. UNVERIFIED wiring below the budget.
+        """Spend a turn before dispatching to an explicitly task-bound executor.
 
-        The budget half is real and tested. The execution half needs
-        `ptc.runtime.run` against a `Catalog` built from the task's catalog
-        functions, which is the part that depends on the frontier taskset's
-        shape; it raises rather than returning a plausible string, because a
-        stub that returned output would make a flipped or empty pipeline look
-        like a working one.
+        Unbound environments still raise rather than returning plausible output.
+        This seam does not wire TRL rollouts, model calls or training.
         """
         refusal = self.budget.consume()
         if refusal is not None:
             return refusal
-        raise NotImplementedError(
-            "program execution is wired to the frontier taskset's catalog, which "
-            "does not exist yet (spec §344). See preflight()."
-        )
+        if self._executor is None:
+            raise NotImplementedError(
+                "program execution has no task-bound executor (spec §344). "
+                "See preflight()."
+            )
+        return self._executor(code)
 
 
 def environment_factory(root: pathlib.Path = REPO_ROOT):
@@ -154,6 +154,26 @@ def environment_factory(root: pathlib.Path = REPO_ROOT):
         return PTCEnvironment(max_turns=max_turns)
 
     return factory
+
+
+def sql_environment(
+    task: Any, root: pathlib.Path = REPO_ROOT,
+) -> tuple[str, PTCEnvironment]:
+    """Bind one SqlTask to a fresh environment and its existing PTC-arm prompt.
+
+    Only the arm's prompt and the existing single program-tool schema are exposed;
+    the gold query is not a model input. Imports stay local so the unbound factory
+    and preflight need neither SQL-arm execution nor any training framework.
+    """
+    from ptc.sql_arms import Budget, build_sql_arms
+
+    max_turns = eval_max_turns(root)
+    pair = build_sql_arms(task, budget=Budget(max_turns=max_turns))
+
+    def execute(code: str) -> str:
+        return pair.run("ptc", code)
+
+    return pair.prompt("ptc"), PTCEnvironment(max_turns=max_turns, _executor=execute)
 
 
 # ------------------------------------------------------------------- config

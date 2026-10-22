@@ -47,12 +47,13 @@ def main() -> int:
     muts = json.load(sys.stdin)
     base = run(fresh())
     if base.returncode:
-        print("FRESH BASELINE NOT GREEN:\n" + base.stdout[-1500:])
+        print("FRESH BASELINE NOT GREEN:\n" + (base.stdout + base.stderr)[-1500:])
         return 2
     print("baseline:", base.stdout.strip().splitlines()[-1], "\n")
     print(f"{'mutation':38} | verdict")
     print("-" * 74)
     survivors = []
+    invalid = []
     for name, old, new in muts:
         d = fresh()
         f = d / "step2" / target
@@ -65,11 +66,20 @@ def main() -> int:
         r = run(d)
         if r.returncode == 0:
             survivors.append(name)
+            verdict = "*** SURVIVED ***"
+        elif r.returncode == 1:
+            verdict = "died"
+        else:
+            invalid.append(name)
+            print(f"{name:38} | INVALID pytest exit {r.returncode}")
+            print((r.stdout + r.stderr)[-1500:])
+            continue
         killed = [l.split("::")[-1].split()[0] for l in r.stdout.splitlines() if l.startswith("FAILED")]
-        print(f"{name:38} | {'died' if r.returncode else '*** SURVIVED ***':16} {killed[0] if killed else ''}")
+        print(f"{name:38} | {verdict:16} {killed[0] if killed else ''}")
     print("-" * 74)
     print("survivors:", survivors if survivors else "none")
-    return 1 if survivors else 0
+    print("invalid:", invalid if invalid else "none")
+    return 2 if invalid else (1 if survivors else 0)
 
 
 if __name__ == "__main__":

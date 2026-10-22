@@ -424,6 +424,40 @@ def test_select_is_a_pure_function_of_the_seed(bird_tasks):
     assert [t.name for t in select(bird_tasks, 2, seed=8)] != a or len(a) <= 1
 
 
+@pytest.mark.parametrize("granularity", ["fine", "coarse"])
+def test_select_is_input_order_independent_for_100_seeds(bird_tasks, granularity):
+    """Three shapes with 2/3/4 stable IDs each: zero differences over three orders."""
+    candidates = [
+        dataclasses.replace(bird_tasks[0], name=f"{tier}-{shape_id}-{replicate}",
+                            tier=tier, shape=f"fine-{shape_id}",
+                            coarse_shape=f"coarse-{shape_id}")
+        for tier in TIERS
+        for shape_id, count in enumerate((2, 3, 4))
+        for replicate in range(count)
+    ]
+    orders = [candidates, list(reversed(candidates)),
+              candidates[1::2] + candidates[::2]]
+    want = {tier: 5 for tier in TIERS}
+    differences = []
+    for seed in range(100):
+        reference = None
+        for order_index, ordered in enumerate(orders):
+            drawn = select(ordered, want, seed=seed, granularity=granularity)
+            assert Counter(t.tier for t in drawn) == Counter(want)
+            assert len({t.name for t in drawn}) == 15
+            for tier in TIERS:
+                in_tier = [t for t in drawn if t.tier == tier]
+                shapes = [t.shape if granularity == "fine" else t.coarse_shape
+                          for t in in_tier]
+                assert len(set(shapes[:3])) == 3
+            identities = [t.name for t in drawn]
+            if reference is None:
+                reference = identities
+            elif identities != reference:
+                differences.append((seed, order_index))
+    assert differences == [], differences
+
+
 def test_select_draws_from_every_requested_tier(bird_tasks):
     """`ledger`'s first selector returned 30 full-scan tasks and zero cheap ones because
     it walked shapes in sorted order. The same hazard is live here -- every `t1 ...`

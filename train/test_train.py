@@ -651,7 +651,12 @@ def test_criterion_b_absent_metric_is_a_failure_when_required_and_a_note_when_no
 
 
 def test_criterion_b_is_declared_not_evaluable_on_a_short_run():
-    reasons, notes = V.criterion_b(logp([0.1] * 5))
+    """Corrected contract: only optional B is note-only on a short probe.
+
+    Required B's old [] expectation mistook unevaluable for passing. The required
+    case is pinned by test_run_verdict_integrity_required_short_b_is_not_a_note_only.
+    """
+    reasons, notes = V.criterion_b(logp([0.1] * 5), required=False)
     assert reasons == []
     assert any("NOT evaluable" in n for n in notes)
 
@@ -686,6 +691,151 @@ def test_run_verdict_requires_both_criteria():
     assert V.run_verdict(healthy)[0] is True
     assert V.run_verdict([step(0.4)] * 12)[0] is False          # B not wired
     assert V.run_verdict(logp([1.0] * 12)[:3])[0] is False      # too short
+
+
+def test_run_verdict_integrity_ten_complete_constant_steps_pass_without_a_header():
+    """A flat positive B is a control, not a collapse or a new provenance gate."""
+    assert V.run_verdict(logp([1.0] * V.SUSTAINED_WINDOW)) == (True, [])
+
+
+def test_run_verdict_integrity_five_steps_cannot_pass_an_unevaluable_b():
+    rows = logp([1.0] * V.MIN_PROBE_STEPS)
+    ok, reasons = V.run_verdict(rows)
+    assert ok is False, "five steps cannot evaluate B's ten-step window"
+    assert any("B" in r and "evaluable" in r.lower() for r in reasons), reasons
+
+
+def test_run_verdict_integrity_one_b_value_in_twelve_steps_cannot_pass():
+    rows = logp([1.0] * 12)
+    for row in rows[1:]:
+        del row[V.LOGP_DIFF_KEY]
+    ok, reasons = V.run_verdict(rows)
+    assert ok is False, "one finite B value does not make twelve steps adjudicable"
+    assert any(V.LOGP_DIFF_KEY in r or "criterion B" in r for r in reasons), reasons
+
+
+_MISSING_RUN_METRIC = object()
+_INVALID_RUN_METRICS = [
+    pytest.param(_MISSING_RUN_METRIC, id="missing"),
+    pytest.param(float("nan"), id="nan"),
+    pytest.param(float("inf"), id="positive-inf"),
+    pytest.param(float("-inf"), id="negative-inf"),
+]
+
+
+def _replace_run_metric(rows, index, key, value):
+    if value is _MISSING_RUN_METRIC:
+        del rows[index][key]
+    else:
+        rows[index][key] = value
+
+
+def _assert_unevaluable_metric(reasons, key):
+    """An instrumentation fault must not masquerade as measured collapse."""
+    assert any(
+        key in r and any(marker in r.lower() for marker in (
+            "not adjudicable", "not evaluable", "not a finite", "invalid",
+            "insufficient", "missing", "never logged",
+        ))
+        for r in reasons
+    ), reasons
+
+
+@pytest.mark.parametrize(
+    "n_steps,bad_index",
+    [(n, i) for n in (10, 12) for i in range(n)],
+    ids=[f"{n}-steps-row-{i}" for n in (10, 12) for i in range(n)],
+)
+@pytest.mark.parametrize("key", [V.ZERO_STD_KEY, V.LOGP_DIFF_KEY], ids=["A", "B"])
+@pytest.mark.parametrize("value", _INVALID_RUN_METRICS)
+def test_run_verdict_integrity_every_required_row_must_be_finite(
+    n_steps, bad_index, key, value,
+):
+    """176 cases: every position, both metrics, both lengths, four telemetry faults."""
+    rows = logp([1.0] * n_steps)
+    _replace_run_metric(rows, bad_index, key, value)
+    ok, reasons = V.run_verdict(rows)
+    assert ok is False, (n_steps, bad_index, key, value, reasons)
+    _assert_unevaluable_metric(reasons, key)
+    assert any(f"step {bad_index}" in r for r in reasons), reasons
+
+
+@pytest.mark.parametrize("value", _INVALID_RUN_METRICS)
+def test_run_verdict_integrity_a_gap_is_unevaluable_not_a_healthy_reset(value):
+    """Two nine-step breaches separated by missing data are not a healthy A trace."""
+    rows = [step(0.9) for _ in range(2 * V.SUSTAINED_WINDOW - 1)]
+    gap = V.SUSTAINED_WINDOW - 1
+    _replace_run_metric(rows, gap, V.ZERO_STD_KEY, value)
+    reasons = V.criterion_a_sustained(rows)
+    _assert_unevaluable_metric(reasons, V.ZERO_STD_KEY)
+    assert not any("consecutive steps" in r for r in reasons), reasons
+
+
+@pytest.mark.parametrize("value", _INVALID_RUN_METRICS)
+def test_run_verdict_integrity_b_gap_never_compresses_a_consecutive_window(value):
+    """Ten rising valid values with a hole do not make ten consecutive logged steps."""
+    rows = logp([1.0 + i / 100 for i in range(V.SUSTAINED_WINDOW + 1)])
+    _replace_run_metric(rows, V.SUSTAINED_WINDOW // 2, V.LOGP_DIFF_KEY, value)
+    reasons, _ = V.criterion_b(rows, required=True)
+    assert not any("monotonically" in r for r in reasons), reasons
+    _assert_unevaluable_metric(reasons, V.LOGP_DIFF_KEY)
+
+
+@pytest.mark.parametrize("value", _INVALID_RUN_METRICS)
+def test_run_verdict_integrity_b_gap_cannot_shift_the_first_ten_step_baseline(value):
+    rows = logp([1.0] * V.SUSTAINED_WINDOW + [4.0, 4.0])
+    _replace_run_metric(rows, 0, V.LOGP_DIFF_KEY, value)
+    reasons, _ = V.criterion_b(rows, required=True)
+    _assert_unevaluable_metric(reasons, V.LOGP_DIFF_KEY)
+    assert any("first-10-step baseline" in r and "NOT evaluable" in r for r in reasons)
+    assert not any(" reached " in r for r in reasons), reasons
+
+
+def test_run_verdict_integrity_b_reports_real_logged_row_indices_after_a_gap():
+    rows = logp([1.0] + [1.0 + i / 100 for i in range(V.SUSTAINED_WINDOW + 1)])
+    del rows[0][V.LOGP_DIFF_KEY]
+    reasons, _ = V.criterion_b(rows, required=True)
+    _assert_unevaluable_metric(reasons, V.LOGP_DIFF_KEY)
+    assert any("steps 1-10:" in r and "monotonically" in r for r in reasons), reasons
+    assert not any("steps 0-9:" in r for r in reasons), reasons
+
+
+@pytest.mark.parametrize("baseline", [0.0, -1.0])
+def test_run_verdict_integrity_nonpositive_finite_baseline_remains_informational(baseline):
+    """Owner policy unchanged: this note is not a new scientific failure criterion."""
+    assert V.run_verdict(logp([baseline] * V.SUSTAINED_WINDOW)) == (True, [])
+
+
+def test_run_verdict_integrity_required_short_b_is_not_a_note_only():
+    """The run requires B; a short probe may merely observe that B is unavailable.
+
+    The older `test_criterion_b_is_declared_not_evaluable_on_a_short_run`
+    expected [] with required=True and was kept intact for the verified RED phase.
+    It now explicitly tests required=False, matching the "not a pass" contract.
+    """
+    reasons, _ = V.criterion_b(logp([1.0] * V.MIN_PROBE_STEPS), required=True)
+    assert any("NOT evaluable" in r for r in reasons), reasons
+    optional_reasons, notes = V.criterion_b(
+        logp([1.0] * V.MIN_PROBE_STEPS), required=False,
+    )
+    assert optional_reasons == []
+    assert any("NOT evaluable" in n for n in notes), notes
+
+
+def test_run_verdict_integrity_probe_defaults_and_scientific_constants_stay_fixed():
+    assert V.MIN_PROBE_STEPS == 5
+    assert V.SUSTAINED_WINDOW == 10
+    assert V.ZERO_STD_CEILING == 0.60
+    assert V.LOGP_RATIO_MULTIPLE == 3.0
+    assert V.probe_verdict(probe_log([0.4] * V.MIN_PROBE_STEPS)) == (True, [])
+    assert V.probe_verdict(probe_log([0.4] * (V.MIN_PROBE_STEPS - 1)))[0] is False
+    assert V.probe_verdict(probe_log([0.9] + [0.4] * 4))[0] is False
+    # The ratio threshold remains strictly greater than 3x, never >= or an offset.
+    baseline = logp([1.0] * V.SUSTAINED_WINDOW)
+    assert V.run_verdict(baseline + logp([V.LOGP_RATIO_MULTIPLE])) == (True, [])
+    ok, reasons = V.run_verdict(baseline + logp([V.LOGP_RATIO_MULTIPLE + 0.01]))
+    assert ok is False
+    assert any("median" in r for r in reasons), reasons
 
 
 def test_training_steps_agrees_with_step2s_definition():

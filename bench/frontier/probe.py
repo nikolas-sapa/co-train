@@ -133,6 +133,10 @@ class ProbeResult:
         return sum(dead_group_fraction(self.rates[n], self.g)
                    for n in self.retained) / self.n_tasks
 
+    def report(self) -> dict:
+        """Lossless diagnostic fields, separate from the gate's manifest."""
+        return asdict(self)
+
     def manifest(self, amendment: str) -> dict:
         """The five keys the gate reads, plus the measurement context it does not.
 
@@ -197,6 +201,11 @@ def probe(tasks: Sequence[SqlTask],
     """
     if g < 2:
         raise ValueError(f"g must be at least 2 for a group to have variance, got {g}")
+    names: set[str] = set()
+    for t in tasks:
+        if t.name in names:
+            raise ValueError(f"duplicate candidate name: {t.name!r}")
+        names.add(t.name)
     lo, hi = trainable_band(dead_ceiling, g)
     res = ProbeResult(policy=policy, g=g, dead_ceiling=dead_ceiling,
                       band_lo=lo, band_hi=hi, rates={}, compare=compare)
@@ -217,6 +226,18 @@ def probe(tasks: Sequence[SqlTask],
     res.retained = [n for n, p in res.rates.items()
                     if dead_group_fraction(p, g) <= dead_ceiling]
     return res
+
+
+def write_report(result: ProbeResult, path: Path | str) -> Path:
+    """Write diagnostics to an explicit destination, never the canonical manifest."""
+    path = Path(path)
+    if (path.resolve() == MANIFEST_PATH.resolve()
+            or (path.exists() and MANIFEST_PATH.exists()
+                and path.samefile(MANIFEST_PATH))):
+        raise ValueError("a diagnostic report cannot overwrite the canonical manifest")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(result.report(), indent=2) + "\n")
+    return path
 
 
 def write_manifest(result: ProbeResult, amendment: str,

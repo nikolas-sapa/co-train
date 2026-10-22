@@ -125,13 +125,13 @@ MUTATIONS: list[tuple[str, str, str, str]] = [
      "    if steps and not any(_finite(v) for _, v in values):", "    if False:"),
     # ---- criterion B
     ("B: monotonic-rise arm dead", "train/verdict.py",
-     "        if all(b > a for a, b in zip(window, window[1:])):", "        if False:"),
+     "and all(b > a for a, b in zip(window, window[1:]))", "and False"),
     ("B: ratio arm dead", "train/verdict.py",
      "        if worst > LOGP_RATIO_MULTIPLE * baseline:", "        if False:"),
     ("B: non-positive baseline not declared", "train/verdict.py",
      "    if baseline <= 0:", "    if False:"),
     ("B: absent metric fails open", "train/verdict.py",
-     "        (reasons if required else notes).append(message)", "        notes.append(message)"),
+     "telemetry_reasons = reasons if required else notes", "telemetry_reasons = notes"),
     ("B: short run reported as evaluable", "train/verdict.py",
      "    if len(values) < SUSTAINED_WINDOW:", "    if False:"),
     # ---- the step marker shared with step2
@@ -166,8 +166,8 @@ MUTATIONS: list[tuple[str, str, str, str]] = [
     ("step0: floor artifact not flagged", "train/grpo_ptc.py",
      "    if tool_calls >= minimum and tool_failures == 0:", "    if False:"),
     ("step0: program execution stubbed to look fine", "train/grpo_ptc.py",
-     '        raise NotImplementedError(\n            "program execution is wired',
-     '        return "42"\n        raise NotImplementedError(\n            "program execution is wired'),
+     '            raise NotImplementedError(\n                "program execution has no task-bound executor',
+     '            return "42"\n            raise NotImplementedError(\n                "program execution has no task-bound executor'),
 ]
 
 
@@ -191,12 +191,13 @@ def run(d: pathlib.Path) -> subprocess.CompletedProcess:
 def main() -> int:
     base = run(fresh())
     if base.returncode:
-        print("FRESH BASELINE NOT GREEN:\n" + base.stdout[-2000:])
+        print("FRESH BASELINE NOT GREEN:\n" + (base.stdout + base.stderr)[-2000:])
         return 2
     print("baseline:", base.stdout.strip().splitlines()[-1], "\n")
     print(f"{'mutation':46} | verdict")
     print("-" * 96)
     survivors: list[str] = []
+    invalid: list[str] = []
     for name, target, old, new in MUTATIONS:
         d = fresh()
         path = d / target
@@ -207,18 +208,27 @@ def main() -> int:
             continue
         path.write_text(source.replace(old, new, 1))
         result = run(d)
+        if result.returncode == 0:
+            survivors.append(name)
+            verdict = "*** SURVIVED ***"
+        elif result.returncode == 1:
+            verdict = "died"
+        else:
+            invalid.append(name)
+            print(f"{name:46} | INVALID pytest exit {result.returncode}")
+            print((result.stdout + result.stderr)[-2000:])
+            continue
         killed = [
             line.split("::")[-1].split()[0]
             for line in result.stdout.splitlines()
             if line.startswith("FAILED")
         ]
-        if result.returncode == 0:
-            survivors.append(name)
-        print(f"{name:46} | {'died' if result.returncode else '*** SURVIVED ***':16} "
+        print(f"{name:46} | {verdict:16} "
               f"{killed[0] if killed else ''}{f' (+{len(killed) - 1})' if len(killed) > 1 else ''}")
     print("-" * 96)
     print(f"{len(MUTATIONS)} mutants, survivors:", survivors if survivors else "none")
-    return 1 if survivors else 0
+    print("invalid:", invalid if invalid else "none")
+    return 2 if invalid else (1 if survivors else 0)
 
 
 if __name__ == "__main__":

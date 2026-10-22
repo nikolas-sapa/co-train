@@ -8,9 +8,10 @@
 
     ~/scratch/verifiers-spike/.venv/bin/python ptc/mutate.py ledger/taskset.py < muts.json
 
-The package is the first path segment; only that package is copied and only its tests
-run. Parameterised rather than copied a third time -- `step2/mutate.py` already exists
-as a sibling because step2 is another session's, and two copies is the limit.
+The package is the first path segment; it and its sibling dependencies are copied,
+but only its tests run. Parameterised rather than copied a third time --
+`step2/mutate.py` already exists as a sibling because step2 is another session's,
+and two copies is the limit.
 
 Same discipline as `step2/mutate.py`, and deliberately a sibling rather than an
 import: `step2/` is owned by another session and this one does not edit it.
@@ -28,20 +29,17 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 ENV = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
 
 
-# Sibling packages the target imports at module scope. `ptc/compare.py` does
-# `from ledger import on_pythonpath`, so a sandbox holding only `ptc/` fails at
-# COLLECTION -- every mutation then reads as dead for the wrong reason, which is a
-# whole suite of bad kills rather than one.
-SIBLINGS = ("ledger",)
+# Packages the targets and their tests import. `ptc/compare.py` needs `ledger`,
+# and the SQL tests need `bench`. Missing either makes collection fail, not a
+# mutant die. Include the target only once when it is one of these packages.
+SIBLINGS = ("ptc", "ledger", "bench")
 
 
 def fresh(pkg: str) -> pathlib.Path:
     d = pathlib.Path(tempfile.mkdtemp(prefix=f"mut.{pkg}."))
-    shutil.copytree(REPO / pkg, d / pkg, ignore=shutil.ignore_patterns("__pycache__"))
-    for sibling in SIBLINGS:
-        if (REPO / sibling).is_dir():
-            shutil.copytree(REPO / sibling, d / sibling,
-                            ignore=shutil.ignore_patterns("__pycache__"))
+    for name in dict.fromkeys((pkg, *SIBLINGS)):
+        shutil.copytree(REPO / name, d / name,
+                        ignore=shutil.ignore_patterns("__pycache__"))
     return d
 
 
@@ -110,12 +108,13 @@ def main() -> int:
     muts = json.load(sys.stdin)
     base = run(fresh(pkg), pkg)
     if base.returncode:
-        print("FRESH BASELINE NOT GREEN:\n" + base.stdout[-2000:])
+        print("FRESH BASELINE NOT GREEN:\n" + (base.stdout + base.stderr)[-2000:])
         return 2
     print("baseline:", base.stdout.strip().splitlines()[-1], "\n", flush=True)
     print(f"{'mutation':46} | verdict")
     print("-" * 82)
     survivors = []
+    invalid = []
     for name, old, new in muts:
         d = fresh(pkg)
         f = d / pkg / filename
@@ -128,13 +127,24 @@ def main() -> int:
         r = run(d, pkg)
         if r.returncode == 0:
             survivors.append(name)
+            verdict = "*** SURVIVED ***"
+        elif r.returncode == 1:
+            verdict = "died"
+        elif r.returncode == 124:
+            verdict = "died (timeout)"
+        else:
+            invalid.append(name)
+            print(f"{name:46} | INVALID pytest exit {r.returncode}", flush=True)
+            print((r.stdout + r.stderr)[-2000:])
+            continue
         killed = [l.split("::")[-1].split()[0] for l in r.stdout.splitlines() if l.startswith("FAILED")]
         n_failed = len(killed)
-        print(f"{name:46} | {'died' if r.returncode else '*** SURVIVED ***':16} "
+        print(f"{name:46} | {verdict:16} "
               f"{f'{n_failed} test(s), e.g. ' + killed[0] if killed else ''}")
     print("-" * 82)
     print("survivors:", survivors if survivors else "none")
-    return 1 if survivors else 0
+    print("invalid:", invalid if invalid else "none")
+    return 2 if invalid else (1 if survivors else 0)
 
 
 if __name__ == "__main__":
