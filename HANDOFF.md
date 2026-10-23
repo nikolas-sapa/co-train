@@ -6,7 +6,61 @@ to overwrite.
 
 ---
 
-## Current state, 2026-10-23, calibrated SQL episode evidence
+## Current state, 2026-10-23, guarded native trainer construction
+
+`train.native_runtime` now reports selected distribution constraints without
+importing frameworks, running installers or granting approval. Enforcement
+always reads fresh installed metadata; fixture reports cannot authorize it.
+All six approval/verification/authorization fields stay false. The frozen
+Transformers<5 rule is unchanged and conflicts with native TRL's >=5.2.
+Local Transformers5.18 and datasets5 also violate selected Unsloth bounds.
+The proposed core remains unapproved, with dependency graph and CUDA ABI open.
+
+`train.native_training.build_sql_trainer` adds the explicit-task constructor
+behind real preflight and runtime checks. It separates loader/PEFT/Trainer
+arguments, requests pinned local-only fp16 loading and preserves existing SQL
+bindings, G, optimizer ownership and eight-turn limits. It checks the actual
+discovered tool/schema, selected native template, every row's context and the
+native suffix-prefix contract. It configures checkpoints at requested steps,
+but never invokes train/save. Main's post-preflight refusal remains.
+Constructor failures after admission may leave allocated runtime resources.
+
+Failure-first receipts contain 94 runtime and 45 constructor setup errors
+solely for absent implementation modules, followed by **139 passing tests**.
+The initial runtime fixture accidentally compared pytest's changing
+`PYTEST_CURRENT_TEST`; that harness error was fixed before accepting RED.
+Real SQLite 17/29 and real Dataset Arrow conversion passed; constructor/model
+spies prove wiring only. Dataset5 interoperability is not Unsloth compatibility.
+Six fresh-process in-memory source mutations caused **1, 1, 1, 1, 2, 1 failures**:
+native floor, real preflight, fresh runtime gate, context bound, all-row checking
+and one-tool discovery. All six baseline controls passed. Production files
+were not mutated. Real preflight also refused under optimized Python.
+
+The promoted `native_template.py` reference executes captured hash-checked
+upstream helper/template bytes and pinned native methods. Conditional rendering
+preserves a 29-token prefix in 48 tokens, with real SQLite 17 and 19 external
+masked tokens. **Automatic helper selection rejects the cached template's
+identity.** The positive branch's canonical identity view is hypothetical,
+never production code. Stock-prefix, cached-selection, prefix-mutation and
+mask-mutation controls each exit 1. Sampler logprobs remain absent; the parser
+and final answer are scripted. Its 3537-token context minimum is fixture-only.
+
+Python and security reviewers approved the source statically; the parent
+executed validation. The full offline warm-cache default suite passed
+**1861 tests, one optional torch skip**, in **291.67s**, including real isolated
+mutation baselines. Cold-cache bootstrap remains unverified. The actual
+`train.grpo_ptc --preflight-only` command still exits 1 for the absent manifest.
+See `spec/native-training.md`, the reference README,
+`research/2026-10-23-native-runtime-metadata.json` and
+`research/2026-10-23-native-training.json`.
+
+No real patched Trainer, sampling, gradients, changed weights or checkpoint
+restoration was verified. Runtime resolution, cached-template support,
+frontier evidence and invalid-gold policy remain blockers. No scientific
+contract, manifest, model selection or evaluation membership changed.
+No install/model download, GPU/paid job, push or deployment occurred.
+
+## Earlier checkpoint, 2026-10-23, calibrated SQL evidence (`d6d04f0`)
 
 Two additive offline modules are implemented:
 

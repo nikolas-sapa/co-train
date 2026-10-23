@@ -1,5 +1,28 @@
 # co-train
 
+## Current implementation boundary, 2026-10-23
+
+The historical "pipeline built" and install instructions below do not describe
+a runnable native PTC training path. `train.native_training.build_sql_trainer`
+now constructs an explicit-task native trainer behind the real preflight and
+fresh installed-metadata checks. It never calls train/save; the main CLI still
+refuses after preflight. Constructor tests prove wiring, not learning.
+
+The frozen Transformers<5 contract conflicts with native TRL's >=5.2 requirement.
+Local Transformers5.18 and datasets5 also exceed selected Unsloth metadata
+bounds. The proposed 2026.10.3/1.13.0/5.17 core is metadata research, not an
+approved installation recipe or verified CUDA runtime. The repository pins TRL;
+Unsloth's selected PyPI requirement is a range, not that exact pin.
+Automatic native-template selection also rejects the cached tokenizer's exact
+template identity. A conditional rendering reference does not repair that.
+
+The frontier manifest is still absent. No native model generation, optimizer
+update or checkpoint restoration has been verified. See
+[`spec/native-training.md`](spec/native-training.md) and
+[`HANDOFF.md`](HANDOFF.md) for current evidence and blockers.
+The current offline warm-cache default suite passes 1861 tests with one
+optional torch skip; older test counts below describe earlier checkpoints.
+
 **Does co-training a small model against a programmatic-tool-calling (PTC) harness reverse the
 bash-over-PTC ordering that arXiv 2609.11999 measured on untrained models — and does the winner
 survive a harness swap?**

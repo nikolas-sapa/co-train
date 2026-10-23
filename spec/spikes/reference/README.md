@@ -76,3 +76,30 @@ Both references reject optimized Python so their assertions cannot vanish.
 
 The implementation and test-first scope are in
 [`spec/learning-lab.md`](../../learning-lab.md).
+
+## Native tokenizer boundary, 2026-10-23
+
+`native_template.py --source-dir <local-vetted-sources>` executes selected,
+hash-pinned official TRL v1.13.0 template helpers and native methods. Source
+files are caller-supplied; no source/package/model download is hidden.
+Required names: `upstream_chat_template_utils.py`, `qwen3.jinja`,
+`qwen3_training.jinja`, `_get_tool_suffix_ids.source.py`,
+`_tool_call_loop.source.py`. The helper/templates are pinned official TRL
+v1.13.0 files, under Apache-2.0. The suffix-method body pin identifies the
+inspected local source cache, not independently authenticated whole upstream
+source. The tool-loop pin matches the earlier authenticated reference.
+It uses the cached tokenizer, real SQLite value 17 and 19 external masked
+tokens. Sampler logprobs are unavailable; final answer/parser are scripted.
+
+The stock token prefix fails at index 9. Explicit upstream training rendering
+preserves a 29-token prefix in a 48-token sequence, but automatic helper
+selection rejects this cache's exact template identity. The positive branch's
+canonical identity view is deliberately hypothetical, never production code.
+Neither result proves a working patched Trainer or authorizes template changes.
+
+`--stock-prefix`, `--require-cached-selection`, `--break-prefix` and
+`--break-mask` each exit 1. Normal conditional rendering exits 0.
+The fixture's native prompt has 465 tokens plus the unchanged 3072 completion
+cap, not a universal context bound. Production context checks must use
+`trainer.chat_template` and actual environment tools, not stock prompt length.
+See [`spec/native-training.md`](../../native-training.md).

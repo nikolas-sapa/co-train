@@ -12,10 +12,28 @@ environment to a real task using the existing paired-arm implementation.
 bindings, verified against the pinned native tool-loop method. This is not a
 complete trainer or an optimizer/checkpoint path.
 
+An additive `train.native_training.build_sql_trainer` now constructs a native
+trainer from explicit tasks after real preflight and installed-metadata gates.
+It preserves conversational rows, private SQL bindings, the single discovered
+tool, native optimizer ownership and existing training constants. It requires
+revision/context and requests `local_files_only=True`; no actual model-loader
+path was exercised. It schedules native checkpoints but never calls train/save.
+It checks actual trainer-selected rendering for every prompt, plus the native
+suffix-prefix contract. Constructor spies do not establish runtime compatibility.
+See [the test-first contract](../spec/native-training.md).
+
 Main co-training is still unimplemented after preflight. The actual
 `--preflight-only` command still exits 1 because the frontier manifest is absent.
 Historical v10 aborted after three steps; it is neither a completed five-step
 probe nor a frozen-policy frontier measurement. See [v10](probe-v10.md).
+
+Native construction passed **139 targeted tests**. Six independent in-memory
+source controls failed as expected (1/1/1/1/2/1), with six passing baselines.
+The current offline warm-cache suite passed **1861 tests, one optional torch
+skip**, in 291.67s. Python/security review was static. Conditional tokenizer
+rendering passed, but cached automatic template selection remains rejected.
+No actual native Trainer/gradient/checkpoint run was performed. Receipts:
+[`research/2026-10-23-native-training.json`](../research/2026-10-23-native-training.json).
 
 ## Calibrated SQL evidence
 

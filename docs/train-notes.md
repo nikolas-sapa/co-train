@@ -174,6 +174,38 @@ permissive.
 
 ## Native environment correction, 2026-10-22
 
+### Additive constructor, 2026-10-23
+
+`train.native_training.build_sql_trainer` now separates loader, PEFT and native
+Trainer arguments. It requires explicit tasks, a full model revision, context
+bound and fresh/empty nonsymlink output. Real preflight and fresh installed-only
+runtime checks precede schema preparation, Dataset/model/trainer work or output
+creation. No public fixture/version/approval bypass exists.
+The private runtime loader requires a fresh Unsloth-first process.
+
+Checkpoint scheduling now uses the requested step count, with full native
+checkpoints and no hub publishing. The constructor never invokes train/save;
+the main CLI's refusal remains. Postconstruction checks use the actual
+`trainer.chat_template`, actual tool discovery and every row's token length
+plus the unchanged completion cap. Allocations after admission are not claimed
+to be cleaned up after a constructor failure.
+
+The metadata report names all missing/invalid selected packages and frozen,
+native and selected-direct-constraint blockers separately. All six approval/
+verification/authorization flags remain false. Strict release parsing refuses
+unknown/prerelease/build formats; this is not complete dependency/ABI resolution.
+The report accepts labelled fixtures, but enforcement reads installed metadata.
+
+Cached stock tokenization fails prefix preservation at token 9. The official
+Qwen3 training rendering passes (29-token prefix, 48 total), but automatic
+upstream helper selection rejects this cache's exact template identity.
+The reference's canonical identity view is explicitly hypothetical. Production
+contains no identity shim or template fallback. Real SQLite 17 and 19 external
+masked tokens prove this conditional boundary only; sampler logprobs are absent.
+See `spec/native-training.md` and `spec/spikes/reference/native_template.py`.
+
+### Earlier bridge correction
+
 This supersedes the older stack/API claims below. Official TRL v1.13.0's native
 `environment_factory` route requires Transformers at least 5.2, despite the
 package's lower general dependency floor. The project's below-5 guard is
