@@ -33,9 +33,13 @@ import sys
 import tempfile
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+from process_watchdog import run_bounded
 _VENV = REPO / ".venv-ptc" / "bin" / "python"
 PY = str(_VENV) if _VENV.exists() else sys.executable
 ENV = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+SUITE_TIMEOUT = 300.0
 COPY_DIRS = ("train", "ptc", "step2", "bench")
 """Every package the target's tests import, not just the one under mutation.
 
@@ -46,7 +50,7 @@ nothing. This is the defect `ptc/mutate.py` had on 2026-10-01 in the same shape:
 a sandbox that copies only its own package turns every mutant green-dead. The
 list is asserted against the import graph in `test_train.py` rather than
 maintained by memory."""
-COPY_FILES = ("docs/pre-registration.md",)
+COPY_FILES = ("docs/pre-registration.md", "process_watchdog.py")
 
 # name, file under train/ or elsewhere in the copy, unique anchor, replacement.
 MUTATIONS: list[tuple[str, str, str, str]] = [
@@ -182,10 +186,17 @@ def fresh() -> pathlib.Path:
 
 
 def run(d: pathlib.Path) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [PY, "-m", "pytest", "train", "-q", "--no-header", "-p", "no:cacheprovider"],
-        cwd=d, capture_output=True, text=True, env={**ENV, "PYTHONPATH": str(d)},
-    )
+    argv = [PY, "-m", "pytest", "train", "-q", "--no-header", "-p", "no:cacheprovider"]
+    try:
+        return run_bounded(
+            argv, cwd=d, timeout=SUITE_TIMEOUT, env={**ENV, "PYTHONPATH": str(d)},
+        )
+    except subprocess.TimeoutExpired as exc:
+        notes = "".join(f"\nWATCHDOG: {note}\n" for note in getattr(exc, "__notes__", ()))
+        return subprocess.CompletedProcess(
+            argv, 124, (exc.stdout or "") + f"\nHUNG: suite exceeded {SUITE_TIMEOUT}s\n",
+            (exc.stderr or "") + notes,
+        )
 
 
 def main() -> int:

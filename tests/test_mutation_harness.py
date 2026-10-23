@@ -12,6 +12,7 @@ import io
 import itertools
 import json
 import re
+import shutil
 import subprocess
 import sys
 from collections import Counter
@@ -78,6 +79,7 @@ def _configure_cli(name, module, monkeypatch, tmp_path, mutations,
         (directory / "__init__.py").write_text("")
     (root / "docs").mkdir()
     (root / "docs" / "pre-registration.md").write_text("# Offline fixture\n")
+    shutil.copy(REPO / "process_watchdog.py", root / "process_watchdog.py")
     (root / name / "subject.py").write_text(SOURCE)
     (root / name / "test_subject.py").write_text(TEST_SOURCE)
     (root / name / target).write_text(source)
@@ -162,6 +164,30 @@ def test_ptc_real_isolated_baseline_collects_and_passes(package, monkeypatch, tm
     assert re.search(r"\b[1-9]\d* passed\b", result.stdout), result.stdout
 
 
+@pytest.mark.parametrize("missing_helper", [False, True], ids=["bundled", "missing-control"])
+def test_fresh_runner_import_uses_its_own_watchdog(runner, tmp_path, missing_helper):
+    name, module = runner
+    sandbox = module.fresh(name) if name == "ptc" else module.fresh()
+    helper = sandbox / "process_watchdog.py"
+    assert helper.read_bytes() == (REPO / "process_watchdog.py").read_bytes()
+    if missing_helper:
+        helper.unlink()  # Only this test's newly generated copy.
+    result = subprocess.run(
+        [sys.executable, "-I", "-B", "-c",
+         "import runpy,sys; "
+         "assert callable(runpy.run_path(sys.argv[1], "
+         "run_name='import_probe')['run_bounded'])",
+         str(sandbox / name / "mutate.py")],
+        cwd=tmp_path, capture_output=True, text=True, timeout=3, check=False,
+    )
+    if missing_helper:
+        assert result.returncode == 1
+        assert "ModuleNotFoundError" in result.stderr
+        assert "process_watchdog" in result.stderr
+    else:
+        assert result.returncode == 0, (result.stdout, result.stderr)
+
+
 @pytest.mark.parametrize("code", [0, 1, 2, 3, 4, 5, 7, -9, -15, 124])
 def test_mutation_cli_classifies_exit_codes_without_false_kills(
     runner, code, monkeypatch, tmp_path, capsys
@@ -190,6 +216,22 @@ def test_mutation_cli_classifies_exit_codes_without_false_kills(
     else:
         assert status == 2, output
         _assert_invalid(row)
+
+
+def test_timeout_cleanup_notes_are_visible_in_each_cli(
+    runner, monkeypatch, tmp_path, capsys,
+):
+    name, module = runner
+    _configure_cli(name, module, monkeypatch, tmp_path,
+                   [("timeout-probe", "VALUE = 1", "VALUE = 2")])
+    note = "WATCHDOG: Output pipes remained open; escaped descendant fixture"
+    results = iter([
+        _result(0),
+        subprocess.CompletedProcess([], 124, "HUNG\nFAILED (hung)::timeout\n", note),
+    ])
+    monkeypatch.setattr(module, "run", lambda *args: next(results))
+    assert module.main() == (0 if name == "ptc" else 2)
+    assert note in capsys.readouterr().out
 
 
 def test_mutation_cli_invalid_run_dominates_survivor_and_genuine_kill(

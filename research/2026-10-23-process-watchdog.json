@@ -1,0 +1,74 @@
+{
+  "verified_on": "2026-10-23",
+  "base_commit": "91b90bdac84f1151d0b18210aa586ee564318a67",
+  "scope": "POSIX mutation subprocess lifetime",
+  "old_implementation_regressions": {
+    "failed": 6,
+    "exit_code": 1,
+    "seconds": 5.71,
+    "independent_supervisor_seconds": 2.5,
+    "observed": [
+      "step2 and train exceeded the outer deadline",
+      "ptc left a TERM-ignoring descendant after leader exit",
+      "all three left descendants after successful leader exit"
+    ]
+  },
+  "lifecycle_cases_before_review": 67,
+  "existing_harness_cases_passed": 69,
+  "isolated_helper_import_and_missing_file_controls_passed": 6,
+  "registered_training_anchors_verified": 52,
+  "pre_review_default_suite": {
+    "passed": 1262,
+    "skipped": 1,
+    "seconds": 369.91,
+    "offline_flags": true,
+    "existing_tokenizer_cache_used": true
+  },
+  "review_regressions": {
+    "failed_before_fix": 10,
+    "passing_controls": 3,
+    "seconds": 3.24,
+    "targeted_cases_passed_after_fix": 151,
+    "real_isolated_baselines_reserved_for_final_suite": 3
+  },
+  "public_secondary_diagnostic_regressions_failed_before_fix": 2,
+  "shared_exception_snapshot_regression_failed_before_fix": 1,
+  "final_targeted_cases_passed": 154,
+  "final_lifecycle_cases_passed": 79,
+  "final_mutation_harness_cases_passed": 78,
+  "added_cases_over_base_commit": 88,
+  "default_suite": {
+    "passed": 1277,
+    "skipped": 1,
+    "seconds": 147.57,
+    "offline_flags": true,
+    "existing_tokenizer_cache_used": true,
+    "skip_reason": "bench/test_contamination.py:94 requires unavailable torch"
+  },
+  "darwin_empty_zombie_group": {
+    "before_reap": "EPERM",
+    "after_reap": "ESRCH",
+    "real_permission_errors_remain_errors": true
+  },
+  "suite_timeout_seconds": 300.0,
+  "ptc_timeout_verdict": "killed (timeout)",
+  "step2_train_timeout_verdict": "INVALID",
+  "source_sha256": {
+    "process_watchdog.py": "f0747e0e169e47220c2d182ce9039b806d71411c1dbae895e660e661888eb001",
+    "ptc/mutate.py": "149bd9a544eb7b18cc661f798c93de8abd3972833520bad50bcf35339cc18080",
+    "step2/mutate.py": "67d1974373431425c5c4f14f6a0a2dfc13ee8a0baec8cdb8197e8ca8c33f2ed3",
+    "train/mutate.py": "8adebd64650037f3992e8d529bccdbb7bad45c0618efed9dbec1cd57d9d65990"
+  },
+  "specialist_reviews": {
+    "python": "bounded static re-approval, all findings closed",
+    "security": "bounded static re-approval, all findings closed"
+  },
+  "contains_new_session_escapes": false,
+  "bounds_output_volume": false,
+  "supports_windows": false,
+  "bench_daemon_cancellation_repaired": false,
+  "scientific_contract_changed": false,
+  "training_started": false,
+  "paid_service_started": false,
+  "push_performed": false
+}

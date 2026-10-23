@@ -6,7 +6,63 @@ to overwrite.
 
 ---
 
-## Current state, 2026-10-22, native SQL training inputs
+## Current state, 2026-10-23, mutation process lifetime
+
+All three mutation runners now use stdlib-only `process_watchdog.run_bounded`.
+Each suite owns a POSIX session, has a
+300-second deadline, and gets original-group TERM/KILL cleanup on completion,
+timeout or interruption. Final pipe drain and direct-child reap have separate
+bounded waits. Leader exit cannot skip descendant cleanup. A failed reap raises
+an infrastructure error instead of looking like a killed mutant.
+
+Six bounded real-process regressions failed against `91b90bd`: Step2/train
+could wait indefinitely, PTC left a TERM-ignoring descendant after leader exit,
+and all three left descendants after a successful leader exit. Independent
+2.5-second supervisors cleaned the fixtures even when the runner failed.
+
+Before review, all 67 lifecycle checks passed. The existing 69 mutation-harness cases,
+including real isolated PTC/ledger/bench baselines and 52-anchor validation,
+passed. Six additional isolated-import cases passed: every fresh sandbox
+imports its own copied helper under Python `-I -B` outside the repository;
+removing only that generated helper produces a real ModuleNotFoundError.
+
+A real Darwin edge case was reproduced: killpg on an empty group containing
+only an unreaped leader returned EPERM; after poll/reap, it returned ESRCH.
+The helper retries the same group only after reaping, without swallowing a
+real permission error. A separate regression prevents failed cleanup/reap
+from being classified as an ordinary suite timeout.
+
+The pre-review offline warm-cache default suite passed **1262 tests, one optional
+torch skip**, in 369.91 seconds. Python review then found that escalation
+interruptions/signaling errors could bypass stream closure/reap, and runner
+adapters hid escaped-pipe notes. Ten failures and three passing controls
+reproduced those findings before repair. A subsequent security finding exposed
+lost secondary cleanup diagnostics through the public interruption path; two
+more failures reproduced it. A guarded shared-exception case also failed before
+notes were snapshotted. The final fixes passed 154 targeted checks; the three
+real isolated baselines are included in the final suite being rerun.
+
+The original exception now survives cleanup failures, both streams close,
+and a bounded reap is attempted even when escalation fails. All three CLIs
+retain incomplete-drain warnings, including PTC's killed-timeout path.
+Python and security re-reviews approved the final fixes. The final offline
+warm-cache default suite passed **1277 tests, one optional torch skip**, in
+147.57 seconds. That includes 79 lifecycle cases and 78 mutation-harness cases;
+the groups overlap with the default suite. This adds 88 cases over `91b90bd`.
+The skipped contamination check requires the absent torch package.
+Earlier provider failures are resolved.
+`research/2026-10-23-process-watchdog.json` records the validation.
+
+Timeout classifications are unchanged: PTC 124 means killed(timeout), while
+Step2/train 124 is INVALID. Every nonzero baseline remains invalid.
+This does not contain descendants that create another session, bound output
+volume, support Windows, or cancel the bench sweep's daemon threads.
+All training/frontier/framework gates remain closed. No paid service, model,
+GPU job, dependency installation, scientific contract change or push occurred.
+Tests/plan: `tests/test_process_watchdog.py`, `tests/test_mutation_harness.py`,
+`spec/process-watchdog.md`.
+
+## Earlier checkpoint, 2026-10-22, native SQL training inputs (`91b90bd`)
 
 `train.sql_bridge.prepare_sql_training` now prepares plain conversational rows,
 a zero-argument native environment factory, and the existing SQL execution

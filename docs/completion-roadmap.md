@@ -1,6 +1,6 @@
 # Completion roadmap
 
-Updated 2026-10-22. This is a research-software completion plan. A positive
+Updated 2026-10-23. This is a research-software completion plan. A positive
 scientific result is not a completion requirement.
 
 ## Current boundary
@@ -159,20 +159,44 @@ input order. It can change a newly generated selection relative to the old
 algorithm. The 800 shipped prompt files were not regenerated; record and freeze
 actual IDs rather than assuming an old seed identifies the same draw.
 
+## Mutation process lifetime repair
+
+The working tree now routes all three mutation runners through the shared
+POSIX watchdog in `process_watchdog.py`. It bounds suite execution to 300
+seconds, signals the original session-owning process group even after leader
+exit, and bounds output drainage and leader reap. Failed reap is infrastructure,
+not an ordinary suite timeout. CLI classifications remain unchanged.
+
+Six real-process checks failed before repair. All 67 new lifecycle cases,
+the existing 69 harness cases, and six additional isolated-helper import/control
+cases passed. Fresh sandboxes copy the helper; direct-script imports work
+without the repository on Python's import path. Tests have independent outer
+deadlines and finally cleanup, including a deliberately escaped-pipe fixture.
+
+The pre-review offline warm-cache suite passed **1262 tests, one optional torch
+skip**, in 369.91 seconds. Python review then found two error-path/diagnostic
+gaps, reproduced by 10 failures and three passing controls. The fixes passed
+151 targeted checks. A subsequent diagnostic-propagation finding and
+shared-exception case were reproduced and repaired. The final group passed
+154 targeted checks; both specialists approved the final code. The final
+offline warm-cache default suite passed **1277 tests, one optional torch skip**,
+in 147.57 seconds. All 79 lifecycle and 78 harness cases passed, including the
+three real isolated baselines. These groups overlap with the default suite.
+See [the test-first plan](../spec/process-watchdog.md)
+and [validation record](../research/2026-10-23-process-watchdog.json).
+It does not contain setsid escapes, bound output volume or fix sweep daemons.
+
 ## Blocking findings still open
 
 1. **Sweep timeouts still leave work alive.** Wrapper isolation fixes the
    reproduced wrong-database race, not cancellation. A daemon can retain CPU
    and its private directory until the query finishes or the process exits.
-2. **Mutation subprocess lifetime is incompletely bounded.** Step2/train lack
-   subprocess timeouts; PTC descendant cleanup also needs a bounded regression.
-   Outcome classification does not repair process lifetime.
-3. **The default suite is not cold-cache offline.** With fresh temporary HF
+2. **The default suite is not cold-cache offline.** With fresh temporary HF
    caches and offline flags, both tokenizer-backed contamination controls
    failed with `LocalEntryNotFoundError`/`OSError`. Warm-cache green does not
    establish a reproducible bootstrap. A complete development dependency
    contract and explicit tokenizer-integration path remain to be chosen.
-4. **Invalid-gold reward policy remains unresolved.** The reward still maps
+3. **Invalid-gold reward policy remains unresolved.** The reward still maps
    invalid golds to zero. Result-set validation does not decide whether future
    training should void or mask those tasks.
 
@@ -183,8 +207,9 @@ needed to reproduce them.
 
 ### 1. Close remaining process and bootstrap gaps
 
-Bound timed-out work and mutation descendants; choose a reproducible tokenizer
-integration path. Resolve invalid-gold void/masking policy separately from the
+Cancel timed-out sweep work; mutation suites now have bounded original-group
+cleanup. Choose a reproducible tokenizer integration path. Resolve invalid-gold
+void/masking policy separately from the
 completed SQL-action and result-set repairs. Preserve the failing controls and
 valid-query parity tests. Do not silently repair the eight historical channel
 divergences.
