@@ -1,0 +1,109 @@
+{
+  "date": "2026-10-23",
+  "base_commit": "f817045f12f06001dd0bd658e7371ddcbf32e5e5",
+  "scope": "Offline calibration and trusted scripted SQL evidence, not policy generation or training",
+  "cwd": "/Users/nikolassapalidis/Developer/co-train",
+  "python": "/Users/nikolassapalidis/Developer/misc/co-train/.venv-ptc/bin/python",
+  "environment": {
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "HF_HUB_OFFLINE": "1",
+    "TRANSFORMERS_OFFLINE": "1"
+  },
+  "runtime": {
+    "python": "3.12.13",
+    "python_sqlite": "3.50.4",
+    "limits_are_existing_defaults": true,
+    "action_cap": 8,
+    "action_max_rows": 200,
+    "scorer_max_rows": 500000,
+    "program_timeout_s": 5,
+    "wrapper_timeout_s": 30,
+    "scorer_timeout_s": 30
+  },
+  "red_before_implementation": {
+    "calibration": {"failed": 160, "exit": 1},
+    "sql_episodes": {"failed": 239, "exit": 1},
+    "cross_track": {"failed": 4, "exit": 1}
+  },
+  "review_regressions_before_repair": {
+    "rational_boundary_and_probability_tails": 3,
+    "rounded_decimal_ceilings": 2,
+    "large_rational_rendering": 2,
+    "bounded_numeric_expansion_and_validation_order": 9,
+    "billion_exponent_tests": "Intercept Fraction conversion before allocation; no billion-digit integer was constructed"
+  },
+  "final_targeted": {
+    "pytest_args": [
+      "-m", "pytest", "-p", "no:cacheprovider",
+      "bench/frontier/test_calibration.py", "train/test_sql_episodes.py",
+      "train/test_learning_lab.py", "-q"
+    ],
+    "passed": 445,
+    "seconds": 26.95,
+    "exit": 0,
+    "calibration_cases": 202,
+    "sql_episode_cases": 239,
+    "cross_track_cases": 4,
+    "fixture_tasks": 8,
+    "arms": ["ptc", "bash"],
+    "cross_track_scripted_episodes": 64,
+    "cross_track_matches": 32,
+    "cross_track_mismatches": 32
+  },
+  "final_default_suite": {
+    "pytest_args": ["-m", "pytest", "-p", "no:cacheprovider", "-q"],
+    "passed": 1722,
+    "skipped": 1,
+    "skip_reason": "Optional contamination check requires absent torch",
+    "seconds": 157.63,
+    "exit": 0,
+    "real_isolated_mutation_baselines_included": true,
+    "warm_tokenizer_cache_used": true,
+    "cold_cache_verified": false
+  },
+  "isolated_negative_controls": [
+    {"mutation": "sample uniqueness guard removed", "failed": 2, "passed_controls": 4, "exit": 1},
+    {"mutation": "task identity pooled", "failed": 1, "passed_controls": 5, "exit": 1},
+    {"mutation": "empirical dead replaced by marginal plug-in", "failed": 1, "passed_controls": 5, "exit": 1},
+    {"mutation": "task fingerprint binding removed", "failed": 10, "passed_controls": 1, "exit": 1},
+    {"mutation": "Decimal pre-expansion guard removed", "failed": 6, "passed_controls": 3, "exit": 1}
+  ],
+  "isolated_unmodified_controls": {"calibration_passed": 15, "sql_binding_passed": 11, "exit": 0},
+  "negative_control_setup_repair": "Initial bench-only sandboxes could not import ptc.sqlite_safety; real ptc package copied before any mutation result was accepted",
+  "references": {
+    "frontier_calibration": {"exit": 0, "true_dead_probability": 0.6562, "acceptance_probability": 0.3438, "conditional_plugin_dead": 0.2927028795811518},
+    "frontier_marginal_only_control_exit": 1,
+    "sql_replay": {"exit": 0, "task": "bird-0000", "same_arm_repeats": 2, "ptc_observations": 3, "bash_observations": 2},
+    "optimized_python_rejected_by_both": true
+  },
+  "review": {
+    "python_session": "398b3ad6-dcff-423c-af3a-28dc493ddc04",
+    "security_session": "b7fb43a9-f283-44c1-8819-269c4030ff89",
+    "final_verdicts": "approved",
+    "method": "Static source review, execution unavailable to reviewers; parent executed all reported runtime checks"
+  },
+  "source_sha256": {
+    "bench/frontier/calibration.py": "15538103d9d8e152ae8263247bf0328223839353f198f91937bb5348fbab3599",
+    "bench/frontier/test_calibration.py": "a628e21abbb611c1727d66dc602babdeb5bdb8a778fa388b61099611c5c7f5eb",
+    "train/sql_episodes.py": "8c6b17293aec243fbc0be5ffc1b3ddbddb89d879221c5b9e6c6d9934dab9ed02",
+    "train/test_sql_episodes.py": "6e78f491c441f33a0d66097288a7ab65d21406571400b04d4810a227f67293a2",
+    "train/test_learning_lab.py": "295d68f38b9463e74fdece6bcd5a114d0c272cd5d0a9c73f7c6b1699834a04d1",
+    "spec/spikes/reference/frontier_calibration.py": "dcd1b6adc4a2eecf91c458518392f4f089ea64321a24a6e6d3d505dd2c3b932c",
+    "spec/spikes/reference/sql_replay.py": "2f17b28df658799e339ca454c59ea6e15715e863bc2b36d11839daa715095889"
+  },
+  "scratch_receipts": "/Users/nikolassapalidis/scratch/co-train-learning-lab-2026-10-23",
+  "full_suite_log": "full-suite-reviewed.log",
+  "protected_sources_unchanged_from_base": true,
+  "reference_checkout_unchanged": true,
+  "not_proved": [
+    "Authenticated provenance, independent sampling or split-content disjointness",
+    "Arbitrary-program determinism, full model-request or host/CLI snapshot",
+    "Sampler tokens, logprobs, loss alignment, optimizer updates or checkpoints",
+    "Compatible frozen training stack, frontier measurement or learning gain"
+  ],
+  "model_generation_calls": 0,
+  "gpu_or_paid_jobs": 0,
+  "dependency_installs": 0,
+  "scientific_contract_changes": 0,
+  "pushes_or_deployments": 0
+}

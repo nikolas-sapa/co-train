@@ -61,3 +61,18 @@ Unsloth 2026.10.3/2026.10.7's declared 5.17.0 ceiling. Package metadata suggests
 a possible 5.2–5.17 intersection, not a verified or approved training stack.
 No dependency, scientific rule, amendment, signature or manifest was changed.
 No GPU, model, paid service or training job was used.
+
+## Learning-lab references, 2026-10-23
+
+`sql_replay.py` executes one real fixture task through both current arms twice
+with fresh wrapper directories. Success, SQL errors and PTC partial-output
+rejection produced identical same-arm observation bytes on SQLite 3.50.4.
+It does not compare the arms' different renderings or implement artifact binding.
+
+`frontier_calibration.py` preserves the exact synthetic Bernoulli stress test.
+Its `--break-marginal` control replaces taskwise reduction with marginal-only
+reduction and must fail. It does not generate a policy outcome or a manifest.
+Both references reject optimized Python so their assertions cannot vanish.
+
+The implementation and test-first scope are in
+[`spec/learning-lab.md`](../../learning-lab.md).

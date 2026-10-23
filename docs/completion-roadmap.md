@@ -17,6 +17,34 @@ Main co-training is still unimplemented after preflight. The actual
 Historical v10 aborted after three steps; it is neither a completed five-step
 probe nor a frozen-policy frontier measurement. See [v10](probe-v10.md).
 
+## Calibrated SQL evidence
+
+`bench.frontier.calibration` now separates empirical per-task group behavior
+from plug-in estimates and hypothetical screening bias. It preserves invalid
+groups/statuses, requires unique sample IDs and rejects evaluation-ID overlap.
+Declared identities do not establish independent sampling or content-disjoint
+splits. Exact rational boundaries and bounded numeric expansion prevent
+asymmetric admission and compact-Decimal allocation attacks.
+
+`train.sql_episodes` records immutable scripted evidence through unchanged arms.
+Strict JSON/digests and external task/DB/prompt/config/source bindings support
+separate rescoring and opt-in action re-execution. It does not capture full
+model requests, sampler tokens, gradients or checkpoints. The eight-action
+script cap plus separate FINAL is not native model-round accounting.
+Trusted bash is not a sandbox; database hashes require stable snapshots.
+
+Failure-first tests and five independently failing source mutations preceded
+the final result: **445 targeted checks**, then **1722 passed, one optional
+torch skip**, in the offline warm-cache default suite (157.63s). This includes
+the real isolated mutation baselines. Python/security review was static;
+the parent ran the actual checks. No learning gain is established.
+
+See the [test-first spec and follow-on gates](../spec/learning-lab.md),
+[validation receipt](../research/2026-10-23-learning-lab.json), and
+[deeper source analysis](../research/2026-10-23-harness-deep-analysis.md).
+Actual training still requires an explicit frozen-runtime resolution and
+authorized frontier measurement; these helpers do not bypass either gate.
+
 ## Native SQL bridge
 
 The bridge prepares only explicit tasks, preserving their order and canonical
@@ -41,8 +69,8 @@ tool schema, external observation mask zero and final reward 1. The in-memory
 wrong-mask control failed. Generation/tokenization/parser fixtures limit this
 evidence; no actual trainer or gradient was exercised.
 
-Python/security static reviews approved the bounded patch. The latest default
-suite passed **1189 tests, one optional torch skip**, in 143.89 seconds with
+Python/security static reviews approved the bounded patch. At that checkpoint,
+the default suite passed **1189 tests, one optional torch skip**, in 143.89 seconds with
 offline flags and the existing tokenizer cache. See the
 [contract record](../research/2026-10-22-training-bridge-contract.json) and
 [reference/spec](../spec/spikes/reference/README.md).

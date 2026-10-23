@@ -6,7 +6,58 @@ to overwrite.
 
 ---
 
-## Current state, 2026-10-23, mutation process lifetime
+## Current state, 2026-10-23, calibrated SQL episode evidence
+
+Two additive offline modules are implemented:
+
+- `bench.frontier.calibration` computes hypothetical IID screening diagnostics
+  and validates/reduces explicit binary sample groups by task/arm/phase/config.
+  Empirical all-equal frequency is separate from the plug-in estimate.
+  Invalid groups remain visible and do not enter usable denominators.
+- `train.sql_episodes` records trusted scripts through unchanged SQL arms,
+  freezes actions/observations and complete scoring results, and encodes strict
+  canonical JSON with a corruption digest. Rescore runs protected final/gold
+  SQL only; action re-execution requires literal `allow_execution=True`.
+  Caller IDs, task, DB snapshot, prompt, settings and selected sources must
+  bind before either operation. Decode never executes actions.
+
+The recorder allows eight actions plus separate FINAL text. It does not
+redefine native model-round accounting. Existing defaults remain 200 action
+rows versus 500,000 scorer rows, PTC timeout 5s and bash/scorer timeout 30s.
+It rejects WAL/journal/shared-memory sidecars and checks DB content before
+and after operations. Stable caller-owned snapshots are required.
+Self-digests are not authentication; trusted bash remains a real shell.
+Selected source/runtime bindings are not a full host snapshot or SBOM.
+
+Test-first receipts: 160 calibration, 239 episode and four parent integration
+tests initially failed before their implementation. Numeric review reproduced
+boundary asymmetry, rounded input tails/ceilings, rational formatting, and
+unsafe Decimal expansion before repair. Final narrow checks passed **445**.
+Five isolated source mutations produced **2, 1, 1, 10 and 6 failures**, with
+passing controls, for sample reuse, task pooling, marginal substitution,
+task-fingerprint removal and Decimal-bound removal. No production source
+was mutated. Python and security reviewers approved the final source;
+their reviews were static, runtime checks were executed by the parent.
+
+The final offline warm-cache default suite passed **1722 tests, one optional
+torch skip**, in 157.63 seconds, including real isolated mutation baselines.
+That adds 445 cases over `f817045`. Cold-cache bootstrap remains unverified.
+See `spec/learning-lab.md`, `research/2026-10-23-learning-lab.json`, and
+the runnable references under `spec/spikes/reference/`.
+
+Additional pinned-source analysis covers Harbor, OpenEnv, Agent Lightning and
+Reasoning Gym, plus Terminal-Bench release identity. The report separates
+inspected source/tests from author claims and actual local execution:
+`research/2026-10-23-harness-deep-analysis.md`. No upstream tests or learning
+gains were reproduced.
+
+**Main training remains unimplemented and fail-closed.** The frontier manifest,
+frozen Transformers/native-TRL conflict, invalid-gold policy, optimizer and
+checkpoint proof remain unresolved. Follow-on acceptance gates are in the spec.
+No model generation, GPU/paid job, install, scientific contract change, push
+or deployment occurred.
+
+## Earlier checkpoint, 2026-10-23, mutation process lifetime (`f817045`)
 
 All three mutation runners now use stdlib-only `process_watchdog.run_bounded`.
 Each suite owns a POSIX session, has a
