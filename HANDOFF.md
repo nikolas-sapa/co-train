@@ -6,7 +6,152 @@ to overwrite.
 
 ---
 
-## Current state, 2026-10-23, offline harness reliability
+## Current state, 2026-10-24, incremental SQL/PTC execution capture
+
+`train/sql_capture.py` implements trusted host capture through the unchanged
+canonical `train.grpo_ptc.sql_environment(task)`. `start_capture` requires
+literal `allow_execution=True` and explicit `EpisodeIds`. `session.prompt` is
+canonical; sequential `step(code)` returns actual observations. Eight dispatched
+submissions are separate from later budget refusals. `finish(final_answer)`
+scores protected final/gold SQL without replaying actions; `abort()` has no final
+or score. Terminal/invalidated sessions reject reuse. Per-session locks serialize
+host calls, not external effects or crash recovery.
+
+Frozen `SqlCapture` records reuse existing IDs, action observations, instrument
+settings and `ExResult`. The separate `sql_execution_capture` v1 JSON envelope
+is strict, canonical and bounded to 8 MiB. Decode is data-only; rescore rechecks
+external caller/task/DB/prompt/source/settings bindings and executes only
+protected final/gold SQL. Source coverage includes the actual capture,
+environment, budget and shared evidence owners. Existing scripted v1 origin
+`scripted` / terminal `scripted_final` and native tool discovery stay unchanged.
+No legacy tests were edited and no acceptance cases were weakened.
+
+Python review found a real P2: sub-8-MiB quoted-semicolon input can make the
+frozen shared extractor scan quadratic prefixes before query timeout applies.
+Capture now calls `_bounded_extract_sql` from both validation and finish.
+It admits UTF-8 byte length plus `sum(semicolon_byte_position + 1)` at most
+`64 * 1024 * 1024` before invoking the existing extractor. Incremental byte
+search exits as soon as the budget is exceeded. Quoted/comment semicolons,
+discarded prose/fences and text after an early complete statement all count,
+so some cheap-to-extract texts conservatively reject. This is per invocation,
+not a whole-operation CPU/memory deadline; the independent 8 MiB format bound
+and all API/schema/source fields remain unchanged. `bench/score.py` is frozen
+and was not edited. Failed finish invalidates before scoring.
+
+Validation used the existing read-only reference interpreter
+`/Users/nikolassapalidis/Developer/misc/co-train/.venv-ptc/bin/python`
+(Python 3.12.13, pytest 9.1.1), targeting this actual repository, not reference
+source. The reviewed real offline harness used fresh caches, bytecode/pytest
+cache disabled, inherited OS external-IP denial, and its native observer.
+
+* RED: **252 failed in 4.09s**, exit 1, all expected missing-API failures from
+  test bodies, not collection/dependency errors.
+* Focused GREEN: **252 passed in 13.39s**, exit 0.
+* Combined GREEN: **570 passed in 41.10s**, exit 0, no skips, across
+  `train/test_sql_capture.py`, `train/test_sql_episodes.py`,
+  `train/test_sql_bridge.py`, `train/test_execution_binding.py`, and
+  `train/test_sql_reward_queries.py`.
+* Every run's audit counters were zero: external network attempts, cache file
+  accesses, tokenizer loads and loopback events. These counters are not
+  arbitrary-child/native telemetry. Supplied baseline sensitivity controls
+  were not rerun.
+
+Logs, all under
+`/Users/nikolassapalidis/scratch/co-train-capture-2026-10-24/`:
+`capture-red-01.log`, `capture-green-01.log`, `capture-combined-01.log`.
+`capture-regression-collection-01.log` records 239 scripted, 66 bridge,
+10 execution-binding and 3 reward-query cases: **318 legacy cases**. The supplied
+independent baseline used `train/test_learning_lab.py` (4 cases), not
+`train/test_sql_reward_queries.py` (3). This explains 570 versus 571; no test
+was lost. The exact original four legacy modules plus capture independently
+passed **571 in 157.49s**, in `validator-exact-baseline-plus-capture-01.log`.
+Parent's original DB/budget/replay/sealed controls caused **1/1/1/2** real
+assertion failures against a **5-pass baseline**. Budget/replay's old report
+string matcher missed rewritten `assert` traces; raw failures are actual
+count mismatches (10 vs 8 dispatches, 6 vs 4 before finish).
+
+Extraction-repair receipts, under the same scratch directory:
+
+* `capture-extraction-red-01.log`: **17 failed, 7 passed, 252 deselected,
+  31.02s**, exit 1. Fifteen extractor-sentry assertions and two missing
+  +1-byte rejections, not source/digest/import/collection failures. No
+  quadratic attack extraction was actually executed.
+* `capture-extraction-green-01.log`: **24 passed, 252 deselected, 6.50s**.
+* `capture-extraction-combined-01.log`: **595 passed, 149.43s**, no skips,
+  exit 0. Exact legacy modules: SQL episodes, SQL bridge, execution binding,
+  learning lab. Capture now has **276 cases**.
+* `capture-extraction-probe-01.log`: real-code positive plus valid-digest
+  4,003,379-byte attack decode in a fresh sandbox-inheriting child.
+  Work-limit `ValueError` after **0.01664s**, child normal exit **0**,
+  parent **0.31109s**, under its **10-second kill/reap deadline**.
+  External pytest probe: **1 passed in 1.59s**.
+* `capture-extraction-control-baseline-01.log`: **2 passed in 1.68s**.
+  `capture-extraction-control-validation-01.log` and
+  `capture-extraction-control-finish-01.log`: each independently bypassed
+  its guard in memory and produced **1 extractor-sentry assertion failure**,
+  exit 1, **1.86s / 2.35s**. No working source was mutated.
+
+All extraction-harness runs recorded **zero** network/cache/tokenizer audit
+violations and loopback events. Probe audit counters cover the parent pytest
+process, not arbitrary child telemetry; the fresh child inherited the OS
+sandbox. Original four runtime controls were not repeated for this guard fix.
+
+General/security review found no actionable issues. Fresh Python static
+re-review closed the P2: both extraction sites, all entrypoints, tests and docs
+were checked; no new findings remained.
+
+Final independent full default offline run completed **100% of 2,224 selected
+tests across 38 modules**: **2,222 passed, 1 failed, 1 skipped, 2 deselected
+in 428.41s**, exit **1**. All **276 capture** (including 24 extraction guards)
+and **319 exact legacy** cases passed independently too. The optional skip is
+unavailable torch; the two configured deselections are tokenizer integration
+controls. No `-x`, retries, timer changes or additional deselection were used.
+External-network/cache/tokenizer audit counts were **0/0/0**, with **5 permitted
+loopback events**. Parent/child OS external-network denial and five audit-guard
+RED controls were verified earlier; audit counters are not arbitrary-child
+telemetry.
+
+The unresolved failure is
+`tests/test_mutation_harness.py::test_ptc_real_isolated_baseline_collects_and_passes[bench]`
+at line 165: nested bench returned **1**, not 0 (**2 failed, 509 passed,
+1 skipped, 2 deselected in 38.30s**). Retained inner detail identifies
+`bench/test_sql_parity_sweep.py::test_interruption_cleans_owned_work_and_propagates`;
+the other inner failure detail is abbreviated and unavailable. These isolated
+baselines copy `ptc`/`ledger`/`bench`, not `train`, independently of capture.
+Direct outer parity cases passed. An earlier run hit the existing 0.1s startup
+PID-readiness fixture; a candidate 0.5s change passed isolated but broader file
+timers failed. **All candidate edits were reverted**: the parity test and legacy
+production files remain unchanged, with no weakened guards. Investigation ended;
+the baseline infrastructure blocker remains unresolved, not a proven production
+cleanup defect. All 17 probe PIDs were finally absent. **Full-suite GREEN and
+release acceptance are not established.**
+
+Use the interpreter above with the real offline harness documented in
+`spec/offline-harness-reliability.md`; final default pytest arguments were
+`-q -ra --tb=short -o faulthandler_timeout=60` (no path selection).
+Optional local provenance: `validator-final-full-default-01.log`,
+`validator-final-default-collection-01.log` and
+`validator-final-integrity-after-01.log` under the scratch directory above.
+Integrity checked unchanged **44 repository / 4,878 reference bytecodes** and
+**23 repository / 10 reference source fingerprints**. All eight authored
+artifacts were nonempty; no reference source was edited.
+
+Research synthesis/backlog is saved in
+`research/2026-10-24-prime-t3-opportunities.md`; the backend capture prerequisite
+is complete and targeted-verified, not fully offline accepted. Skill generation/promotion,
+adaptive context/delegation and native training remain deferred gates.
+
+Limits: caller declarations and artifact digests are not authentication;
+selected on-disk sources are not in-memory attestation; DB hashing needs a stable
+caller-owned snapshot without sidecars and does not prevent malicious ABA
+writes. PTC is not an OS sandbox. Incremental fixture execution is not
+token-faithful provider capture, model authorship, learning or production
+readiness. No native runtime/model generation/optimizer/checkpoint path was
+verified. Training remains fail-closed; no default, gold-policy, scientific
+manifest/protocol, dependency or reference source was changed. No push or
+deployment occurred.
+
+## Earlier checkpoint, 2026-10-23, offline harness reliability
 
 The two immediate offline fixes from the
 [round-2 research](research/2026-10-23-harness-round2.md) are implemented.

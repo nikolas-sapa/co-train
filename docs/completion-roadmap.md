@@ -1,7 +1,64 @@
 # Completion roadmap
 
-Updated 2026-10-23. This is a research-software completion plan. A positive
+Updated 2026-10-24. This is a research-software completion plan. A positive
 scientific result is not a completion requirement.
+
+## Incremental execution capture, 2026-10-24
+
+`train.sql_capture` now supports trusted host execution one program at a time.
+Observation A can inform submission B through the existing canonical
+`sql_environment(task)`. Literal-True consent, the eight-submission pre-dispatch
+budget, separate executed/refused records, final-only scoring without replay,
+and abort-without-score are explicit. Frozen evidence uses a distinct bounded
+JSON format; decode/rescore never execute recorded actions. Current external
+task/ID/DB/prompt/source/settings bindings are rechecked. Scripted v1 stays
+scripted; native discovery and the scientific/training gates are unchanged.
+
+Initial offline-harness RED produced 252 missing-API failures, then 252 focused
+passes. The exact original combined scope independently passed 571 in 157.49s.
+The earlier 570 used 3 reward-query rather than 4 learning-lab cases; no test was
+lost. Independent DB/budget/replay/sealed mutants caused 1/1/1/2 assertion
+failures against a five-pass baseline. General/security reviews found no issues.
+
+Python review found a real extraction-work P2: a sub-8-MiB artifact can trigger
+quadratic semicolon-prefix scanning before SQL query timeout applies. Capture
+now admits at most 64 MiB of UTF-8 raw-prefix work per extraction invocation,
+before either call to the unchanged shared extractor. This conservative bound
+counts discarded prose/fences, quotes/comments and later statements; it is
+neither a global extraction change nor a whole-operation CPU/memory guarantee.
+Seventeen new RED failures preceded repair. The 24 extraction checks passed;
+the current exact combined scope passed **595 in 149.43s**, no skips, zero
+network/cache/tokenizer audit violations. A fresh real-code attack rejected
+normally within a parent 10-second kill/reap deadline. Independent bypasses of
+each guard caused one sentry assertion failure.
+
+Fresh Python static re-review closed the P2 with no new findings. Backend capture
+is implemented and targeted-verified, not fully offline accepted. The final
+independent default run completed all 2,224 selected tests across 38 modules:
+**2,222 passed, 1 failed, 1 skipped, 2 deselected in 428.41s**, exit 1.
+All 276 capture and 319 exact legacy cases passed; optional torch was absent,
+and two tokenizer controls were deselected by configuration. External-network,
+cache and tokenizer audit counts were zero, with five permitted loopback events.
+
+The unresolved failure is the existing isolated bench baseline in
+`tests/test_mutation_harness.py::test_ptc_real_isolated_baseline_collects_and_passes[bench]`:
+nested exit 1 (2 failed, 509 passed, 1 skipped, 2 deselected in 38.30s).
+Retained inner detail names the parity interruption-cleanup case; the other
+detail is unavailable. The baseline copies ptc/ledger/bench, not train.
+Direct outer parity cases passed. Startup-fixture investigation ended with
+all candidate timer edits reverted, no weakened guards and 17 probe PIDs absent.
+No fixture repair remains assigned or retained. Baseline infrastructure remains
+an unresolved blocker, not a proven production cleanup defect. See the
+[capture contract](../spec/sql-execution-capture.md) for exact scope and receipts.
+
+The capture prerequisite is complete. Next research gates remain executable
+skill generation/promotion with held-out
+transfer, adaptive context/delegation policy with complete economics, and the
+real native rollout/optimizer/checkpoint gate. None is supplied by capture.
+No model/provider trajectory, token fidelity, learning gain, crash recovery,
+exactly-once effect, OS sandbox, or experiment-ready claim follows. The
+[Prime/T3 synthesis](../research/2026-10-24-prime-t3-opportunities.md) ranks those
+experiments separately. Later sections retain earlier checkpoint receipts.
 
 ## Current boundary
 

@@ -25,6 +25,101 @@ nothing here launches a training run.
 | `grpo_ptc.py` | the gated pipeline: config, environment, `preflight()` |
 | `test_train.py` | 111 offline tests. No GPU, no network, no model download |
 | `mutate.py` | 52 mutants that break each guard, and the record that each one dies |
+| `sql_capture.py` | opt-in incremental trusted SQL/PTC execution, immutable evidence, final-only scoring |
+| `test_sql_capture.py` | 276 offline acceptance cases, including bounded extraction; independent guard controls verified |
+
+## Incremental SQL/PTC capture
+
+`start_capture(task, ids=..., allow_execution=True)` creates a trusted host
+session with the unchanged canonical SQL/PTC prompt and a fresh eight-submission
+budget. The opt-in must be literal `True`. Each `step` returns the actual existing
+environment observation, allowing the next program to depend on it.
+
+`finish(final_answer)` scores only final/gold SQL, without replaying actions.
+`abort()` seals without a final or score. Both reject subsequent use.
+Unexpected executor/scorer errors and binding/size failures invalidate the
+session rather than returning partial success. Evidence separates dispatched
+`steps` from budget `refusals`; a dispatched rejected program is still a step.
+Final SQL is not an action. Invalid gold preserves `ExResult.valid=False`, not
+a usable zero.
+
+Example for an existing compatible interpreter, using only the committed fixture:
+
+```python
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from bench.fixture import materialize
+from bench.loader import load_bird
+from train.sql_capture import (
+    start_capture, encode_capture, decode_capture, rescore_capture,
+)
+from train.sql_episodes import EpisodeIds
+
+with TemporaryDirectory(prefix="cotrain-capture-example-") as directory:
+    task = load_bird(materialize(Path(directory) / "corpus"))[0]
+    ids = EpisodeIds(
+        corpus_id="committed-bird-fixture", split_id="engineering-only",
+        run_id="local-example", episode_id=task.name,
+        policy_id="trusted-host-example", policy_revision="fixture-v1",
+    )
+    session = start_capture(task, ids=ids, allow_execution=True)  # explicit consent
+    prompt = session.prompt  # canonical model-visible prompt, no gold or capture metadata
+    observation = session.step(
+        "print(execute_sql(query='SELECT COUNT(*) AS n FROM school')[0]['n'])"
+    )
+    count = int(observation.strip())
+    session.step(
+        f"print(execute_sql(query='SELECT name FROM school LIMIT {count}'))"
+    )
+    # Known fixture answer supplied by the host, not a generated model answer.
+    capture = session.finish("SELECT name FROM school WHERE charter = 1")
+    restored = decode_capture(encode_capture(capture))  # data only
+    assert rescore_capture(restored, task, ids=ids) == capture.result
+```
+
+Strict JSON evidence uses a distinct `sql_execution_capture` v1 envelope and an
+8 MiB bound. Decode executes nothing; rescore executes protected final/gold SQL
+only. Each later step/scoring rechecks caller IDs, task metadata, stable DB
+bytes/no sidecars, canonical prompt, runtime/settings and selected source bytes,
+including capture/environment/budget owners. Source edits can intentionally make
+old captures unrescorable. Caller IDs/hashes are not authentication, source
+bindings are not in-memory attestation, and stable snapshots do not prevent
+malicious concurrent ABA writes. The restricted PTC runtime is not an OS sandbox.
+
+Capture adds a conservative extraction-work admission limit before every call
+to the unchanged shared SQL extractor: UTF-8 byte length plus the sum of raw
+semicolon byte-prefix lengths must be at most 64 MiB per invocation.
+Counting includes quotes/comments, discarded prose/fences and text after an
+early complete statement, so some cheap-to-extract answers can reject.
+Rejection is `ValueError`; failed finish invalidates its session. This limit is
+separate from the 8 MiB format cap, not an overall CPU/memory deadline, and does
+not alter global scoring/extraction semantics for admitted answers.
+
+This API is not exported through native tool discovery. Existing scripted v1
+recording remains unchanged. No provider traces, exact tokens, model-authorship
+evidence, learning, skill promotion, training, or production-readiness claim.
+
+Initial validation had 252 missing-API RED failures, then 252 focused passes.
+The exact original combined scope independently passed 571 checks; the earlier
+570 used 3 reward-query rather than 4 learning-lab cases, not a lost test.
+Extraction repair had 17 behavioral RED failures, then 24 focused passes.
+Current capture plus scripted/bridge/execution/learning-lab scope passed
+595 checks (149.43s), no skips, with zero offline audit violations.
+A real-code fresh-child attack rejected normally within a 10-second deadline;
+independent bypasses of both extraction guards caused sentry assertion failures.
+Original DB/budget/replay/sealed controls also failed as intended.
+General/security reviews found no issues; fresh Python static re-review closed
+the extraction P2. The final independent default suite completed **2,222 passed,
+1 failed, 1 skipped, 2 deselected in 428.41s**, exit 1, all 2,224 selected tests
+across 38 modules executed. All 276 capture and 319 exact legacy cases passed.
+Optional torch was absent; two tokenizer controls were excluded by configuration.
+External-network/cache/tokenizer audits were zero, with five permitted loopback
+events. The unresolved existing isolated bench baseline failure copies no train
+code. Startup-fixture investigation ended with all candidate edits reverted and
+legacy tests/production unchanged. Capture is targeted-verified, not fully
+offline accepted; skill generation/promotion remains unimplemented. See the
+[test-first spec](../spec/sql-execution-capture.md) for exact scope and limits.
 
 ## Run order
 
