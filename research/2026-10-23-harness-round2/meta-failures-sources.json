@@ -1,0 +1,361 @@
+{
+  "repository": "stanford-iris-lab/meta-harness",
+  "commit": "8123ccabe2b19fa1123090b2e5f1bacc20963ce8",
+  "review_date": "2026-10-23",
+  "head_verification": "Parent supplied; not repeated",
+  "method": "Public FetchUrl pinned raw source and complete recursive GitHub tree; static code/test-body inspection only. No upstream imports, upstream code execution, test execution, installs, clones, providers, models or paid jobs.",
+  "scope": "Search validity only. Separate mechanism worker owns mechanism traces.",
+  "license": {
+    "spdx": "MIT",
+    "copyright": "Copyright (c) 2026 Yoonho Lee",
+    "source": "LICENSE",
+    "limits": "Dataset, model and provider terms not independently audited."
+  },
+  "artifact_repository": {
+    "name": "stanford-iris-lab/meta-harness-tbench2-artifact",
+    "status": "Referenced only to distinguish repository identity. No artifact code used or inspected; no artifact commit pin claimed."
+  },
+  "local_context": {
+    "repository": "/Users/nikolassapalidis/Developer/co-train",
+    "commit": "ea6d2f6 (parent supplied)",
+    "spec": "/Users/nikolassapalidis/Developer/co-train/spec/native-training.md",
+    "status": "Read only. Frozen; no implementation, learning or launch claims."
+  },
+  "tree": {
+    "url": "https://api.github.com/repos/stanford-iris-lab/meta-harness/git/trees/8123ccabe2b19fa1123090b2e5f1bacc20963ce8?recursive=1",
+    "sha": "8123ccabe2b19fa1123090b2e5f1bacc20963ce8",
+    "truncated": false,
+    "entry_count": 149
+  },
+  "sources": [
+    {
+      "path": "LICENSE",
+      "git_blob_sha": "12b35beb9e86564ba2ed763ac4606932205b9d3b",
+      "repository_bytes": 1067,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/LICENSE",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/LICENSE",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/LICENSE"
+    },
+    {
+      "path": "ONBOARDING.md",
+      "git_blob_sha": "383b0d109bac333146d94c52e1aed8bbe4166383",
+      "repository_bytes": 7069,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/ONBOARDING.md",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/ONBOARDING.md",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/ONBOARDING.md"
+    },
+    {
+      "path": "README.md",
+      "git_blob_sha": "f3aa2af5045f80832022e0fbad041714c99871de",
+      "repository_bytes": 5142,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/README.md",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/README.md",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/README.md"
+    },
+    {
+      "path": "experimental/harbor_meta_harness/README.md",
+      "git_blob_sha": "abfbeaf8a9dd1c45bb2c3bd2e3fe24e693749603",
+      "repository_bytes": 3831,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/README.md",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/README.md",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/experimental/harbor_meta_harness/README.md"
+    },
+    {
+      "path": "experimental/harbor_meta_harness/agents/meta_harness.py",
+      "git_blob_sha": "734f989b2da72391a55b3e58606db8b4ece6f140",
+      "repository_bytes": 6769,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/agents/meta_harness.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/agents/meta_harness.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/experimental/harbor_meta_harness/agents/meta_harness.py"
+    },
+    {
+      "path": "experimental/harbor_meta_harness/controller.py",
+      "git_blob_sha": "cef0a78aaab193ae34c6e8c6b942326f8681c19e",
+      "repository_bytes": 9758,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/controller.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/controller.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/experimental/harbor_meta_harness/controller.py"
+    },
+    {
+      "path": "experimental/harbor_meta_harness/suite.toml",
+      "git_blob_sha": "a593fdd0c6f274cc0c37013c4b3a7698412e04b7",
+      "repository_bytes": 357,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/suite.toml",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/suite.toml",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/experimental/harbor_meta_harness/suite.toml"
+    },
+    {
+      "path": "experimental/harbor_meta_harness/tasks/select-harness/environment/harness.py",
+      "git_blob_sha": "e8305077ced4d498f63f2f7e4a4451cb6c9bf99c",
+      "repository_bytes": 2543,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/tasks/select-harness/environment/harness.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/tasks/select-harness/environment/harness.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/experimental/harbor_meta_harness/tasks/select-harness/environment/harness.py"
+    },
+    {
+      "path": "experimental/harbor_meta_harness/tasks/select-harness/tests/test_outputs.py",
+      "git_blob_sha": "a3444d328f5f24479660dea58ad4b04c41211292",
+      "repository_bytes": 766,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/tasks/select-harness/tests/test_outputs.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/tasks/select-harness/tests/test_outputs.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/experimental/harbor_meta_harness/tasks/select-harness/tests/test_outputs.py"
+    },
+    {
+      "path": "experimental/harbor_meta_harness/tests/test_controller.py",
+      "git_blob_sha": "f27cab28a10de268b7e7fde2c59143705970ac90",
+      "repository_bytes": 8357,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/tests/test_controller.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/tests/test_controller.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/experimental/harbor_meta_harness/tests/test_controller.py"
+    },
+    {
+      "path": "reference_examples/terminal_bench_2/.claude/skills/meta-harness-terminal-bench-2/SKILL.md",
+      "git_blob_sha": "5dd564f86c18d648a68eb6f7596bf2d980078d27",
+      "repository_bytes": 6953,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/.claude/skills/meta-harness-terminal-bench-2/SKILL.md",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/.claude/skills/meta-harness-terminal-bench-2/SKILL.md",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/terminal_bench_2/.claude/skills/meta-harness-terminal-bench-2/SKILL.md"
+    },
+    {
+      "path": "reference_examples/terminal_bench_2/SETUP.md",
+      "git_blob_sha": "76479d61328f68fd8f24f02f1521e6871799c32c",
+      "repository_bytes": 3875,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/SETUP.md",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/SETUP.md",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/terminal_bench_2/SETUP.md"
+    },
+    {
+      "path": "reference_examples/terminal_bench_2/meta_harness.py",
+      "git_blob_sha": "1ccae3e66da7f8e9266edada24faaa53fa5bdbe0",
+      "repository_bytes": 34550,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/meta_harness.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/meta_harness.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/terminal_bench_2/meta_harness.py"
+    },
+    {
+      "path": "reference_examples/terminal_bench_2/scripts/run_eval.sh",
+      "git_blob_sha": "54b511590818b4cc703288ccbca0f78036792d5f",
+      "repository_bytes": 3139,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/scripts/run_eval.sh",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/scripts/run_eval.sh",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/terminal_bench_2/scripts/run_eval.sh"
+    },
+    {
+      "path": "reference_examples/terminal_bench_2/tests/test_meta_harness.py",
+      "git_blob_sha": "1e2d044f9922f1e42ea39e1ba56d9642ecf14c4c",
+      "repository_bytes": 7845,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/tests/test_meta_harness.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/tests/test_meta_harness.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/terminal_bench_2/tests/test_meta_harness.py"
+    },
+    {
+      "path": "reference_examples/text_classification/.claude/skills/meta-harness/SKILL.md",
+      "git_blob_sha": "5b9675ca2cd363dab245cbccd6e2e8342a10eb54",
+      "repository_bytes": 6906,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/.claude/skills/meta-harness/SKILL.md",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/.claude/skills/meta-harness/SKILL.md",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/text_classification/.claude/skills/meta-harness/SKILL.md"
+    },
+    {
+      "path": "reference_examples/text_classification/README.md",
+      "git_blob_sha": "6e79248a3871def979f22c3c86fb55fb7cd893dc",
+      "repository_bytes": 2721,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/README.md",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/README.md",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/text_classification/README.md"
+    },
+    {
+      "path": "reference_examples/text_classification/benchmark.py",
+      "git_blob_sha": "3bfacaa864e707d1069edf037e4bd64465e5a6ff",
+      "repository_bytes": 32626,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/benchmark.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/benchmark.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/text_classification/benchmark.py"
+    },
+    {
+      "path": "reference_examples/text_classification/claude_wrapper.py",
+      "git_blob_sha": "e70413a9088b555e16bf553db231d9dca1ada845",
+      "repository_bytes": 23451,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/claude_wrapper.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/claude_wrapper.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/text_classification/claude_wrapper.py"
+    },
+    {
+      "path": "reference_examples/text_classification/config.yaml",
+      "git_blob_sha": "77f375c13b63fb6cf210e6d1ccca421f61a3b917",
+      "repository_bytes": 1239,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/config.yaml",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/config.yaml",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/text_classification/config.yaml"
+    },
+    {
+      "path": "reference_examples/text_classification/data/api.py",
+      "git_blob_sha": "8be69b3530f9a360a51e1a6dd8ed8f8fd1f0daf0",
+      "repository_bytes": 5444,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/data/api.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/data/api.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/text_classification/data/api.py"
+    },
+    {
+      "path": "reference_examples/text_classification/data/evaluators.py",
+      "git_blob_sha": "414692470e6f2d610899c3965ce9c533cecf15cb",
+      "repository_bytes": 6138,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/data/evaluators.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/data/evaluators.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/text_classification/data/evaluators.py"
+    },
+    {
+      "path": "reference_examples/text_classification/data/loaders.py",
+      "git_blob_sha": "7399be9911dda0f0ba4bb0d4642c174e267e89b1",
+      "repository_bytes": 16000,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/data/loaders.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/data/loaders.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/text_classification/data/loaders.py"
+    },
+    {
+      "path": "reference_examples/text_classification/inner_loop.py",
+      "git_blob_sha": "e355cf127b29ed282dbc302c73f31c7a4004df48",
+      "repository_bytes": 29906,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/inner_loop.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/inner_loop.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/text_classification/inner_loop.py"
+    },
+    {
+      "path": "reference_examples/text_classification/llm.py",
+      "git_blob_sha": "5834c4a534e7a61865e86744b06212131634ad97",
+      "repository_bytes": 13463,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/llm.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/llm.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/text_classification/llm.py"
+    },
+    {
+      "path": "reference_examples/text_classification/meta_harness.py",
+      "git_blob_sha": "ad676c1f49d122e91de1234d58080453c4a911b2",
+      "repository_bytes": 20486,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/meta_harness.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/meta_harness.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/text_classification/meta_harness.py"
+    },
+    {
+      "path": "reference_examples/text_classification/tests/test_benchmark.py",
+      "git_blob_sha": "c290f822d5db6421ce5907c7dba0eac7031e6ba5",
+      "repository_bytes": 9762,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/tests/test_benchmark.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/tests/test_benchmark.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/text_classification/tests/test_benchmark.py"
+    },
+    {
+      "path": "reference_examples/text_classification/tests/test_data.py",
+      "git_blob_sha": "ff7f8cad255101a39e613ed02e54fac5209f047b",
+      "repository_bytes": 6500,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/tests/test_data.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/tests/test_data.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/text_classification/tests/test_data.py"
+    },
+    {
+      "path": "reference_examples/text_classification/tests/test_evolution_contracts.py",
+      "git_blob_sha": "aece8bda2d3b0f9ea5b8b4884a5be59097da8c68",
+      "repository_bytes": 7448,
+      "pinned_url": "https://github.com/stanford-iris-lab/meta-harness/blob/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/tests/test_evolution_contracts.py",
+      "raw_url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/tests/test_evolution_contracts.py",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/meta-failures-cache/reference_examples/text_classification/tests/test_evolution_contracts.py"
+    }
+  ],
+  "test_bodies": [
+    {
+      "path": "reference_examples/text_classification/tests/test_evolution_contracts.py",
+      "tests": [
+        "test_with_context_preserves_metadata",
+        "test_fewshot_predict_uses_stable_input_seed",
+        "test_default_evolution_never_runs_test",
+        "test_finalization_prints_test_results_and_blocks_evolution",
+        "test_benchmark_test_results_are_run_scoped",
+        "test_incomplete_finalization_allows_evolution"
+      ]
+    },
+    {
+      "path": "reference_examples/text_classification/tests/test_data.py",
+      "tests": [
+        "test_transfer_tasks_match_paper_subset",
+        "test_supported_tasks_match_release",
+        "test_all_vendored_splits_load",
+        "test_eval_loader_limit_and_shuffle",
+        "test_two_way_split_uses_requested_counts",
+        "test_three_way_split_uses_requested_counts",
+        "test_prompt_shapes_match_expected_task_templates",
+        "test_lawbench_loader_strips_answer_prefix",
+        "test_extract_final_answer_handles_json_and_fallback",
+        "test_uspto_evaluator_reports_metrics",
+        "test_symptom_evaluator_accepts_tagged_answer",
+        "test_lawbench_evaluator_reports_metrics",
+        "test_finer_evaluator_runs",
+        "test_aegis_evaluator_runs"
+      ]
+    },
+    {
+      "path": "reference_examples/text_classification/tests/test_benchmark.py",
+      "tests": [
+        "test_load_results_aggregates_configured_seeds",
+        "test_load_results_omits_incomplete_seed_group",
+        "test_pareto_dominates_equal_cost_lower_accuracy",
+        "test_worker_commands_import_package_from_unrelated_cwd",
+        "test_build_test_runs_retries_corrupt_result",
+        "test_build_val_runs_retries_corrupt_result",
+        "test_build_val_runs_skips_usable_result",
+        "test_main_propagates_worker_failure_and_uses_results_dir"
+      ]
+    },
+    {
+      "path": "reference_examples/terminal_bench_2/tests/test_meta_harness.py",
+      "tests": [
+        "test_accepts_terminus2_subclass",
+        "test_rejects_missing_exact_class",
+        "test_rejects_non_class",
+        "test_rejects_class_that_is_not_terminus2",
+        "test_run_eval_rejects_invalid_class_before_harbor",
+        "test_python_runner_uses_harbor_timeout",
+        "test_python_runner_does_not_complete_on_timeout",
+        "test_shell_runner_uses_harbor_timeout",
+        "test_shell_runner_supports_modal",
+        "test_shell_runner_defers_to_external_timeout",
+        "test_run_agent_loop_accepts_current_signature"
+      ]
+    },
+    {
+      "path": "experimental/harbor_meta_harness/tests/test_controller.py",
+      "tests": [
+        "test_load_suite_reads_explicit_task_list",
+        "test_collection_suites_resolve_from_experiment_root",
+        "test_command_uses_suite_model_and_attempts",
+        "test_validate_source_requires_harness_interface",
+        "test_suite_forbidden_references_are_per_task_union",
+        "test_validate_source_rejects_task_leakage",
+        "test_evaluate_source_rejects_before_any_child_run",
+        "test_evaluate_source_aggregates_mean_over_tasks",
+        "test_evaluate_source_supports_min_aggregate",
+        "test_evaluate_source_resolves_job_directory_before_changing_child_cwd",
+        "test_run_child_exposes_staged_candidate_only_to_child",
+        "test_evaluation_state_is_immutable_and_bounded",
+        "test_child_result_reads_harbor_result"
+      ]
+    },
+    {
+      "path": "experimental/harbor_meta_harness/tasks/select-harness/tests/test_outputs.py",
+      "tests": []
+    }
+  ],
+  "execution": {
+    "upstream_tests_run": 0,
+    "benchmarks_run": 0,
+    "model_calls": 0,
+    "paid_jobs": 0,
+    "negative_controls": "Specified in report only, not executed."
+  },
+  "source_integrity_verification": {
+    "algorithm": "SHA-1 of Git blob header plus exact cached UTF-8 bytes, compared against pinned recursive-tree git_blob_sha; Python stdlib only, no git command or upstream code execution",
+    "files_verified": 29,
+    "mismatches": 0,
+    "report_bytes": 28985,
+    "named_framework_test_bodies_inspected": 52
+  }
+}

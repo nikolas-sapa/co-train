@@ -20,8 +20,13 @@ The frontier manifest is still absent. No native model generation, optimizer
 update or checkpoint restoration has been verified. See
 [`spec/native-training.md`](spec/native-training.md) and
 [`HANDOFF.md`](HANDOFF.md) for current evidence and blockers.
-The current offline warm-cache default suite passes 1861 tests with one
-optional torch skip; older test counts below describe earlier checkpoints.
+The latest default suite passed **1947 tests, one optional torch skip and two
+tokenizer-control deselections**, in 204.38s with fresh isolated Hugging Face
+caches and external networking denied. Local MCP loopback fixtures remain
+allowed. Both explicit real-tokenizer controls passed separately with zero
+skips. The preceding 1861-test warm-cache result is historical.
+See [`spec/offline-harness-reliability.md`](spec/offline-harness-reliability.md)
+and the [validation receipt](research/2026-10-23-offline-harness-reliability.json).
 
 **Does co-training a small model against a programmatic-tool-calling (PTC) harness reverse the
 bash-over-PTC ordering that arXiv 2609.11999 measured on untrained models — and does the winner
@@ -144,20 +149,35 @@ ERROR ptc/test_compare.py    - ModuleNotFoundError: No module named 'verifiers'
 ERROR ledger/test_ledger.py  - ModuleNotFoundError: No module named 'verifiers'
 ```
 
-No GPU needed for any of it. Step 1's suite is stdlib-only and offline; Step 2's needs
-`transformers` and reaches the HF hub for the Qwen3 tokenizer. Developed on CPython 3.12 and
-3.14; no lower bound has actually been tested.
+No GPU is needed for the default suite. It covers `tests ptc ledger bench train`.
+Its two real-tokenizer contamination controls are excluded by the default
+`not tokenizer_integration` marker expression, not counted as passing.
+Explicit integration requires a local directory matching the eight frozen
+digests in `bench/tokenizer_artifact.json`. Admission precedes the Transformers
+import; loading is local-only with remote code disabled. A missing path, changed
+file or missing requested dependency fails rather than skips. No automatic
+download or implicit cache lookup is provided.
+
+The manifest freezes a contamination-test baseline only. It does not authenticate
+upstream provenance, approve a model revision or fix native-template selection.
+Symlink bytes are checked; filesystem immutability and TOCTOU protection are not
+provided. Step 2 remains a separate legacy suite that may reach the HF hub.
+Developed on CPython 3.12 and 3.14; no lower bound has actually been tested.
 
 ```bash
-.venv-ptc/bin/python -m pytest -q         # the default suite: tests + ptc + ledger, offline
-.venv-ptc/bin/python -m pytest step2 -q   # Step 2 — 54 tests (19 need transformers + the HF hub)
+.venv-ptc/bin/python -m pytest -q
+.venv-ptc/bin/python -m pytest bench/test_contamination.py -q \
+  -m tokenizer_integration --tokenizer-artifact /absolute/local/snapshot
 
-.venv-ptc/bin/python -m pytest tests -q   # Step 1's gate alone — 51 tests, nothing imports torch
+.venv-ptc/bin/python -m pytest step2 -q
+.venv-ptc/bin/python -m pytest tests -q
 ```
 
-**Dated note, 2026-10-19:** the default suite's own comment is incomplete; it covers
-`tests ptc ledger bench train`. Use these three commands unchanged; only the counts after
-`#` are stale (see the table below).
+### Historical suite notes, 2026-10-19 and earlier
+
+The old command comments counted only `tests ptc ledger`, although default
+collection already covered `tests ptc ledger bench train`. Counts below belong
+to those earlier checkpoints.
 
 A bare `pytest` is now safe to type: `pytest.ini`'s `testpaths` covers all three default
 suites. It used to read `testpaths = tests`, so `pytest` collected 51 and silently skipped

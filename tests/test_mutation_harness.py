@@ -11,6 +11,7 @@ import importlib.util
 import io
 import itertools
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -80,6 +81,7 @@ def _configure_cli(name, module, monkeypatch, tmp_path, mutations,
     (root / "docs").mkdir()
     (root / "docs" / "pre-registration.md").write_text("# Offline fixture\n")
     shutil.copy(REPO / "process_watchdog.py", root / "process_watchdog.py")
+    shutil.copy(REPO / "pytest.ini", root / "pytest.ini")
     (root / name / "subject.py").write_text(SOURCE)
     (root / name / "test_subject.py").write_text(TEST_SOURCE)
     (root / name / target).write_text(source)
@@ -162,6 +164,26 @@ def test_ptc_real_isolated_baseline_collects_and_passes(package, monkeypatch, tm
     result = module.run(sandbox, package)
     assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
     assert re.search(r"\b[1-9]\d* passed\b", result.stdout), result.stdout
+
+
+def test_ptc_fresh_preserves_default_tokenizer_exclusion(monkeypatch, tmp_path):
+    module = _load_runner("ptc")
+    _local_tempdirs(monkeypatch, module, tmp_path)
+    sandbox = module.fresh("bench")
+    result = subprocess.run(
+        [sys.executable, "-B", "-m", "pytest", "bench/test_contamination.py",
+         "--collect-only", "-q", "-p", "no:cacheprovider"],
+        cwd=sandbox, env={**os.environ, "PYTHONPATH": str(sandbox),
+                          "PYTHONDONTWRITEBYTECODE": "1"},
+        capture_output=True, text=True, timeout=15, check=False,
+    )
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert "test_v2_control_is_well_formed_and_matches_v1_shape" in result.stdout
+    for control in ("test_long_positive_control_is_longer_and_still_canonical",
+                    "test_v2_control_is_length_matched_to_bird"):
+        assert f"::{control}" not in result.stdout, result.stdout
+    assert "2 deselected" in result.stdout
+    assert (sandbox / "pytest.ini").read_bytes() == (REPO / "pytest.ini").read_bytes()
 
 
 @pytest.mark.parametrize("missing_helper", [False, True], ids=["bundled", "missing-control"])

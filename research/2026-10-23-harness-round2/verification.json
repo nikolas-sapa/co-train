@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-23",
+  "baseline_head": "ea6d2f6a185bf3c234c04505ca570dd1f090433f",
+  "scope": "Research artifacts only, no production code/spec edits",
+  "positive_checks": {
+    "relative_links": 24,
+    "json_documents": 7,
+    "promoted_report_pairs": 6,
+    "paper_studies": 8,
+    "cached_paper_versions": 9
+  },
+  "negative_controls": [
+    {
+      "control": "report_hash",
+      "rejected": true,
+      "reason": "Changed promoted report: meta-mechanisms"
+    },
+    {
+      "control": "source_pin",
+      "rejected": true,
+      "reason": "Incorrect source pin: meta-mechanisms"
+    },
+    {
+      "control": "missing_artifact",
+      "rejected": true,
+      "reason": "Missing relative link: /Users/nikolassapalidis/Developer/co-train/research/2026-10-23-harness-round2/papers.md"
+    },
+    {
+      "control": "invented_training",
+      "rejected": true,
+      "reason": "Invented execution/approval flag: training_verified"
+    },
+    {
+      "control": "missing_paper",
+      "rejected": true,
+      "reason": "Missing paper provenance"
+    }
+  ],
+  "negative_control_boundary": "In-memory document/provenance validator mutations only; not production guard or learning tests",
+  "files": [
+    {
+      "path": "research/2026-10-23-harness-round2.md",
+      "bytes": 21277,
+      "sha256": "cd818519e56e90fca857bdb8c58c171d5efebe4567c6797ef90741ebdfe2575e"
+    },
+    {
+      "path": "research/2026-10-23-harness-round2/papers.md",
+      "bytes": 27908,
+      "sha256": "921d96b2abc83b4a45b7a95b457f8073b87355886fb1e143dc55ebc16c1b8b84"
+    },
+    {
+      "path": "research/2026-10-23-harness-round2/project-gaps.md",
+      "bytes": 23161,
+      "sha256": "b14d0760882034e46160f9edfc3a83844ca2c0774f0a86741debf6cbe7306aa5"
+    },
+    {
+      "path": "research/2026-10-23-harness-round2/source-audit.json",
+      "bytes": 9575,
+      "sha256": "1dee0e7cef629d10dc0e061a406f4796405b519621c9b4b1b3f88b8497420efe"
+    },
+    {
+      "path": "research/2026-10-23-harness-round2/meta-mechanisms.md",
+      "bytes": 24770,
+      "sha256": "a7cfb1050964d936d2f8ffde066687e09d5a05a8ccedb432dddd4365aa748f0b"
+    },
+    {
+      "path": "research/2026-10-23-harness-round2/meta-mechanisms-sources.json",
+      "bytes": 18239,
+      "sha256": "0e960b604b23bb55479ef1ef7b3f3f9aa8590a5c90b10ae24f9838746137eaab"
+    },
+    {
+      "path": "research/2026-10-23-harness-round2/meta-failures.md",
+      "bytes": 29174,
+      "sha256": "483f4d6afde407cdba8e4b2321440fc2d6f7dcec1682d0a638a05cc3bbb0e4bf"
+    },
+    {
+      "path": "research/2026-10-23-harness-round2/meta-failures-sources.json",
+      "bytes": 25753,
+      "sha256": "1ce398c087474d6c4ac6b482fc323734dfb2a0be8e54f8ab3bd7c78c6ec37e71"
+    },
+    {
+      "path": "research/2026-10-23-harness-round2/rllm-mechanisms.md",
+      "bytes": 33841,
+      "sha256": "e7a71736925e989a63bd2f51a0b1d0e5074f883028c56e792dd090d14d3ea670"
+    },
+    {
+      "path": "research/2026-10-23-harness-round2/rllm-mechanisms-sources.json",
+      "bytes": 47414,
+      "sha256": "95cfe3829197864407a5b02a6d9f35bcca175825c1a7574497a5d2adf0fb1f42"
+    },
+    {
+      "path": "research/2026-10-23-harness-round2/rllm-failures.md",
+      "bytes": 32909,
+      "sha256": "9e7a7da3947b28c24cf1d709c14dfde9cbb7e1ae5a17f5ee05d3af4e0e2ca9a9"
+    },
+    {
+      "path": "research/2026-10-23-harness-round2/rllm-failures-sources.json",
+      "bytes": 44136,
+      "sha256": "4bdd5b3f4ced65acc7b91d153d769b4e963546c66c6163e71b0b2918cdec9d4d"
+    },
+    {
+      "path": "research/2026-10-23-harness-round2/skyrl-mechanisms.md",
+      "bytes": 34122,
+      "sha256": "1c3b1974d74fa0e784d9d348d7f1e58ddb7cc435ce2aba937aed614069f8add8"
+    },
+    {
+      "path": "research/2026-10-23-harness-round2/skyrl-mechanisms-sources.json",
+      "bytes": 107799,
+      "sha256": "de6d027df56542f44ec0b937d95edf3b2ccb3d54f7f634b6dae2055c1f1cd6b8"
+    },
+    {
+      "path": "research/2026-10-23-harness-round2/skyrl-failures.md",
+      "bytes": 23000,
+      "sha256": "992f695023dabfbdcc548bb8d65e4adbf3975910bdb60080c5c1977e9209f6ee"
+    },
+    {
+      "path": "research/2026-10-23-harness-round2/skyrl-failures-sources.json",
+      "bytes": 120847,
+      "sha256": "8c3ec075bdda8240da7d6ee0cdbf4ffd1f2cb5aa9061f74279fa4dda0c57138e"
+    }
+  ],
+  "tracked_diff_empty": true,
+  "reference_checkout_clean": true,
+  "upstream_tests_executed": 0,
+  "model_generations_executed": 0,
+  "optimizer_updates_executed": 0,
+  "checkpoint_restores_executed": 0,
+  "historical_project_suite": "1861 passed, 1 optional Torch skip belongs to prior implementation; not rerun for research-only files",
+  "runtime_verified": false,
+  "training_verified": false,
+  "launch_authorized": false
+}

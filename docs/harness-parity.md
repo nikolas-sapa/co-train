@@ -499,11 +499,22 @@ SELECTs/CTEs and row-returning PRAGMAs remain admissible. This changes the score
 implementation, not set/multiset comparison or experiment thresholds; freeze
 its version in future provenance.
 
-A watched sweep invocation now owns its own wrapper directory inside the
-watchdog thread. A timed-out invocation cannot later replace a new task's
-wrapper, and cleanup occurs when the underlying invocation actually ends,
-including on error. Ordinary execution failures are `sweep_error`, not
-`sweep_timeout`. Cancellation and resource containment remain unresolved.
+The invocation-private wrapper directories initially prevented cross-task
+replacement but left timed-out daemon computation running. The 2026-10-23
+follow-up removes that daemon boundary. Every differential now runs in a fresh
+isolated interpreter with JSON request/result files, under the existing POSIX
+process-group watchdog. The parent removes its private directory only after
+successful owned cleanup. Unexpected watchdog/cleanup failures abort the sweep,
+preserve diagnostic directories and prevent a success-summary write; queued
+futures cancel, while already-running jobs retain their own bounds.
+
+Real worker/descendant fixtures cover timeout, normal leader exit and SIGINT.
+Disabling termination leaves live work and a late marker, which the liveness
+guard rejects. Finite SQLite fixtures preserve set/multiset, row-cap, render,
+task-ID and summary behavior. Ordinary child/protocol failures are `sweep_error`;
+only the supervisor deadline is `sweep_timeout`. Arm deadlines remain 30s and
+the outer allowance remains 45s. Escaped new sessions, Windows and output-volume
+limits are outside this watchdog's guarantee.
 
 These are SQL-action protections, not an OS sandbox, a restriction on wider
 bash commands, a ban on ordinary SQLite temporary IO, or a guarantee about

@@ -6,7 +6,73 @@ to overwrite.
 
 ---
 
-## Current state, 2026-10-23, guarded native trainer construction
+## Current state, 2026-10-23, offline harness reliability
+
+The two immediate offline fixes from the
+[round-2 research](research/2026-10-23-harness-round2.md) are implemented.
+Each SQL differential now runs in a fresh isolated Python process, with JSON
+request/result files and owned process-group cleanup. A timeout stops owned
+work instead of abandoning a daemon. Arm deadlines remain 30s and the outer
+allowance remains 45s. Unexpected cleanup failures abort, retain diagnostic
+directories and prevent a success-summary write. Already-running pool jobs
+keep their own bounds; queued jobs cancel.
+
+Default pytest excludes exactly the two marked real-tokenizer contamination
+controls. Explicit integration requires `--tokenizer-artifact` and the eight
+frozen SHA256 values in `bench/tokenizer_artifact.json`. Admission precedes
+the dependency import; loading is local-only with remote code disabled.
+Missing artifacts/dependencies fail rather than skip. Fresh mutation copies
+now carry `pytest.ini`, so their bench baseline preserves the same exclusion.
+Both original scientific assertion bodies and inputs remain unchanged.
+The manifest records a diagnostic baseline, not upstream authenticity or
+native model/template approval. Symlinks are accepted after hashing; TOCTOU
+and cache immutability are not guaranteed.
+
+Parent reproduced behavioral RED on both paths before implementation.
+Narrow checks passed 51 sweep tests, 40 tokenizer-admission tests and both
+real tokenizer controls with zero integration skips. The overlapping sweep
+and watchdog scope passed 130 tests under OS network denial. Actual SIGINT
+propagates after owned work stops; normal leader exit also cleans descendants.
+Disabling termination produces live work and a late marker, which the
+independent liveness guard rejects. Independent in-memory digest/local-only
+source mutations cause two/one failures. Python/security reviews found no
+actionable issues, including the fresh-copy follow-up.
+
+The full default suite passed **1947 tests, one optional torch skip and two
+tokenizer-control deselections**, in **204.38s**, with fresh isolated HF,
+Transformers, Datasets, modules and XDG caches. Python cache/network auditing
+recorded zero cache accesses and external attempts in the pytest process;
+main-thread tokenizer profiling recorded zero loads. Five allowed loopback
+audit events came from local fixtures. Child sensitivity controls intentionally
+attempt denied connections; these counters are not child/native telemetry.
+OS external-network denial was inherited and separately verified in a child.
+
+The first strict no-IP run timed out after 900s because existing tests serve
+local MCP fixtures. It is retained as a failed validation attempt. The final
+policy denies external IPv4/IPv6 networking but permits loopback and Unix IPC;
+it is not local-proxy isolation. Parent/child external-denial probes and a real
+loopback TCP positive passed. The MCP/fresh-marker scope passed 43 tests.
+The macOS sandbox also blocks setuid `ps`; a validation-only native libproc
+observer preserves real liveness checks without changing fixture deadlines.
+API errors count as executing, not dead; its injected-denial control rejects.
+See `spec/offline-harness-reliability.md` and
+`research/2026-10-23-offline-harness-reliability.json` for source hashes,
+embedded validation-harness sources, logs and limits. The preceding research
+artifacts and their recorded hashes remain unchanged.
+
+The commit scanner initially flagged eight public checksums as API keys.
+Owner-approved `.gitleaks.toml` exceptions match only those exact values in
+the generic rule; defaults stay enabled. Unrelated, uppercase and embedded
+hash-shaped keys and a synthetic provider token still trigger detection.
+An overbroad-exception mutation fails the negative-control check.
+
+No native runtime, model generation, optimizer update or checkpoint restoration
+was verified. Frozen/native dependency conflicts, exact-template rejection,
+frontier evidence and invalid-gold policy remain blockers. Main remains
+fail-closed. No scientific contract or evaluation membership changed.
+No dependency/model download, GPU/paid/training job, push or deployment occurred.
+
+## Earlier checkpoint, 2026-10-23, guarded native trainer construction
 
 `train.native_runtime` now reports selected distribution constraints without
 importing frameworks, running installers or granting approval. Enforcement

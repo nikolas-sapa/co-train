@@ -44,6 +44,7 @@ def fresh(pkg: str) -> pathlib.Path:
         shutil.copytree(REPO / name, d / name,
                         ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copy(REPO / "process_watchdog.py", d / "process_watchdog.py")
+    shutil.copy(REPO / "pytest.ini", d / "pytest.ini")
     return d
 
 

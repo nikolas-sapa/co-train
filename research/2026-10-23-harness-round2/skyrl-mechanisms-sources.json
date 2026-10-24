@@ -1,0 +1,1892 @@
+{
+  "schema_version": 1,
+  "research_date": "2026-10-23",
+  "repository": "https://github.com/NovaSky-AI/SkyRL",
+  "pin": "3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d",
+  "official_head": {
+    "url": "https://api.github.com/repos/NovaSky-AI/SkyRL/commits/main",
+    "observed_sha": "3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d",
+    "commit_timestamp": "2026-10-23T03:58:07Z",
+    "subject": "[SkyCap] Support OpenAI Responses API (#2510)",
+    "scope": "HEAD observed during source research, not a permanent live claim"
+  },
+  "source_tree": {
+    "url": "https://api.github.com/repos/NovaSky-AI/SkyRL/git/trees/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d?recursive=1",
+    "truncated": false,
+    "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/tree.json"
+  },
+  "paper": {
+    "id": "2511.16108",
+    "version": "v1",
+    "title": "SkyRL-Agent: Efficient RL Training for Multi-turn LLM Agent",
+    "submitted": "2025-11-20T07:05:19Z",
+    "abstract_url": "https://arxiv.org/abs/2511.16108v1",
+    "retrieved_abstract_url": "https://arxiv.org/abs/2511.16108",
+    "html_url": "https://arxiv.org/html/2511.16108v1",
+    "abstract_cache": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/paper-abstract.md",
+    "html_cache": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/paper-full.md",
+    "paper_code_reproduction_commit": "not_established",
+    "claims_status": "author_reported_not_reproduced"
+  },
+  "local_project": {
+    "path": "/Users/nikolassapalidis/Developer/co-train",
+    "revision": "ea6d2f6",
+    "revision_basis": "parent_supplied_no_git_run",
+    "spec_fresh_read": "/Users/nikolassapalidis/Developer/co-train/spec/native-training.md",
+    "constraints": [
+      "model_G_scorer_evaluation_GRPO_frozen",
+      "construction_only_no_train_save_resume",
+      "native_runtime_unavailable",
+      "no_backend_change"
+    ]
+  },
+  "evidence_limits": {
+    "source_chain_reaches_optimizer": true,
+    "source_chain_is_execution_proof": false,
+    "upstream_tests_executed": false,
+    "local_tests_executed": false,
+    "model_sampling_executed": false,
+    "gradient_or_optimizer_executed": false,
+    "checkpoint_restore_executed": false,
+    "CI_run_records_audited": false,
+    "license": "Apache-2.0 root repository; dependency/model/data terms separate",
+    "cache_note": "FetchUrl markdown of raw source stored verbatim except newline handling; upstream blob IDs come from GitHub tree, not locally recomputed git hashes."
+  },
+  "sources": [
+    {
+      "path": "LICENSE",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/LICENSE",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/LICENSE",
+      "upstream_blob_sha": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/LICENSE",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "examples/train_integrations/harbor_skycap/README.md",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/examples/train_integrations/harbor_skycap/README.md",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/examples/train_integrations/harbor_skycap/README.md",
+      "upstream_blob_sha": "11ca3912ce8101e3538c52a64feef22c978d2863",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/examples__train_integrations__harbor_skycap__README.md",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "examples/train_integrations/harbor_skycap/compose.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/examples/train_integrations/harbor_skycap/compose.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/examples/train_integrations/harbor_skycap/compose.py",
+      "upstream_blob_sha": "f3fa96f9abad755ea88316e187ab317c89b8dd22",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/examples__train_integrations__harbor_skycap__compose.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "split",
+          "line": 77,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/examples/train_integrations/harbor_skycap/compose.py#L77"
+        },
+        {
+          "symbol": "compose",
+          "line": 110,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/examples/train_integrations/harbor_skycap/compose.py#L110"
+        }
+      ]
+    },
+    {
+      "path": "examples/train_integrations/harbor_skycap/harbor_generator.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/examples/train_integrations/harbor_skycap/harbor_generator.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/examples/train_integrations/harbor_skycap/harbor_generator.py",
+      "upstream_blob_sha": "6158d1d06077281b5561770d1df19960a61563b9",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/examples__train_integrations__harbor_skycap__harbor_generator.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "_trial",
+          "line": 176,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/examples/train_integrations/harbor_skycap/harbor_generator.py#L176"
+        },
+        {
+          "symbol": "_attempt",
+          "line": 217,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/examples/train_integrations/harbor_skycap/harbor_generator.py#L217"
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/pyproject.toml",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/pyproject.toml",
+      "upstream_blob_sha": "8d9ed4897838ec609ba35faacd0464918085fa40",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/pyproject.toml",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skycap/README.md",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/README.md",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/README.md",
+      "upstream_blob_sha": "eacd3058dbbc6ff5f18800dd75cd0bc69450906c",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skycap__README.md",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skycap/src/skycap/dialects/openai_responses.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/dialects/openai_responses.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/dialects/openai_responses.py",
+      "upstream_blob_sha": "4e7d302cecb90123ce6e630d758736dc264069b4",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skycap__src__skycap__dialects__openai_responses.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skycap/src/skycap/paths.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/paths.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/paths.py",
+      "upstream_blob_sha": "996e754e0dd0cdd720b4ca083df0896e4c7ccc7e",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skycap__src__skycap__paths.py",
+      "fetch_status": 200,
+      "inspection": "cached_only_not_substantively_inspected",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skycap/src/skycap/samples.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/samples.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/samples.py",
+      "upstream_blob_sha": "b43dd4b34d7fbcb9b357b13b32910e3629be8c2e",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skycap__src__skycap__samples.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "build_samples",
+          "line": 77,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/samples.py#L77"
+        },
+        {
+          "symbol": "samples_for",
+          "line": 82,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/samples.py#L82"
+        },
+        {
+          "symbol": "_fill_tokens",
+          "line": 96,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/samples.py#L96"
+        }
+      ]
+    },
+    {
+      "path": "skycap/src/skycap/tokens/backend.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/tokens/backend.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/tokens/backend.py",
+      "upstream_blob_sha": "831fc288ed1a80479cd61db89e9ba5eca01e07c2",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skycap__src__skycap__tokens__backend.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skycap/src/skycap/tokens/turn.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/tokens/turn.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/tokens/turn.py",
+      "upstream_blob_sha": "c0bb101d2962703ec6880e6ae1ff385a2aa8353e",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skycap__src__skycap__tokens__turn.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "plan",
+          "line": 75,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/tokens/turn.py#L75"
+        },
+        {
+          "symbol": "_bridge",
+          "line": 196,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/tokens/turn.py#L196"
+        },
+        {
+          "symbol": "commit",
+          "line": 264,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/tokens/turn.py#L264"
+        }
+      ]
+    },
+    {
+      "path": "skycap/src/skycap/trajectory.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/trajectory.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/src/skycap/trajectory.py",
+      "upstream_blob_sha": "b1e616adcdf26f844f8472c90b49e3cccf9fdd67",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skycap__src__skycap__trajectory.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skycap/tests/test_responses_tokens.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_responses_tokens.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_responses_tokens.py",
+      "upstream_blob_sha": "3cae2a90b84753fbdb65a07d8ab6d4aa40a4b78b",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skycap__tests__test_responses_tokens.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "test_a_tool_loop_over_responses_bridges_every_call_after_the_first",
+          "line": 77,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_responses_tokens.py#L77"
+        },
+        {
+          "symbol": "test_reasoning_and_a_call_with_empty_content_are_matched_on_replay",
+          "line": 89,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_responses_tokens.py#L89"
+        },
+        {
+          "symbol": "test_the_same_conversation_over_chat_and_responses_sends_the_same_prompts",
+          "line": 111,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_responses_tokens.py#L111"
+        },
+        {
+          "symbol": "test_the_sdks_stream_helper_rebuilds_the_same_response_as_the_json_reply",
+          "line": 134,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_responses_tokens.py#L134"
+        },
+        {
+          "symbol": "test_a_cut_off_is_reported_incomplete_and_recorded_as_length",
+          "line": 149,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_responses_tokens.py#L149"
+        },
+        {
+          "symbol": "test_an_overflow_is_a_failed_response_when_streamed_and_a_400_otherwise",
+          "line": 163,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_responses_tokens.py#L163"
+        },
+        {
+          "symbol": "test_what_token_mode_cant_serve_is_refused_before_sampling",
+          "line": 186,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_responses_tokens.py#L186"
+        },
+        {
+          "symbol": "test_fields_chat_ignores_are_ignored_and_echoed",
+          "line": 205,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_responses_tokens.py#L205"
+        },
+        {
+          "symbol": "test_a_raw_content_server_refuses_responses_and_still_serves_chat",
+          "line": 217,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_responses_tokens.py#L217"
+        },
+        {
+          "symbol": "test_the_responses_route_takes_the_trajectorys_own_key",
+          "line": 228,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_responses_tokens.py#L228"
+        },
+        {
+          "symbol": "test_a_marked_retry_gets_the_original_reply_without_sampling_again",
+          "line": 241,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_responses_tokens.py#L241"
+        },
+        {
+          "symbol": "test_each_call_records_the_dialect_it_came_in_on",
+          "line": 252,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_responses_tokens.py#L252"
+        },
+        {
+          "symbol": "test_developer_messages_fold_into_one_system_message_for_a_template_without_the_role",
+          "line": 266,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_responses_tokens.py#L266"
+        },
+        {
+          "symbol": "test_a_chat_request_with_developer_messages_folds_the_same_way",
+          "line": 284,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_responses_tokens.py#L284"
+        },
+        {
+          "symbol": "test_a_template_that_knows_the_developer_role_gets_it",
+          "line": 300,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_responses_tokens.py#L300"
+        }
+      ]
+    },
+    {
+      "path": "skycap/tests/test_tokens.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py",
+      "upstream_blob_sha": "7c1bf14495384e0d143da3616ea0057ebe9e69b8",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skycap__tests__test_tokens.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "test_match_keys_keep_the_hash_values_recorded_before_them",
+          "line": 96,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L96"
+        },
+        {
+          "symbol": "test_token_match_ignores_provider_specific_fields",
+          "line": 111,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L111"
+        },
+        {
+          "symbol": "test_token_match_leaves_empty_tool_content_to_the_renderer",
+          "line": 119,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L119"
+        },
+        {
+          "symbol": "test_token_match_ignores_unrendered_fields_inside_tool_calls",
+          "line": 144,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L144"
+        },
+        {
+          "symbol": "test_scaffold_belongs_to_the_following_message_and_the_tail_to_the_reply",
+          "line": 167,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L167"
+        },
+        {
+          "symbol": "test_attribution_out_of_range_or_order_is_refused",
+          "line": 173,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L173"
+        },
+        {
+          "symbol": "test_a_continued_conversation_extends_the_previous_tokens",
+          "line": 181,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L181"
+        },
+        {
+          "symbol": "test_the_parser_gets_the_prompt_the_completion_was_sampled_from",
+          "line": 205,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L205"
+        },
+        {
+          "symbol": "test_the_sample_is_exactly_what_inference_saw",
+          "line": 214,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L214"
+        },
+        {
+          "symbol": "test_routed_experts_align_and_the_placeholder_is_replaced",
+          "line": 235,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L235"
+        },
+        {
+          "symbol": "test_a_wire_without_routes_from_gets_every_calls_full_routes",
+          "line": 254,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L254"
+        },
+        {
+          "symbol": "test_a_turn_fetches_only_the_routes_it_lacks_and_they_still_align",
+          "line": 264,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L264"
+        },
+        {
+          "symbol": "test_the_sampling_mask_covers_each_trained_token",
+          "line": 278,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L278"
+        },
+        {
+          "symbol": "test_an_identical_retry_is_one_node_with_two_calls",
+          "line": 291,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L291"
+        },
+        {
+          "symbol": "test_an_append_only_conversation_bridges_every_call_after_the_first",
+          "line": 303,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L303"
+        },
+        {
+          "symbol": "test_client_metadata_does_not_prevent_bridging",
+          "line": 313,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L313"
+        },
+        {
+          "symbol": "test_empty_tool_call_content_replay_bridges_but_rewrite_forks",
+          "line": 331,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L331"
+        },
+        {
+          "symbol": "test_a_replayed_message_the_template_renders_differently_forks",
+          "line": 389,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L389"
+        },
+        {
+          "symbol": "test_a_respelled_message_is_rendered_once_then_matched_by_alias",
+          "line": 404,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L404"
+        },
+        {
+          "symbol": "test_a_respelled_message_after_the_last_model_node_commits_as_that_node",
+          "line": 419,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L419"
+        },
+        {
+          "symbol": "test_siblings_with_one_spelling_are_render_checked_once",
+          "line": 436,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L436"
+        },
+        {
+          "symbol": "test_a_rewrite_is_not_rendered_twice",
+          "line": 460,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L460"
+        },
+        {
+          "symbol": "test_stripped_reasoning_forks_and_trains_each_sample_once",
+          "line": 474,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L474"
+        },
+        {
+          "symbol": "test_token_history_continues_from_the_shadowed_sibling_whose_tokens_the_render_reproduces",
+          "line": 501,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L501"
+        },
+        {
+          "symbol": "test_token_history_never_continues_from_a_shadowed_model_sample",
+          "line": 523,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L523"
+        },
+        {
+          "symbol": "test_use_raw_content_keeps_reasoning_inline_so_a_verbatim_replay_stays_one_path",
+          "line": 554,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L554"
+        },
+        {
+          "symbol": "test_a_tool_call_is_parsed_and_the_tool_result_bridges",
+          "line": 579,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L579"
+        },
+        {
+          "symbol": "test_a_streamed_answer_is_synthesized_from_the_completion",
+          "line": 602,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L602"
+        },
+        {
+          "symbol": "test_overrides_and_stop_tokens_reach_the_engine_and_the_node",
+          "line": 615,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L615"
+        },
+        {
+          "symbol": "test_a_prompt_that_leaves_no_room_is_refused",
+          "line": 629,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L629"
+        },
+        {
+          "symbol": "test_an_engine_error_is_a_failure_and_no_node",
+          "line": 639,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L639"
+        },
+        {
+          "symbol": "test_an_unattributable_prompt_is_refused_before_inference",
+          "line": 651,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L651"
+        },
+        {
+          "symbol": "test_a_turn_that_cannot_commit_exactly_fails_the_trajectory_but_answers",
+          "line": 662,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L662"
+        },
+        {
+          "symbol": "test_finish_releases_the_engine_session_when_the_engine_has_one",
+          "line": 687,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L687"
+        },
+        {
+          "symbol": "test_a_token_trajectory_round_trips_through_the_record",
+          "line": 699,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L699"
+        },
+        {
+          "symbol": "test_the_record_carries_each_nodes_text_and_token_spans",
+          "line": 712,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L712"
+        },
+        {
+          "symbol": "test_the_vllm_engine_has_no_session_to_release",
+          "line": 733,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L733"
+        },
+        {
+          "symbol": "test_an_override_wins_over_a_callers_max_completion_tokens",
+          "line": 742,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L742"
+        },
+        {
+          "symbol": "test_models_is_the_engines_list_without_a_configured_model",
+          "line": 752,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L752"
+        },
+        {
+          "symbol": "test_a_failed_trajectory_flushed_at_shutdown_still_takes_its_finish",
+          "line": 760,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L760"
+        },
+        {
+          "symbol": "test_shutdown_releases_sessions_of_trajectories_that_never_ended",
+          "line": 777,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L777"
+        },
+        {
+          "symbol": "test_ending_a_trajectory_drops_its_turn_lock",
+          "line": 785,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L785"
+        },
+        {
+          "symbol": "test_a_node_with_no_tokens_keeps_the_paths_routed_experts",
+          "line": 795,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L795"
+        },
+        {
+          "symbol": "test_one_full_render_costs_one_unbridged_call_not_the_rest_of_the_trajectory",
+          "line": 804,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skycap/tests/test_tokens.py#L804"
+        }
+      ]
+    },
+    {
+      "path": "skyrl-agent/skyrl_agent/agents/base.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/agents/base.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/agents/base.py",
+      "upstream_blob_sha": "ec6456cb57df119ca65bb848b5287701f437ae81",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl-agent__skyrl_agent__agents__base.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "_post_process_results",
+          "line": 235,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/agents/base.py#L235"
+        },
+        {
+          "symbol": "run",
+          "line": 629,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/agents/base.py#L629"
+        }
+      ]
+    },
+    {
+      "path": "skyrl-agent/skyrl_agent/agents/react/react_agent.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/agents/react/react_agent.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/agents/react/react_agent.py",
+      "upstream_blob_sha": "61cd2f5a8549b348e095562ec7ec612cbda20e71",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl-agent__skyrl_agent__agents__react__react_agent.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "_prepare_llm_input",
+          "line": 114,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/agents/react/react_agent.py#L114"
+        },
+        {
+          "symbol": "step",
+          "line": 311,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/agents/react/react_agent.py#L311"
+        }
+      ]
+    },
+    {
+      "path": "skyrl-agent/skyrl_agent/agents/react/react_runner.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/agents/react/react_runner.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/agents/react/react_runner.py",
+      "upstream_blob_sha": "d1f8d7489dab6d72f3e1ae169a4341163e721d8a",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl-agent__skyrl_agent__agents__react__react_runner.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skyrl-agent/skyrl_agent/auto.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/auto.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/auto.py",
+      "upstream_blob_sha": "694374d917c587d381eae5d361ab538543cc0e0a",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl-agent__skyrl_agent__auto.py",
+      "fetch_status": 200,
+      "inspection": "cached_only_not_substantively_inspected",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skyrl-agent/skyrl_agent/dispatcher/dispatchers.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/dispatcher/dispatchers.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/dispatcher/dispatchers.py",
+      "upstream_blob_sha": "580334f924eb2b4d938ff4c832084b1536605caa",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl-agent__skyrl_agent__dispatcher__dispatchers.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skyrl-agent/skyrl_agent/functional/utils.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/functional/utils.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/functional/utils.py",
+      "upstream_blob_sha": "a5436bb65d8139ace87051bbe857948a45b1ddb7",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl-agent__skyrl_agent__functional__utils.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "_is_prefix",
+          "line": 129,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/functional/utils.py#L129"
+        },
+        {
+          "symbol": "transitions_to_training_data",
+          "line": 136,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/functional/utils.py#L136"
+        }
+      ]
+    },
+    {
+      "path": "skyrl-agent/skyrl_agent/integrations/base.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/integrations/base.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/integrations/base.py",
+      "upstream_blob_sha": "cf0023108b63effa1855079edccf03544d48263d",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl-agent__skyrl_agent__integrations__base.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skyrl-agent/skyrl_agent/integrations/skyrl_train/skyrl_train_backend.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/integrations/skyrl_train/skyrl_train_backend.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/integrations/skyrl_train/skyrl_train_backend.py",
+      "upstream_blob_sha": "f40ca1c6e5da8a8fccc6672192ea24de556d0db7",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl-agent__skyrl_agent__integrations__skyrl_train__skyrl_train_backend.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skyrl-agent/skyrl_agent/integrations/skyrl_train/trainer.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/integrations/skyrl_train/trainer.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-agent/skyrl_agent/integrations/skyrl_train/trainer.py",
+      "upstream_blob_sha": "bce5c699341479e007cd39de65970116addf30c5",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl-agent__skyrl_agent__integrations__skyrl_train__trainer.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skyrl-gym/skyrl_gym/envs/sql/env.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-gym/skyrl_gym/envs/sql/env.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-gym/skyrl_gym/envs/sql/env.py",
+      "upstream_blob_sha": "8f5c6a0a729508deedcd698a3903eb1f6a72055a",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl-gym__skyrl_gym__envs__sql__env.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skyrl-gym/skyrl_gym/envs/sql/utils.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-gym/skyrl_gym/envs/sql/utils.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl-gym/skyrl_gym/envs/sql/utils.py",
+      "upstream_blob_sha": "7113189a3b8bfdc4fe1826ce609232d11d769910",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl-gym__skyrl_gym__envs__sql__utils.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skyrl/backends/skyrl_train/distributed/fsdp_strategy.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/distributed/fsdp_strategy.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/distributed/fsdp_strategy.py",
+      "upstream_blob_sha": "4220aaafcb5bec02218707764f1a3788a11a1c68",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl__backends__skyrl_train__distributed__fsdp_strategy.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "backward",
+          "line": 148,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/distributed/fsdp_strategy.py#L148"
+        },
+        {
+          "symbol": "optimizer_step",
+          "line": 152,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/distributed/fsdp_strategy.py#L152"
+        },
+        {
+          "symbol": "save_checkpoint",
+          "line": 361,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/distributed/fsdp_strategy.py#L361"
+        },
+        {
+          "symbol": "load_checkpoint",
+          "line": 455,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/distributed/fsdp_strategy.py#L455"
+        }
+      ]
+    },
+    {
+      "path": "skyrl/backends/skyrl_train/inference_servers/utils.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/inference_servers/utils.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/inference_servers/utils.py",
+      "upstream_blob_sha": "2de2429341adff05d8d7114b9bc08bb058b97af8",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl__backends__skyrl_train__inference_servers__utils.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skyrl/backends/skyrl_train/inference_servers/vllm_server_actor.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/inference_servers/vllm_server_actor.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/inference_servers/vllm_server_actor.py",
+      "upstream_blob_sha": "6196e5b7aec7b36e9dde4cdb75a7acc6e268b2f0",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl__backends__skyrl_train__inference_servers__vllm_server_actor.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skyrl/backends/skyrl_train/utils/off_policy_correction_utils.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/utils/off_policy_correction_utils.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/utils/off_policy_correction_utils.py",
+      "upstream_blob_sha": "42ea45b5596eb3561d218fedcb1d3ac9e4da28dd",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl__backends__skyrl_train__utils__off_policy_correction_utils.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skyrl/backends/skyrl_train/utils/ppo_utils.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/utils/ppo_utils.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/utils/ppo_utils.py",
+      "upstream_blob_sha": "98f8cfbc8a57bcd2bc33bfe2871fc0962920a430",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl__backends__skyrl_train__utils__ppo_utils.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "ppo_policy_loss",
+          "line": 557,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/utils/ppo_utils.py#L557"
+        },
+        {
+          "symbol": "apply_loss_reduction_to_advantages_minibatch",
+          "line": 1152,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/utils/ppo_utils.py#L1152"
+        },
+        {
+          "symbol": "compute_rloo_outcome_advantage",
+          "line": 1260,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/utils/ppo_utils.py#L1260"
+        },
+        {
+          "symbol": "compute_grpo_outcome_advantage",
+          "line": 1344,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/utils/ppo_utils.py#L1344"
+        }
+      ]
+    },
+    {
+      "path": "skyrl/backends/skyrl_train/utils/sample_support_replay.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/utils/sample_support_replay.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/utils/sample_support_replay.py",
+      "upstream_blob_sha": "dd9c713ac7c166459b4962d21a3e5bdf74ba993c",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl__backends__skyrl_train__utils__sample_support_replay.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skyrl/backends/skyrl_train/workers/fsdp/fsdp_worker.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/workers/fsdp/fsdp_worker.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/workers/fsdp/fsdp_worker.py",
+      "upstream_blob_sha": "4233c376402ab8962abd41cbb851d7807bc8a6db",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl__backends__skyrl_train__workers__fsdp__fsdp_worker.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skyrl/backends/skyrl_train/workers/model_wrapper.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/workers/model_wrapper.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/workers/model_wrapper.py",
+      "upstream_blob_sha": "dbab988a00cf13a186bd7dbb269935e956827a2e",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl__backends__skyrl_train__workers__model_wrapper.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skyrl/backends/skyrl_train/workers/worker.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/workers/worker.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/workers/worker.py",
+      "upstream_blob_sha": "e2201348eebe7af542702353d1fd21648f351340",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl__backends__skyrl_train__workers__worker.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "_should_reset_prefix_cache",
+          "line": 601,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/workers/worker.py#L601"
+        },
+        {
+          "symbol": "_sync_weights_to_inference_engines",
+          "line": 623,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/workers/worker.py#L623"
+        },
+        {
+          "symbol": "_forward_backward_micro",
+          "line": 1069,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/workers/worker.py#L1069"
+        },
+        {
+          "symbol": "optim_step",
+          "line": 1291,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/workers/worker.py#L1291"
+        },
+        {
+          "symbol": "_forward_backward_micro",
+          "line": 1623,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/workers/worker.py#L1623"
+        },
+        {
+          "symbol": "optim_step",
+          "line": 1681,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/workers/worker.py#L1681"
+        }
+      ]
+    },
+    {
+      "path": "skyrl/backends/skyrl_train/workers/worker_dispatch.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/workers/worker_dispatch.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/workers/worker_dispatch.py",
+      "upstream_blob_sha": "0813d4afbaa46477fc9aaf2d11c6849987cdef69",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl__backends__skyrl_train__workers__worker_dispatch.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "save_weights_for_sampler",
+          "line": 783,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/backends/skyrl_train/workers/worker_dispatch.py#L783"
+        }
+      ]
+    },
+    {
+      "path": "skyrl/train/dataset/preprocess.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/dataset/preprocess.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/dataset/preprocess.py",
+      "upstream_blob_sha": "c63890bd6a494a350fa2e23c1683a0d3429f469f",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl__train__dataset__preprocess.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skyrl/train/generators/skyrl_gym_generator.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/generators/skyrl_gym_generator.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/generators/skyrl_gym_generator.py",
+      "upstream_blob_sha": "8cf0cb3b711bf33a6dddfe31d7ba18e086cf2ae7",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl__train__generators__skyrl_gym_generator.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "get_turn_loss_mask",
+          "line": 125,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/generators/skyrl_gym_generator.py#L125"
+        },
+        {
+          "symbol": "get_turn_rollout_logprobs",
+          "line": 141,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/generators/skyrl_gym_generator.py#L141"
+        },
+        {
+          "symbol": "agent_loop",
+          "line": 332,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/generators/skyrl_gym_generator.py#L332"
+        },
+        {
+          "symbol": "_build_per_token_rewards",
+          "line": 733,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/generators/skyrl_gym_generator.py#L733"
+        },
+        {
+          "symbol": "get_obs_ids_from_obs",
+          "line": 771,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/generators/skyrl_gym_generator.py#L771"
+        },
+        {
+          "symbol": "_update_agent_loop_state_with_multiturn_chat_template",
+          "line": 1233,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/generators/skyrl_gym_generator.py#L1233"
+        }
+      ]
+    },
+    {
+      "path": "skyrl/train/generators/utils.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/generators/utils.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/generators/utils.py",
+      "upstream_blob_sha": "829374e56d00a9668a960e1f4fd45e72c855f13a",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl__train__generators__utils.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": []
+    },
+    {
+      "path": "skyrl/train/trainer.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/trainer.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/trainer.py",
+      "upstream_blob_sha": "b8a828789417a5244ec5be1886d3ac35c450b233",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/skyrl__train__trainer.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "train",
+          "line": 281,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/trainer.py#L281"
+        },
+        {
+          "symbol": "convert_to_training_input",
+          "line": 905,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/trainer.py#L905"
+        },
+        {
+          "symbol": "compute_advantages_and_returns",
+          "line": 1191,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/trainer.py#L1191"
+        },
+        {
+          "symbol": "_skip_policy_forward",
+          "line": 1346,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/trainer.py#L1346"
+        },
+        {
+          "symbol": "fwd_logprobs_values_reward",
+          "line": 1374,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/trainer.py#L1374"
+        },
+        {
+          "symbol": "_normalize_advantages",
+          "line": 1537,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/trainer.py#L1537"
+        },
+        {
+          "symbol": "_execute_training_step",
+          "line": 1579,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/trainer.py#L1579"
+        },
+        {
+          "symbol": "save_checkpoints",
+          "line": 1725,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/trainer.py#L1725"
+        },
+        {
+          "symbol": "load_checkpoints",
+          "line": 1792,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/skyrl/train/trainer.py#L1792"
+        }
+      ]
+    },
+    {
+      "path": "tests/backends/skyrl_train/gpu/gpu_ci/test_save_load_checkpoint.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/gpu/gpu_ci/test_save_load_checkpoint.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/gpu/gpu_ci/test_save_load_checkpoint.py",
+      "upstream_blob_sha": "588c652bd687d014eb94f6db5e7a3bfe05dd9e68",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/tests__backends__skyrl_train__gpu__gpu_ci__test_save_load_checkpoint.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "test_save_load_checkpoint",
+          "line": 100,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/gpu/gpu_ci/test_save_load_checkpoint.py#L100"
+        },
+        {
+          "symbol": "test_save_load_checkpoint_cloud",
+          "line": 244,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/gpu/gpu_ci/test_save_load_checkpoint.py#L244"
+        }
+      ]
+    },
+    {
+      "path": "tests/backends/skyrl_train/gpu/gpu_ci/test_trainer_full_checkpointing.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/gpu/gpu_ci/test_trainer_full_checkpointing.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/gpu/gpu_ci/test_trainer_full_checkpointing.py",
+      "upstream_blob_sha": "c696d6c33023c1ffe6c11489ebd6758e13b89413",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/tests__backends__skyrl_train__gpu__gpu_ci__test_trainer_full_checkpointing.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "test_trainer_full_checkpointing",
+          "line": 214,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/gpu/gpu_ci/test_trainer_full_checkpointing.py#L214"
+        }
+      ]
+    },
+    {
+      "path": "tests/backends/skyrl_train/utils/test_ppo_utils.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py",
+      "upstream_blob_sha": "93fd8a4cdbbefa9c6629db758a1a8084080a6ffc",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/tests__backends__skyrl_train__utils__test_ppo_utils.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "test_compute_approx_kl",
+          "line": 57,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L57"
+        },
+        {
+          "symbol": "test_compute_approx_kl_applies_loss_mask",
+          "line": 79,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L79"
+        },
+        {
+          "symbol": "test_compute_reinforce_plus_plus_outcome_advantage_returns_and_masking",
+          "line": 101,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L101"
+        },
+        {
+          "symbol": "test_compute_reinforce_plus_plus_outcome_advantage_gamma",
+          "line": 121,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L121"
+        },
+        {
+          "symbol": "test_compute_rloo_outcome_advantage_basic",
+          "line": 139,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L139"
+        },
+        {
+          "symbol": "test_compute_grpo_outcome_advantage",
+          "line": 168,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L168"
+        },
+        {
+          "symbol": "test_compute_grpo_outcome_advantage_norm_std_false",
+          "line": 182,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L182"
+        },
+        {
+          "symbol": "test_compute_maxrl_advantage",
+          "line": 211,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L211"
+        },
+        {
+          "symbol": "test_compute_gae_advantage_return",
+          "line": 240,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L240"
+        },
+        {
+          "symbol": "test_compute_gae_advantage_return_with_masking",
+          "line": 260,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L260"
+        },
+        {
+          "symbol": "test_compute_gae_advantage_return_gamma",
+          "line": 280,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L280"
+        },
+        {
+          "symbol": "test_compute_gae_advantage_return_lam",
+          "line": 295,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L295"
+        },
+        {
+          "symbol": "test_reduce_loss",
+          "line": 310,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L310"
+        },
+        {
+          "symbol": "test_adaptive_kl_controller_update",
+          "line": 324,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L324"
+        },
+        {
+          "symbol": "test_fixed_kl_controller",
+          "line": 334,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L334"
+        },
+        {
+          "symbol": "test_base_function_registry_registration_and_retrieval",
+          "line": 340,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L340"
+        },
+        {
+          "symbol": "test_base_function_registry_error_handling",
+          "line": 360,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L360"
+        },
+        {
+          "symbol": "test_base_registry_unregister",
+          "line": 383,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L383"
+        },
+        {
+          "symbol": "test_advantage_estimator_registry_specific",
+          "line": 398,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L398"
+        },
+        {
+          "symbol": "test_policy_loss_registry_specific",
+          "line": 426,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L426"
+        },
+        {
+          "symbol": "test_registry_cross_ray_process",
+          "line": 458,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L458"
+        },
+        {
+          "symbol": "test_policy_loss",
+          "line": 469,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L469"
+        },
+        {
+          "symbol": "test_policy_loss_2",
+          "line": 472,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L472"
+        },
+        {
+          "symbol": "test_advantage_estimator",
+          "line": 475,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L475"
+        },
+        {
+          "symbol": "test_ray_registry_access",
+          "line": 485,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L485"
+        },
+        {
+          "symbol": "test_registry_named_actor_creation",
+          "line": 525,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L525"
+        },
+        {
+          "symbol": "test_func",
+          "line": 533,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L533"
+        },
+        {
+          "symbol": "test_registry_reset_after_ray_shutdown",
+          "line": 574,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L574"
+        },
+        {
+          "symbol": "test_func",
+          "line": 584,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L584"
+        },
+        {
+          "symbol": "test_token_mean",
+          "line": 617,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L617"
+        },
+        {
+          "symbol": "test_token_mean_all_masked",
+          "line": 631,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L631"
+        },
+        {
+          "symbol": "test_sequence_mean",
+          "line": 645,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L645"
+        },
+        {
+          "symbol": "test_seq_mean_token_sum_norm",
+          "line": 661,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L661"
+        },
+        {
+          "symbol": "test_token_mean_legacy",
+          "line": 677,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L677"
+        },
+        {
+          "symbol": "test_prompt_mean",
+          "line": 695,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L695"
+        },
+        {
+          "symbol": "test_prompt_mean_requires_boundaries",
+          "line": 715,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L715"
+        },
+        {
+          "symbol": "test_invalid_loss_reduction_raises",
+          "line": 728,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/utils/test_ppo_utils.py#L728"
+        }
+      ]
+    },
+    {
+      "path": "tests/backends/skyrl_train/workers/test_policy_worker_loss_scaling.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/workers/test_policy_worker_loss_scaling.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/workers/test_policy_worker_loss_scaling.py",
+      "upstream_blob_sha": "6f3f847c67883432771f6a412005f705eccdc266",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/tests__backends__skyrl_train__workers__test_policy_worker_loss_scaling.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "test_policy_forward_backward_loss_scaling_with_mocked_ranks",
+          "line": 107,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/backends/skyrl_train/workers/test_policy_worker_loss_scaling.py#L107"
+        }
+      ]
+    },
+    {
+      "path": "tests/integrations/harbor_skycap/test_harbor_skycap.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py",
+      "upstream_blob_sha": "f1f7c166e21807ac2c396005f34f36d8feac5fc1",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/tests__integrations__harbor_skycap__test_harbor_skycap.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "test_a_linear_trial_is_one_complete_multi_turn_row",
+          "line": 180,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L180"
+        },
+        {
+          "symbol": "test_the_generator_keeps_one_pool_across_batches",
+          "line": 217,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L217"
+        },
+        {
+          "symbol": "test_a_summarizing_trial_emits_one_row_per_path_grouped_under_its_id",
+          "line": 228,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L228"
+        },
+        {
+          "symbol": "test_a_discarded_reply_is_its_own_path_and_trains_by_default",
+          "line": 254,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L254"
+        },
+        {
+          "symbol": "test_final_trains_one_row_per_trial_without_the_discarded_reply",
+          "line": 264,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L264"
+        },
+        {
+          "symbol": "test_final_keeps_one_row_per_trial_across_a_mixed_batch",
+          "line": 283,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L283"
+        },
+        {
+          "symbol": "test_a_custom_rule_by_import_path_picks_the_rows_and_is_recorded",
+          "line": 296,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L296"
+        },
+        {
+          "symbol": "test_a_failing_path_rule_masks_the_trial_without_running_it_again",
+          "line": 312,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L312"
+        },
+        {
+          "symbol": "test_a_crashing_trial_is_finished_with_the_configured_rule",
+          "line": 324,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L324"
+        },
+        {
+          "symbol": "test_concatenated_outputs_keep_skycap_metrics_apart_from_the_recomputed_ones",
+          "line": 333,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L333"
+        },
+        {
+          "symbol": "test_the_harness_is_pointed_at_skycap_not_the_engine",
+          "line": 353,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L353"
+        },
+        {
+          "symbol": "test_a_timeout_masks_the_whole_instance",
+          "line": 363,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L363"
+        },
+        {
+          "symbol": "test_a_crashing_trial_is_retried_on_a_fresh_trajectory_then_masked",
+          "line": 384,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L384"
+        },
+        {
+          "symbol": "test_a_sandbox_start_timeout_rescued_by_a_retry_still_shows_in_the_metrics",
+          "line": 401,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L401"
+        },
+        {
+          "symbol": "test_a_trial_with_no_captured_tokens_is_retried_then_masked_not_rewarded",
+          "line": 423,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L423"
+        },
+        {
+          "symbol": "test_a_batch_with_nothing_to_train_still_carries_padded_support",
+          "line": 435,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L435"
+        },
+        {
+          "symbol": "test_with_r3_each_row_carries_routes_for_its_whole_prompt_and_response",
+          "line": 455,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L455"
+        },
+        {
+          "symbol": "test_with_r3_a_masked_instance_gets_distinct_dummy_routes",
+          "line": 469,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L469"
+        },
+        {
+          "symbol": "test_with_r3_a_trial_without_routes_is_retried_then_masked",
+          "line": 478,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L478"
+        },
+        {
+          "symbol": "test_the_generator_refuses_configs_it_cannot_serve",
+          "line": 489,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L489"
+        },
+        {
+          "symbol": "test_the_servers_are_started_with_a_custom_rule_and_without_a_built_in_one",
+          "line": 504,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L504"
+        },
+        {
+          "symbol": "test_the_engine_rejects_support_that_does_not_cover_the_completion",
+          "line": 523,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L523"
+        },
+        {
+          "symbol": "test_the_engine_asks_for_support_only_with_a_sampling_mask",
+          "line": 539,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L539"
+        },
+        {
+          "symbol": "test_with_r3_an_overlong_filtered_trial_needs_no_routes",
+          "line": 545,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L545"
+        },
+        {
+          "symbol": "test_overlong_filtering_masks_a_context_length_trial_but_keeps_it",
+          "line": 563,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L563"
+        },
+        {
+          "symbol": "test_the_service_writes_open_trajectories_when_stopped",
+          "line": 575,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L575"
+        },
+        {
+          "symbol": "test_thinking_survives_litellm_so_the_replayed_history_stays_one_path",
+          "line": 588,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/integrations/harbor_skycap/test_harbor_skycap.py#L588"
+        }
+      ]
+    },
+    {
+      "path": "tests/train/algorithms/test_losses.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_losses.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_losses.py",
+      "upstream_blob_sha": "6ccc49472d4c01cc69334a07dff393770f613d86",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/tests__train__algorithms__test_losses.py",
+      "fetch_status": 200,
+      "inspection": "cached_only_not_substantively_inspected",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "test_policy_loss_dual_clip",
+          "line": 33,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_losses.py#L33"
+        },
+        {
+          "symbol": "test_policy_loss_cispo",
+          "line": 85,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_losses.py#L85"
+        },
+        {
+          "symbol": "test_policy_loss_cispo_rollout_anchor",
+          "line": 139,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_losses.py#L139"
+        },
+        {
+          "symbol": "test_policy_loss_cispo_ratio_min_max_ignore_masked_tokens",
+          "line": 196,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_losses.py#L196"
+        },
+        {
+          "symbol": "test_policy_loss_cispo_rollout_anchor_requires_rollout_logprobs",
+          "line": 236,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_losses.py#L236"
+        },
+        {
+          "symbol": "test_policy_loss_cispo_rollout_anchor_rejects_tis",
+          "line": 255,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_losses.py#L255"
+        },
+        {
+          "symbol": "test_cispo_anchor_validation",
+          "line": 274,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_losses.py#L274"
+        },
+        {
+          "symbol": "test_gspo_importance_sampling_levels",
+          "line": 280,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_losses.py#L280"
+        },
+        {
+          "symbol": "test_clip_cov_policy_loss",
+          "line": 429,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_losses.py#L429"
+        },
+        {
+          "symbol": "test_kl_cov_policy_loss",
+          "line": 489,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_losses.py#L489"
+        },
+        {
+          "symbol": "test_sapo_policy_loss_basic",
+          "line": 547,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_losses.py#L547"
+        },
+        {
+          "symbol": "test_dppo_policy_loss",
+          "line": 668,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_losses.py#L668"
+        }
+      ]
+    },
+    {
+      "path": "tests/train/algorithms/test_off_policy_correction.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py",
+      "upstream_blob_sha": "a7a4154f1806caed06b6e3255dbdfcd7b878229e",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/tests__train__algorithms__test_off_policy_correction.py",
+      "fetch_status": 200,
+      "inspection": "cached_only_not_substantively_inspected",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "test_compute_tis_ratio_token_level",
+          "line": 21,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L21"
+        },
+        {
+          "symbol": "test_compute_tis_ratio_sequence_level",
+          "line": 46,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L46"
+        },
+        {
+          "symbol": "test_compute_tis_ratio_sequence_level_with_cap",
+          "line": 72,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L72"
+        },
+        {
+          "symbol": "test_compute_tis_ratio_with_mask",
+          "line": 98,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L98"
+        },
+        {
+          "symbol": "test_compute_sequence_mask_geometric",
+          "line": 124,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L124"
+        },
+        {
+          "symbol": "test_compute_sequence_mask_geometric_rejects",
+          "line": 151,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L151"
+        },
+        {
+          "symbol": "test_compute_sequence_mask_product",
+          "line": 178,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L178"
+        },
+        {
+          "symbol": "test_compute_sequence_mask_product_rejects_by_seq_ratio",
+          "line": 205,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L205"
+        },
+        {
+          "symbol": "test_compute_outlier_token_mask_masks_by_token_bounds",
+          "line": 232,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L232"
+        },
+        {
+          "symbol": "test_compute_outlier_token_mask_accepts_in_bounds",
+          "line": 259,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L259"
+        },
+        {
+          "symbol": "test_compute_outlier_token_mask_respects_loss_mask",
+          "line": 286,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L286"
+        },
+        {
+          "symbol": "test_compute_outlier_token_mask_null_thresholds",
+          "line": 310,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L310"
+        },
+        {
+          "symbol": "test_compute_outlier_token_mask_only_high_threshold",
+          "line": 336,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L336"
+        },
+        {
+          "symbol": "test_compute_outlier_token_mask_only_low_threshold",
+          "line": 361,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L361"
+        },
+        {
+          "symbol": "test_compute_off_policy_correction_null_configs",
+          "line": 386,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L386"
+        },
+        {
+          "symbol": "test_compute_off_policy_correction_tis_only",
+          "line": 408,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L408"
+        },
+        {
+          "symbol": "test_compute_off_policy_correction_sequence_mask_only",
+          "line": 439,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L439"
+        },
+        {
+          "symbol": "test_compute_off_policy_correction_both_enabled",
+          "line": 470,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L470"
+        },
+        {
+          "symbol": "test_compute_off_policy_correction_sequence_mask_zeros_loss",
+          "line": 504,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L504"
+        },
+        {
+          "symbol": "test_ppo_policy_loss_with_off_policy_correction",
+          "line": 533,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L533"
+        },
+        {
+          "symbol": "test_compute_tis_ratio_invalid_type",
+          "line": 599,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L599"
+        },
+        {
+          "symbol": "test_compute_sequence_mask_invalid_type",
+          "line": 613,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L613"
+        },
+        {
+          "symbol": "test_compute_token_mask_all_in_bounds",
+          "line": 632,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L632"
+        },
+        {
+          "symbol": "test_compute_token_mask_masks_high_ratio_tokens",
+          "line": 650,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L650"
+        },
+        {
+          "symbol": "test_compute_token_mask_masks_low_ratio_tokens",
+          "line": 669,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L669"
+        },
+        {
+          "symbol": "test_compute_token_mask_ignores_already_masked_tokens",
+          "line": 688,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L688"
+        },
+        {
+          "symbol": "test_compute_token_mask_multi_sequence_batch",
+          "line": 710,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L710"
+        },
+        {
+          "symbol": "test_compute_token_mask_boundary_values",
+          "line": 731,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L731"
+        },
+        {
+          "symbol": "test_compute_off_policy_correction_with_token_mask",
+          "line": 751,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_off_policy_correction.py#L751"
+        }
+      ]
+    },
+    {
+      "path": "tests/train/algorithms/test_skip_fwd_logprobs.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_skip_fwd_logprobs.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_skip_fwd_logprobs.py",
+      "upstream_blob_sha": "fa9ee2bb49a8fdecaf1a6043c71b5b7d64af3968",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/tests__train__algorithms__test_skip_fwd_logprobs.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "test_losses_without_old_logprobs",
+          "line": 34,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_skip_fwd_logprobs.py#L34"
+        },
+        {
+          "symbol": "test_skip_path_losses_run_with_old_log_probs_none",
+          "line": 46,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_skip_fwd_logprobs.py#L46"
+        },
+        {
+          "symbol": "test_cispo_rollout_anchor_runs_with_old_log_probs_none",
+          "line": 69,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_skip_fwd_logprobs.py#L69"
+        },
+        {
+          "symbol": "test_off_policy_correction_enabled",
+          "line": 98,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_skip_fwd_logprobs.py#L98"
+        },
+        {
+          "symbol": "test_minibatch_metric_values_match_manual",
+          "line": 112,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_skip_fwd_logprobs.py#L112"
+        },
+        {
+          "symbol": "test_minibatch_metric_emitted_unconditionally_when_rollout_present",
+          "line": 129,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_skip_fwd_logprobs.py#L129"
+        },
+        {
+          "symbol": "test_finalize_std_noop_without_moments",
+          "line": 148,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_skip_fwd_logprobs.py#L148"
+        },
+        {
+          "symbol": "test_std_aggregates_correctly_across_microbatches_and_minibatches",
+          "line": 155,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/algorithms/test_skip_fwd_logprobs.py#L155"
+        }
+      ]
+    },
+    {
+      "path": "tests/train/generators/test_skyrl_gym_generator.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py",
+      "upstream_blob_sha": "87e25e73982fca6210a6e3fe37d8b421ebe6edcc",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/tests__train__generators__test_skyrl_gym_generator.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "test_turn_output_masks_uncaptured_suffix",
+          "line": 38,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L38"
+        },
+        {
+          "symbol": "test_cache_salt_threaded_to_engine_input",
+          "line": 287,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L287"
+        },
+        {
+          "symbol": "test_cache_salt_is_vllm_safe_for_hf_model_names",
+          "line": 345,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L345"
+        },
+        {
+          "symbol": "test_agent_loop_single_turn",
+          "line": 362,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L362"
+        },
+        {
+          "symbol": "test_agent_loop_uses_incremental_replay_metadata_traces",
+          "line": 444,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L444"
+        },
+        {
+          "symbol": "test_generate_requests_sample_support_capture_only_for_the_train_phase",
+          "line": 526,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L526"
+        },
+        {
+          "symbol": "test_validate_cfg_refuses_routed_experts_without_conversation_multi_turn",
+          "line": 586,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L586"
+        },
+        {
+          "symbol": "test_validate_cfg_refuses_routed_experts_with_step_wise_trajectories",
+          "line": 602,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L602"
+        },
+        {
+          "symbol": "test_validate_cfg_refuses_custom_chat_template_with_side_channel_capture",
+          "line": 619,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L619"
+        },
+        {
+          "symbol": "test_retokenizing_state_update_refuses_a_live_side_channel_trace",
+          "line": 636,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L636"
+        },
+        {
+          "symbol": "test_generate_retains_routed_experts_only_for_the_train_phase",
+          "line": 673,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L673"
+        },
+        {
+          "symbol": "test_agent_loop_keeps_the_generated_eos_support_row_in_single_turn_mode",
+          "line": 738,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L738"
+        },
+        {
+          "symbol": "test_agent_loop_pads_a_stop_string_eos_support_row_in_single_turn_mode",
+          "line": 793,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L793"
+        },
+        {
+          "symbol": "test_generate_batched",
+          "line": 847,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L847"
+        },
+        {
+          "symbol": "test_generate_batched_metrics_use_truncated_responses",
+          "line": 880,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L880"
+        },
+        {
+          "symbol": "test_generate_interface_compliance",
+          "line": 914,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L914"
+        },
+        {
+          "symbol": "test_length_limit_exceeded_during_conversation",
+          "line": 993,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L993"
+        },
+        {
+          "symbol": "test_multi_turn_response_truncation",
+          "line": 1078,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L1078"
+        },
+        {
+          "symbol": "test_postprocessed_action_used",
+          "line": 1167,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L1167"
+        },
+        {
+          "symbol": "test_apply_overlong_filtering_non_batched",
+          "line": 1251,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L1251"
+        },
+        {
+          "symbol": "test_apply_overlong_filtering_batched",
+          "line": 1359,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L1359"
+        },
+        {
+          "symbol": "test_agent_loop_token_level_rewards_multi_turn",
+          "line": 1436,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L1436"
+        },
+        {
+          "symbol": "test_agent_loop_token_level_rewards_multi_turn_conversation_format",
+          "line": 1526,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L1526"
+        },
+        {
+          "symbol": "test_agent_loop_retokenize_returns_float_reward",
+          "line": 1617,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L1617"
+        },
+        {
+          "symbol": "test_agent_loop_truncation_drops_out_of_range_rewards",
+          "line": 1701,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L1701"
+        },
+        {
+          "symbol": "test_step_wise_trajectories_trajectory_ids",
+          "line": 1796,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L1796"
+        },
+        {
+          "symbol": "test_step_wise_trajectories_basic_output_validation",
+          "line": 1918,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L1918"
+        },
+        {
+          "symbol": "test_step_wise_trajectory_completion_time_metrics",
+          "line": 2070,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L2070"
+        },
+        {
+          "symbol": "test_llm_vs_env_time_split_metrics",
+          "line": 2212,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator.py#L2212"
+        }
+      ]
+    },
+    {
+      "path": "tests/train/generators/test_skyrl_gym_generator_chat_templating.py",
+      "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator_chat_templating.py",
+      "raw_url": "https://raw.githubusercontent.com/NovaSky-AI/SkyRL/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator_chat_templating.py",
+      "upstream_blob_sha": "6ffc4280211f4c376f1c1654a7f1c3445fc7c567",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/tests__train__generators__test_skyrl_gym_generator_chat_templating.py",
+      "fetch_status": 200,
+      "inspection": "selected_source_excerpts_or_search_matches_inspected_not_whole_file_certified",
+      "executed": false,
+      "symbols": [
+        {
+          "symbol": "test_skyrl_gym_generator_chat_templating_exact",
+          "line": 138,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator_chat_templating.py#L138"
+        },
+        {
+          "symbol": "test_qwen3_original_vs_without_thinking_chat_template",
+          "line": 297,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator_chat_templating.py#L297"
+        },
+        {
+          "symbol": "test_append_eos_after_stop_multi_turn",
+          "line": 341,
+          "url": "https://github.com/NovaSky-AI/SkyRL/blob/3a6e3b4e0ea08dc9b0e134fbd58eb135a6f3681d/tests/train/generators/test_skyrl_gym_generator_chat_templating.py#L341"
+        }
+      ]
+    }
+  ],
+  "report_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms.md"
+}

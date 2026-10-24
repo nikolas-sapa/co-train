@@ -1,0 +1,455 @@
+{
+  "schema_version": 1,
+  "research_date": "2026-10-23",
+  "repository": "stanford-iris-lab/meta-harness",
+  "commit": "8123ccabe2b19fa1123090b2e5f1bacc20963ce8",
+  "method": "Public FetchUrl reads only; full listed code/test files inspected; no third-party execution.",
+  "runtime_tests_executed": false,
+  "training_verified": false,
+  "benchmark_reproduced": false,
+  "local_boundary": {
+    "path": "/Users/nikolassapalidis/Developer/co-train/spec/native-training.md",
+    "read_scope": "full",
+    "revision_from_parent": "ea6d2f6",
+    "revision_rechecked": false
+  },
+  "source_files": [
+    {
+      "path": "reference_examples/text_classification/meta_harness.py",
+      "symbols": [
+        "run_evolve",
+        "propose_claude",
+        "validate_candidates",
+        "update_evolution_summary",
+        "finalize_run",
+        "run_benchmark",
+        "fresh_start"
+      ],
+      "kind": "implementation",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/meta_harness.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/text_classification/benchmark.py",
+      "symbols": [
+        "build_val_runs",
+        "build_test_runs",
+        "load_results",
+        "_has_usable_result",
+        "compute_pareto_frontier",
+        "print_frontier",
+        "_run_with_retries",
+        "main"
+      ],
+      "kind": "implementation",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/benchmark.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/text_classification/inner_loop.py",
+      "symbols": [
+        "JSONLLogger",
+        "run_inner_loop",
+        "_run_offline_loop",
+        "evaluate_memory",
+        "load_memory_system",
+        "__main__"
+      ],
+      "kind": "implementation",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/inner_loop.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/text_classification/memory_system.py",
+      "symbols": [
+        "MemorySystem.call_llm",
+        "MemorySystem.get_last_prompt_info",
+        "MemorySystem"
+      ],
+      "kind": "implementation",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/memory_system.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/text_classification/llm.py",
+      "symbols": [
+        "ProviderLLM._cache_path",
+        "ProviderLLM._generate_one",
+        "ProviderLLM._call_completion",
+        "LLM._truncate",
+        "LLM.get_usage"
+      ],
+      "kind": "implementation",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/llm.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/text_classification/claude_wrapper.py",
+      "symbols": [
+        "build_command",
+        "run",
+        "parse_stream_events",
+        "log_session"
+      ],
+      "kind": "implementation",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/claude_wrapper.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/text_classification/data/api.py",
+      "symbols": [
+        "load_dataset_splits_3way",
+        "load_dataset_splits",
+        "_balanced_subsample",
+        "_with_context"
+      ],
+      "kind": "implementation",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/data/api.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/text_classification/data/loaders.py",
+      "symbols": [
+        "load_mce_dataset",
+        "load_transfer_dataset",
+        "_hf_train_val_split",
+        "_load_financial_phrasebank"
+      ],
+      "kind": "implementation",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/data/loaders.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/text_classification/data/evaluators.py",
+      "symbols": [
+        "get_evaluator",
+        "eval_uspto",
+        "eval_lawbench",
+        "extract_final_answer"
+      ],
+      "kind": "implementation",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/data/evaluators.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/text_classification/config.yaml",
+      "symbols": [],
+      "kind": "configuration",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/config.yaml",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/text_classification/.claude/skills/meta-harness/SKILL.md",
+      "symbols": [
+        "CRITICAL CONSTRAINTS",
+        "WORKFLOW"
+      ],
+      "kind": "proposer_guidance_not_enforcement",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/.claude/skills/meta-harness/SKILL.md",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/text_classification/tests/test_evolution_contracts.py",
+      "symbols": [
+        "HeldOutIsolationTests",
+        "test_incomplete_finalization_allows_evolution",
+        "test_default_evolution_never_runs_test",
+        "DataContractTests"
+      ],
+      "kind": "test_source_unexecuted",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/tests/test_evolution_contracts.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/text_classification/tests/test_benchmark.py",
+      "symbols": [
+        "BenchmarkTests",
+        "test_load_results_aggregates_configured_seeds",
+        "test_load_results_omits_incomplete_seed_group",
+        "test_main_propagates_worker_failure_and_uses_results_dir"
+      ],
+      "kind": "test_source_unexecuted",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/tests/test_benchmark.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/text_classification/tests/test_data.py",
+      "symbols": [
+        "DataTests",
+        "test_all_vendored_splits_load",
+        "test_three_way_split_uses_requested_counts"
+      ],
+      "kind": "test_source_unexecuted",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/tests/test_data.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/text_classification/data/README.md",
+      "symbols": [],
+      "kind": "provenance_document",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/data/README.md",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/text_classification/pyproject.toml",
+      "symbols": [],
+      "kind": "dependency_manifest",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/text_classification/pyproject.toml",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/terminal_bench_2/meta_harness.py",
+      "symbols": [
+        "run_evolve",
+        "validate_agent_class",
+        "validate_candidate",
+        "smoke_test",
+        "harbor_run",
+        "parse_job_results",
+        "compute_pass_rates",
+        "update_frontier",
+        "update_evolution_summary"
+      ],
+      "kind": "implementation",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/meta_harness.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/terminal_bench_2/scripts/run_eval.sh",
+      "symbols": [
+        "TIMEOUT_CMD",
+        "HARD_TASKS",
+        "CMD"
+      ],
+      "kind": "implementation",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/scripts/run_eval.sh",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/terminal_bench_2/agents/baseline_kira.py",
+      "symbols": [
+        "AgentHarness._with_block_timeout",
+        "AgentHarness._call_llm_with_tools",
+        "AgentHarness._call_llm_for_image",
+        "AgentHarness._run_agent_loop",
+        "AgentHarness._limit_output_length"
+      ],
+      "kind": "implementation",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/agents/baseline_kira.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/terminal_bench_2/anthropic_caching.py",
+      "symbols": [
+        "add_anthropic_caching"
+      ],
+      "kind": "implementation",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/anthropic_caching.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/terminal_bench_2/tests/test_meta_harness.py",
+      "symbols": [
+        "AgentClassValidationTests",
+        "TimeoutWiringTests",
+        "KiraLoopSignatureTests"
+      ],
+      "kind": "test_source_unexecuted",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/tests/test_meta_harness.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/terminal_bench_2/.claude/skills/meta-harness-terminal-bench-2/SKILL.md",
+      "symbols": [
+        "CANDIDATE DESIGN",
+        "WORKFLOW"
+      ],
+      "kind": "proposer_guidance_not_enforcement",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/.claude/skills/meta-harness-terminal-bench-2/SKILL.md",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/terminal_bench_2/pyproject.toml",
+      "symbols": [],
+      "kind": "dependency_manifest",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/pyproject.toml",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "reference_examples/terminal_bench_2/README.md",
+      "symbols": [],
+      "kind": "documentation_not_runtime_evidence",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/reference_examples/terminal_bench_2/README.md",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "experimental/harbor_meta_harness/controller.py",
+      "symbols": [
+        "validate_source",
+        "evaluate_source",
+        "run_child",
+        "child_result",
+        "command_for",
+        "load_suite",
+        "suite_forbidden_references"
+      ],
+      "kind": "experimental_implementation",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/controller.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "experimental/harbor_meta_harness/agents/meta_harness.py",
+      "symbols": [
+        "EvaluationState.record",
+        "AgentHarness._evaluate",
+        "AgentHarness.run"
+      ],
+      "kind": "experimental_implementation",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/agents/meta_harness.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "experimental/harbor_meta_harness/tests/test_controller.py",
+      "symbols": [
+        "test_evaluate_source_rejects_before_any_child_run",
+        "test_evaluation_state_is_immutable_and_bounded",
+        "test_evaluate_source_aggregates_mean_over_tasks",
+        "test_run_child_exposes_staged_candidate_only_to_child"
+      ],
+      "kind": "test_source_unexecuted",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/tests/test_controller.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "experimental/harbor_meta_harness/tasks/select-harness/tests/test_outputs.py",
+      "symbols": [
+        "main"
+      ],
+      "kind": "verifier_implementation_unexecuted",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/tasks/select-harness/tests/test_outputs.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "experimental/harbor_meta_harness/scripts/prepare_collections.py",
+      "symbols": [
+        "COLLECTIONS",
+        "ensure_forbidden",
+        "write_suite"
+      ],
+      "kind": "experimental_implementation",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/scripts/prepare_collections.py",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "experimental/harbor_meta_harness/suite.toml",
+      "symbols": [],
+      "kind": "configuration",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/suite.toml",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "experimental/harbor_meta_harness/pyproject.toml",
+      "symbols": [],
+      "kind": "dependency_manifest",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/experimental/harbor_meta_harness/pyproject.toml",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "README.md",
+      "symbols": [],
+      "kind": "documentation_not_runtime_evidence",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/README.md",
+      "read_scope": "full",
+      "runtime_executed": false
+    },
+    {
+      "path": "LICENSE",
+      "symbols": [],
+      "kind": "license",
+      "url": "https://raw.githubusercontent.com/stanford-iris-lab/meta-harness/8123ccabe2b19fa1123090b2e5f1bacc20963ce8/LICENSE",
+      "read_scope": "full",
+      "runtime_executed": false
+    }
+  ],
+  "external_sources": [
+    {
+      "url": "https://api.github.com/repos/stanford-iris-lab/meta-harness/git/trees/8123ccabe2b19fa1123090b2e5f1bacc20963ce8?recursive=1",
+      "kind": "pinned_complete_tree",
+      "truncated": false
+    },
+    {
+      "url": "https://arxiv.org/html/2603.28052v1",
+      "kind": "paper",
+      "version": "v1",
+      "sections_inspected": [
+        "abstract",
+        "1",
+        "2",
+        "3",
+        "Algorithm 1",
+        "4.1",
+        "4.2",
+        "4.3",
+        "B.3 excerpt",
+        "C excerpts",
+        "D",
+        "E excerpt"
+      ],
+      "license_observed": "CC BY 4.0",
+      "limitations": "Not an independent reproduction; no claim of full-paper line-by-line audit."
+    },
+    {
+      "url": "https://api.github.com/repos/stanford-iris-lab/meta-harness-tbench2-artifact/commits/HEAD",
+      "kind": "separate_artifact_discovery",
+      "resolved_commit": "57fefdb2ff84af3fd81b69d67814acbe69bd0743",
+      "read_scope": "Metadata and README diff; large agent diff not fully inspected."
+    },
+    {
+      "url": "https://api.github.com/repos/stanford-iris-lab/meta-harness-tbench2-artifact/git/trees/57fefdb2ff84af3fd81b69d67814acbe69bd0743?recursive=1",
+      "kind": "separate_artifact_pinned_complete_tree",
+      "truncated": false,
+      "license_file_found": false,
+      "tests_found": false
+    }
+  ],
+  "limitations": [
+    "No dataset payloads fetched; no content-overlap proof.",
+    "No model, GPU, API-model or paid job executed.",
+    "No third-party code/tests executed.",
+    "Separate artifact agent.py not fully audited.",
+    "Dependency, dataset and model licenses not fully audited.",
+    "Git HEAD not rechecked; supplied local revision treated as authoritative.",
+    "All adoption acceptance tests are future proposals, not passing results."
+  ]
+}

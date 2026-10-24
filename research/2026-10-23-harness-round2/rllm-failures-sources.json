@@ -1,0 +1,658 @@
+{
+  "schema_version": 1,
+  "review_date": "2026-10-23",
+  "repository": "https://github.com/rllm-org/rllm",
+  "pin": "4e828c81680e5a85b638ceedeaf09d1e90109ca8",
+  "commit_date": "2026-10-09T01:22:20Z",
+  "head_status": "supplied snapshot label, default branch HEAD not independently compared",
+  "tree_url": "https://api.github.com/repos/rllm-org/rllm/git/trees/4e828c81680e5a85b638ceedeaf09d1e90109ca8?recursive=1",
+  "commit_url": "https://api.github.com/repos/rllm-org/rllm/commits/4e828c81680e5a85b638ceedeaf09d1e90109ca8",
+  "access_method": "FetchUrl public pinned raw GitHub and GitHub API GET; fenced API JSON parsed",
+  "upstream_runtime_executed": false,
+  "upstream_tests_executed": 0,
+  "negative_controls_executed": 0,
+  "training_verified": false,
+  "launch_authorized": false,
+  "license": "Apache-2.0",
+  "costs": {
+    "provider_inference_requests": 0,
+    "provider_training_requests": 0,
+    "gpu_jobs": 0,
+    "provider_rates_verified": false,
+    "retrieval_platform_billing": "not measured"
+  },
+  "local_context": {
+    "parent_revision": "ea6d2f6",
+    "file": "/Users/nikolassapalidis/Developer/co-train/spec/native-training.md",
+    "read_header_baseline": "d6d04f0",
+    "historical_blob_verified": false
+  },
+  "symbol_references": {
+    "S1": {
+      "path": "rllm/engine/agentflow_engine.py",
+      "symbols": "enrich_episode_with_traces; process_task_with_retry (458-524); _finish_episode (646-706)",
+      "anchor_start": 110,
+      "anchor_end": 230,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/engine/agentflow_engine.py#L110-L230"
+    },
+    "S2": {
+      "path": "rllm-model-gateway/src/rllm_model_gateway/store/memory_store.py",
+      "symbols": "MemoryTraceStore.store_trace/get_session_traces",
+      "anchor_start": 64,
+      "anchor_end": 94,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/store/memory_store.py#L64-L94"
+    },
+    "S3": {
+      "path": "rllm-model-gateway/src/rllm_model_gateway/store/sqlite_store.py",
+      "symbols": "SQLiteTraceStore.store_trace/get_session_traces",
+      "anchor_start": 116,
+      "anchor_end": 170,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/store/sqlite_store.py#L116-L170"
+    },
+    "S4": {
+      "path": "rllm-model-gateway/src/rllm_model_gateway/data_process.py",
+      "symbols": "build_trace_record; build_trace_record_from_chunks; extract_logprobs (50-76)",
+      "anchor_start": 188,
+      "anchor_end": 310,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/data_process.py#L188-L310"
+    },
+    "S5": {
+      "path": "rllm/gateway/manager.py",
+      "symbols": "GatewayManager.aget_traces/adelete_session/adelete_sessions",
+      "anchor_start": 301,
+      "anchor_end": 325,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/gateway/manager.py#L301-L325"
+    },
+    "S6": {
+      "path": "rllm-model-gateway/src/rllm_model_gateway/server.py",
+      "symbols": "session delete APIs; admin flush (380-392)",
+      "anchor_start": 278,
+      "anchor_end": 311,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/server.py#L278-L311"
+    },
+    "S7": {
+      "path": "rllm-model-gateway/src/rllm_model_gateway/proxy.py",
+      "symbols": "Proxy.handle; cumulative streaming (368-503); streaming (509-639); retry/persist (747-787)",
+      "anchor_start": 135,
+      "anchor_end": 184,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/proxy.py#L135-L184"
+    },
+    "S8": {
+      "path": "rllm/engine/remote_agent_flow_engine.py",
+      "symbols": "RemoteAgentFlowEngine.process_task_with_retry; _build_episode",
+      "anchor_start": 97,
+      "anchor_end": 212,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/engine/remote_agent_flow_engine.py#L97-L212"
+    },
+    "S9": {
+      "path": "rllm/trainer/algorithms/config.py",
+      "symbols": "CompactFilteringConfig; RejectionSamplingConfig (180-218)",
+      "anchor_start": 110,
+      "anchor_end": 161,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/algorithms/config.py#L110-L161"
+    },
+    "S10": {
+      "path": "rllm/engine/trace_converter.py",
+      "symbols": "_parse_openai_tool_calls; trace_record_to_step",
+      "anchor_start": 13,
+      "anchor_end": 81,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/engine/trace_converter.py#L13-L81"
+    },
+    "S11": {
+      "path": "rllm/trainer/buffer.py",
+      "symbols": "TrajectoryGroupBuffer.add_episode; _min_weight_version (414-421)",
+      "anchor_start": 166,
+      "anchor_end": 265,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/buffer.py#L166-L265"
+    },
+    "S12": {
+      "path": "rllm/trainer/tinker/transform.py",
+      "symbols": "trajectory_to_datums; transform_trajectory_groups_to_datums",
+      "anchor_start": 42,
+      "anchor_end": 239,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/tinker/transform.py#L42-L239"
+    },
+    "S13": {
+      "path": "rllm/trainer/algorithms/rl_algo.py",
+      "symbols": "calculate_grpo_advantages_per_group",
+      "anchor_start": 6,
+      "anchor_end": 18,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/algorithms/rl_algo.py#L6-L18"
+    },
+    "S14": {
+      "path": "rllm/types.py",
+      "symbols": "Step.model_post_init",
+      "anchor_start": 149,
+      "anchor_end": 167,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/types.py#L149-L167"
+    },
+    "S15": {
+      "path": "rllm-model-gateway/src/rllm_model_gateway/token_accumulator.py",
+      "symbols": "extract_new_messages; TokenAccumulator.is_cumulative/update_prefix/build_next_prompt",
+      "anchor_start": 33,
+      "anchor_end": 162,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/token_accumulator.py#L33-L162"
+    },
+    "S16": {
+      "path": "rllm/trainer/sync_coordinator.py",
+      "symbols": "SyncCoordinatorConfig; SyncCoordinator quota/sync",
+      "anchor_start": 9,
+      "anchor_end": 110,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/sync_coordinator.py#L9-L110"
+    },
+    "S17": {
+      "path": "rllm/trainer/unified_trainer.py",
+      "symbols": "_generation_loop; _training_loop; _perform_weight_sync (812-827)",
+      "anchor_start": 629,
+      "anchor_end": 763,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/unified_trainer.py#L629-L763"
+    },
+    "S18": {
+      "path": "rllm/trainer/tinker/tinker_policy_trainer.py",
+      "symbols": "initialize_async; save_checkpoint_and_get_sampling_client/_resume_step_dir (335-400)",
+      "anchor_start": 120,
+      "anchor_end": 159,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/tinker/tinker_policy_trainer.py#L120-L159"
+    },
+    "S19": {
+      "path": "rllm/trainer/tinker/tinker_backend.py",
+      "symbols": "on_train_start; on_policy_updated",
+      "anchor_start": 368,
+      "anchor_end": 410,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/tinker/tinker_backend.py#L368-L410"
+    },
+    "S20": {
+      "path": "rllm-model-gateway/pyproject.toml",
+      "symbols": "standalone gateway metadata/dependencies",
+      "anchor_start": 5,
+      "anchor_end": 22,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/pyproject.toml#L5-L22"
+    },
+    "S21": {
+      "path": "rllm-model-gateway/README.md",
+      "symbols": "dependency prose; root pyproject.toml dependencies also inspected",
+      "anchor_start": 66,
+      "anchor_end": 72,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/README.md#L66-L72"
+    },
+    "S22": {
+      "path": "LICENSE",
+      "symbols": "Apache-2.0 license",
+      "anchor_start": 1,
+      "anchor_end": 202,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/LICENSE#L1-L202"
+    },
+    "S23": {
+      "path": "rllm/trainer/algorithms/transform.py",
+      "symbols": "_build_trajectory_groups",
+      "anchor_start": 105,
+      "anchor_end": 152,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/algorithms/transform.py#L105-L152"
+    },
+    "T1": {
+      "path": "rllm-model-gateway/tests/unit/test_concurrent_sessions.py",
+      "symbols": "all four concurrency test bodies/fixtures",
+      "anchor_start": 16,
+      "anchor_end": 127,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/tests/unit/test_concurrent_sessions.py#L16-L127"
+    },
+    "T2": {
+      "path": "rllm-model-gateway/tests/unit/test_cumulative_token_mode.py",
+      "symbols": "mock renderer/fixture; reset/declined bridge (221-324); stream text/usage (371-451)",
+      "anchor_start": 18,
+      "anchor_end": 76,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/tests/unit/test_cumulative_token_mode.py#L18-L76"
+    },
+    "T3": {
+      "path": "rllm-model-gateway/tests/unit/test_data_process.py",
+      "symbols": "TestBuildTraceRecord nonstream/stream bodies",
+      "anchor_start": 142,
+      "anchor_end": 234,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/tests/unit/test_data_process.py#L142-L234"
+    },
+    "T4": {
+      "path": "tests/engine/test_trace_converter.py",
+      "symbols": "complete tool call conversion; basic Step/reasoning/version tests",
+      "anchor_start": 16,
+      "anchor_end": 213,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/tests/engine/test_trace_converter.py#L16-L213"
+    },
+    "T5": {
+      "path": "rllm-model-gateway/tests/unit/test_error_resilience.py",
+      "symbols": "resilience/cleanup fixtures and tests",
+      "anchor_start": 22,
+      "anchor_end": 187,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/tests/unit/test_error_resilience.py#L22-L187"
+    },
+    "T6": {
+      "path": "tests/unified_trainer/test_tinker_transform.py",
+      "symbols": "single and merged masks; nonprefix test bodies (331-367); edge cases (470-534)",
+      "anchor_start": 207,
+      "anchor_end": 308,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/tests/unified_trainer/test_tinker_transform.py#L207-L308"
+    },
+    "T7": {
+      "path": "tests/unified_trainer/test_tinker_checkpoint.py",
+      "symbols": "all seven local _resume_step_dir tests and fixture",
+      "anchor_start": 12,
+      "anchor_end": 71,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/tests/unified_trainer/test_tinker_checkpoint.py#L12-L71"
+    },
+    "T8": {
+      "path": "tests/engine/test_agentflow_engine.py",
+      "symbols": "gateway double; validation/strict test bodies",
+      "anchor_start": 12,
+      "anchor_end": 127,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/tests/engine/test_agentflow_engine.py#L12-L127"
+    },
+    "T9": {
+      "path": "tests/unified_trainer/test_trajectory_grouping.py",
+      "symbols": "hierarchical identity/grouping/GRPO test bodies",
+      "anchor_start": 24,
+      "anchor_end": 125,
+      "url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/tests/unified_trainer/test_trajectory_grouping.py#L24-L125"
+    }
+  },
+  "sources": [
+    {
+      "path": "rllm-model-gateway/src/rllm_model_gateway/store/sqlite_store.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/store/sqlite_store.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/store/sqlite_store.py",
+      "upstream_blob_sha": "dd4ece00d845ebe228be4c59cef4df1e1149e0c8",
+      "upstream_bytes": 8933,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm-model-gateway/src/rllm_model_gateway/store/sqlite_store.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm-model-gateway/src/rllm_model_gateway/store/memory_store.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/store/memory_store.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/store/memory_store.py",
+      "upstream_blob_sha": "c391580c86631d684b464e9e46ebe573658f6f17",
+      "upstream_bytes": 5449,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm-model-gateway/src/rllm_model_gateway/store/memory_store.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm-model-gateway/src/rllm_model_gateway/session_router.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/session_router.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/session_router.py",
+      "upstream_blob_sha": "ae9622f235652a874906d47d636862a6e54c20de",
+      "upstream_bytes": 8812,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm-model-gateway/src/rllm_model_gateway/session_router.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm-model-gateway/src/rllm_model_gateway/data_process.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/data_process.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/data_process.py",
+      "upstream_blob_sha": "c20db5075a7dc4ae0963c627dc7b4beb16582726",
+      "upstream_bytes": 10428,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm-model-gateway/src/rllm_model_gateway/data_process.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm-model-gateway/src/rllm_model_gateway/token_accumulator.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/token_accumulator.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/token_accumulator.py",
+      "upstream_blob_sha": "6287fa8dacc5efd9c9b27317932a308666f85c3d",
+      "upstream_bytes": 6394,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm-model-gateway/src/rllm_model_gateway/token_accumulator.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm-model-gateway/src/rllm_model_gateway/session_manager.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/session_manager.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/session_manager.py",
+      "upstream_blob_sha": "7c9df28f05a286e8b530e87bccda79df9866817b",
+      "upstream_bytes": 3474,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm-model-gateway/src/rllm_model_gateway/session_manager.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm-model-gateway/src/rllm_model_gateway/client.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/client.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/client.py",
+      "upstream_blob_sha": "3925e83e6e0d7d2b093e7c4baf00afabae388354",
+      "upstream_bytes": 11270,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm-model-gateway/src/rllm_model_gateway/client.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm-model-gateway/src/rllm_model_gateway/proxy.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/proxy.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/proxy.py",
+      "upstream_blob_sha": "8276c92f9659cd496c1500ac9f05fc5f6921cf8d",
+      "upstream_bytes": 32790,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm-model-gateway/src/rllm_model_gateway/proxy.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm-model-gateway/src/rllm_model_gateway/models.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/models.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/models.py",
+      "upstream_blob_sha": "a3991d8c547c1f934d51529ddfaba58147073bce",
+      "upstream_bytes": 4409,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm-model-gateway/src/rllm_model_gateway/models.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm-model-gateway/src/rllm_model_gateway/server.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/server.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/src/rllm_model_gateway/server.py",
+      "upstream_blob_sha": "826d9722c8e117e8a6ca088b950500b5340b0c8e",
+      "upstream_bytes": 21327,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm-model-gateway/src/rllm_model_gateway/server.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm-model-gateway/README.md",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/README.md",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/README.md",
+      "upstream_blob_sha": "74ae7ebc6f4ee889556b79f93791d821392b9c1c",
+      "upstream_bytes": 4191,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm-model-gateway/README.md",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm-model-gateway/tests/unit/test_token_accumulator.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/tests/unit/test_token_accumulator.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/tests/unit/test_token_accumulator.py",
+      "upstream_blob_sha": "f3a531f47d30687ddecd72c86b1ca83c8aacd9ba",
+      "upstream_bytes": 10406,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm-model-gateway/tests/unit/test_token_accumulator.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm-model-gateway/tests/unit/test_cumulative_token_mode.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/tests/unit/test_cumulative_token_mode.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/tests/unit/test_cumulative_token_mode.py",
+      "upstream_blob_sha": "02d595a789bd14c2b66af6eb14ef5d4b2a5d2ad7",
+      "upstream_bytes": 18437,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm-model-gateway/tests/unit/test_cumulative_token_mode.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm-model-gateway/tests/unit/test_error_resilience.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/tests/unit/test_error_resilience.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/tests/unit/test_error_resilience.py",
+      "upstream_blob_sha": "a325a8c5f2bfec42cfc6d15673ec38af995ae65b",
+      "upstream_bytes": 6732,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm-model-gateway/tests/unit/test_error_resilience.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm-model-gateway/tests/unit/test_data_process.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/tests/unit/test_data_process.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/tests/unit/test_data_process.py",
+      "upstream_blob_sha": "2419868be0cd99bdeeb780e305848a1358fa9ad2",
+      "upstream_bytes": 8036,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm-model-gateway/tests/unit/test_data_process.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm-model-gateway/tests/unit/test_concurrent_sessions.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/tests/unit/test_concurrent_sessions.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/tests/unit/test_concurrent_sessions.py",
+      "upstream_blob_sha": "3502941d172aab68df4a49b265b06fb202bb9bda",
+      "upstream_bytes": 4796,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm-model-gateway/tests/unit/test_concurrent_sessions.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm-model-gateway/pyproject.toml",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/pyproject.toml",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm-model-gateway/pyproject.toml",
+      "upstream_blob_sha": "4d6adf77e53a70f865db1612156f4356d21f5071",
+      "upstream_bytes": 769,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm-model-gateway/pyproject.toml",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm/gateway/manager.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/gateway/manager.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/gateway/manager.py",
+      "upstream_blob_sha": "a13f8143924cc3259c3c02ff02477cc5550fb725",
+      "upstream_bytes": 20583,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm/gateway/manager.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm/trainer/buffer.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/buffer.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/buffer.py",
+      "upstream_blob_sha": "968f6cf1f993f775a03959bf182c3fa5362dbbdb",
+      "upstream_bytes": 16576,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm/trainer/buffer.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm/trainer/unified_trainer.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/unified_trainer.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/unified_trainer.py",
+      "upstream_blob_sha": "aac54dd052d67e48c739be2d98d1429874818582",
+      "upstream_bytes": 51899,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm/trainer/unified_trainer.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm/trainer/algorithms/rl_algo.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/algorithms/rl_algo.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/algorithms/rl_algo.py",
+      "upstream_blob_sha": "501b809c2494517c19b8257fa14cfa99d326c699",
+      "upstream_bytes": 855,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm/trainer/algorithms/rl_algo.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm/trainer/algorithms/advantage.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/algorithms/advantage.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/algorithms/advantage.py",
+      "upstream_blob_sha": "afa3f249bbd963672bb9103246c490e701c353f7",
+      "upstream_bytes": 15486,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm/trainer/algorithms/advantage.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm/trainer/algorithms/transform.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/algorithms/transform.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/algorithms/transform.py",
+      "upstream_blob_sha": "4eb433cf303f290fa28115e73c1a548e4bad6700",
+      "upstream_bytes": 10687,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm/trainer/algorithms/transform.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm/trainer/algorithms/config.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/algorithms/config.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/algorithms/config.py",
+      "upstream_blob_sha": "39e3eed0a1d79afddfd6c9105094de0950fe6274",
+      "upstream_bytes": 16712,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm/trainer/algorithms/config.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm/trainer/sync_coordinator.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/sync_coordinator.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/sync_coordinator.py",
+      "upstream_blob_sha": "d32f0e6e4c73cd404773bb2fbf995bb47ef3aaf0",
+      "upstream_bytes": 6542,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm/trainer/sync_coordinator.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm/trainer/tinker/tinker_policy_trainer.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/tinker/tinker_policy_trainer.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/tinker/tinker_policy_trainer.py",
+      "upstream_blob_sha": "bab2ce4974105e6cb13e7fc8394f07795d8a286b",
+      "upstream_bytes": 18842,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm/trainer/tinker/tinker_policy_trainer.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm/trainer/tinker/transform.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/tinker/transform.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/tinker/transform.py",
+      "upstream_blob_sha": "a37df32d7298e358a7c905a2f154c3800246e845",
+      "upstream_bytes": 11452,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm/trainer/tinker/transform.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm/trainer/tinker/tinker_backend.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/tinker/tinker_backend.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/trainer/tinker/tinker_backend.py",
+      "upstream_blob_sha": "d776bacf09c2d5d020e75f32db168c85625622bc",
+      "upstream_bytes": 20365,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm/trainer/tinker/tinker_backend.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm/engine/remote_agent_flow_engine.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/engine/remote_agent_flow_engine.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/engine/remote_agent_flow_engine.py",
+      "upstream_blob_sha": "09d7afe08ceaa433dfb58f5a35836edf4c8cf58b",
+      "upstream_bytes": 7543,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm/engine/remote_agent_flow_engine.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm/engine/agentflow_engine.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/engine/agentflow_engine.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/engine/agentflow_engine.py",
+      "upstream_blob_sha": "75aa7dc23cf01cb0300ee5fb8db27495bb6e45f7",
+      "upstream_bytes": 30032,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm/engine/agentflow_engine.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm/engine/trace_converter.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/engine/trace_converter.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/engine/trace_converter.py",
+      "upstream_blob_sha": "b527c569eb0ef071fdf5e41f77b93e8825c32208",
+      "upstream_bytes": 3360,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm/engine/trace_converter.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm/engine/unified_workflow_engine.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/engine/unified_workflow_engine.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/engine/unified_workflow_engine.py",
+      "upstream_blob_sha": "c3cab42d0396009edf1190f2874f7f83c8bd1e6f",
+      "upstream_bytes": 12160,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm/engine/unified_workflow_engine.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "rllm/types.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/types.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/rllm/types.py",
+      "upstream_blob_sha": "40e32b55ae81daa3d7cbcc8145e7fbdc11efe046",
+      "upstream_bytes": 21818,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/rllm/types.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "pyproject.toml",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/pyproject.toml",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/pyproject.toml",
+      "upstream_blob_sha": "4e88a5d5cf3a64cb53f4691d22dfcf634900615f",
+      "upstream_bytes": 4830,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/pyproject.toml",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "LICENSE",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/LICENSE",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/LICENSE",
+      "upstream_blob_sha": "7a4a3ea2424c09fbe48d455aed1eaa94d9124835",
+      "upstream_bytes": 11357,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/LICENSE",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "tests/engine/test_trace_converter.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/tests/engine/test_trace_converter.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/tests/engine/test_trace_converter.py",
+      "upstream_blob_sha": "70c17e8022963de541e76b1fc8180f439533d523",
+      "upstream_bytes": 7767,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/tests/engine/test_trace_converter.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "tests/engine/test_agentflow_engine.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/tests/engine/test_agentflow_engine.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/tests/engine/test_agentflow_engine.py",
+      "upstream_blob_sha": "9afddb7608f0cd6dd575ba60fc31c2186b723ed8",
+      "upstream_bytes": 6006,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/tests/engine/test_agentflow_engine.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "tests/unified_trainer/test_tinker_transform.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/tests/unified_trainer/test_tinker_transform.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/tests/unified_trainer/test_tinker_transform.py",
+      "upstream_blob_sha": "c6e7dc8b730b23f42aab45d9dcd59e4a25e910ea",
+      "upstream_bytes": 20477,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/tests/unified_trainer/test_tinker_transform.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "tests/unified_trainer/test_tinker_checkpoint.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/tests/unified_trainer/test_tinker_checkpoint.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/tests/unified_trainer/test_tinker_checkpoint.py",
+      "upstream_blob_sha": "5f82ee7a4905ece94d6347ca7b104e2b354dbe53",
+      "upstream_bytes": 2748,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/tests/unified_trainer/test_tinker_checkpoint.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    },
+    {
+      "path": "tests/unified_trainer/test_trajectory_grouping.py",
+      "raw_url": "https://raw.githubusercontent.com/rllm-org/rllm/4e828c81680e5a85b638ceedeaf09d1e90109ca8/tests/unified_trainer/test_trajectory_grouping.py",
+      "blob_url": "https://github.com/rllm-org/rllm/blob/4e828c81680e5a85b638ceedeaf09d1e90109ca8/tests/unified_trainer/test_trajectory_grouping.py",
+      "upstream_blob_sha": "70745aed8fb6980e9d7307d04d1c2c326ff1f470",
+      "upstream_bytes": 5354,
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/tests/unified_trainer/test_trajectory_grouping.py",
+      "inspection": "retrieved_source; depth and body ranges specified by symbol_references where applicable; not all files exhaustively reviewed",
+      "executed": false
+    }
+  ]
+}

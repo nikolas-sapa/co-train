@@ -1,0 +1,19 @@
+{
+  "scope": "Immutable contamination-test baseline only. Not upstream-authenticated model identity, native-template approval, or scientific revision selection.",
+  "provenance": {
+    "cached_repository": "unsloth/Qwen3-0.6B",
+    "cached_snapshot": "db4e90b8359f816f09bf5c944797ce116f26da3c",
+    "reviewed": "2026-10-23",
+    "note": "Locally observed bytes, independently hashed and owner approved. No download or revision selection."
+  },
+  "files": {
+    "added_tokens.json": "c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680",
+    "chat_template.jinja": "5da44855ab7e0641774d5ed0ff0b4f89671d01df7d316e54d06557a962211cb4",
+    "config.json": "1d7ec2a05129f0f312442fb97a672ed5a7feed05757e520b99affea703513ec3",
+    "merges.txt": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+    "special_tokens_map.json": "b5acd1507cb3a3539e63369cb4a2b675a599cf13afe62282d371518288967797",
+    "tokenizer.json": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+    "tokenizer_config.json": "4ef57575bc83af4d673452f3df9a22f4efb75f8d73f2090998f5ee679ccb7fab",
+    "vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+  }
+}

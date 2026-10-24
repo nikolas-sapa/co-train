@@ -1,0 +1,21 @@
+title = "Co-train defaults with eight owner-approved public SHA256 exceptions"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Exact public artifact/source fingerprints only, not paths or key prefixes"
+regexTarget = "secret"
+regexes = [
+    '^c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680$',
+    '^b5acd1507cb3a3539e63369cb4a2b675a599cf13afe62282d371518288967797$',
+    '^aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4$',
+    '^4ef57575bc83af4d673452f3df9a22f4efb75f8d73f2090998f5ee679ccb7fab$',
+    '^ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356$',
+    '^fdb27cccf1d1f5f7e27e13e7b887f12041d0f8a407d600fac0ad772b22852d29$',
+    '^8c91db3eb82c984d024a9b41e67b28f636f65d29e11ac92d76a3d141d3c772bc$',
+    '^29cab712c9f47e52a068c7c2170f98e20d04500ce8ab3383f8f42c1238de164d$',
+]
