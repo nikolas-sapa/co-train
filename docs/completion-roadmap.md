@@ -3,7 +3,57 @@
 Updated 2026-10-24. This is a research-software completion plan. A positive
 scientific result is not a completion requirement.
 
-## Incremental execution capture, 2026-10-24
+## Caller-authored executable skills and fixture readiness, 2026-10-24
+
+Implemented, targeted-verified:
+
+- [Executable SQL skills](../spec/sql-executable-skills.md): data-only candidate
+  creation requires matching `source_task` and IDs; literal-True execution is
+  separate. Promotion independently rescores an externally whole-envelope-pinned
+  source failure and actually reruns one frozen program on four pre-admitted
+  external cases. Only four valid EX=1 results qualify. Approved reuse checks
+  whole-envelope/candidate pins, exact approval IDs, scope and current bindings
+  without reopening historical DBs. No automatic generation, registry or writes.
+- Bench fixture readiness: real parent/grandchild ACKs plus original process
+  identity precede release/measurement. Startup allowance is at most 5s;
+  cleanup remains under 1s from the real trigger. Late-effect observation lasts
+  at least 0.8s after return. The 0.2s observer and production 30/45s deadlines
+  are unchanged; an independent 20s emergency supervisor bounds fixture runs.
+- Targeted skills/capture/exact-legacy scope: **813 passed**. All five independent
+  skill guard bypasses failed intended assertions. Bench evidence: **80/80**
+  normal runs, **20/20** disabled-termination controls caught, **56** complete-file
+  passes and three fresh-copy isolated baselines, each **516 passed**, one
+  optional skip, two configured deselections. These scopes overlap; do not sum.
+
+**Bounded offline acceptance, 2026-10-24:** complete configured default execution
+finished **2,446 passed, 1 skipped, 2 deselected in 251.42s**, exit 0. Independent
+Python/general/security static reviews found no issues; execution validation was
+separate. Torch was unavailable; two existing tokenizer-integration deselections
+were unchanged. `step2` is outside configured default testpaths. The receipt binds
+tested source bytes, with implementation base
+`8efeb93b55f4435c7b6913156c082b87f4290fc1`, not a permanent current-HEAD claim.
+No push/deploy. See [HANDOFF](../HANDOFF.md) for raw receipts and audit scope.
+
+These gates establish trusted caller-authored mechanics, not AI learning.
+Routing fields, distinct fingerprints/DB bytes and hashes do not establish
+independent sampling, semantic diversity or authenticated approval. The host
+owns evaluator/assets/pins. Existing tracing/output limits are not an OS
+sandbox or a hard-memory/deadline guarantee. One PTC submission per case is not
+one internal SQL call. Native discovery remains one `run_program`; default
+arms, graders, trainer and scientific preregistration are unchanged.
+
+Remaining research: automatic model-generated candidates and held-out benefit;
+adaptive context/delegation with complete economics; witnessed continuation;
+real native rollout/update/checkpoint/reload; authorized frontier evidence.
+No provider integration, GPU work or T3 runtime was implemented. Fixture
+transfer is not a learning result or a new performance claim. The
+[Prime/T3 matrix](../research/2026-10-24-prime-t3-opportunities.md) retains these
+separate gates.
+
+## Historical capture checkpoint, before the readiness repair
+
+The checkpoint sections below retain historical receipts. Current acceptance
+requirements resume at [Remaining gates](#remaining-acceptance-and-experiment-gates).
 
 `train.sql_capture` now supports trusted host execution one program at a time.
 Observation A can inform submission B through the existing canonical
@@ -33,34 +83,36 @@ normally within a parent 10-second kill/reap deadline. Independent bypasses of
 each guard caused one sentry assertion failure.
 
 Fresh Python static re-review closed the P2 with no new findings. Backend capture
-is implemented and targeted-verified, not fully offline accepted. The final
+was implemented and targeted-verified, not fully offline accepted. That
 independent default run completed all 2,224 selected tests across 38 modules:
 **2,222 passed, 1 failed, 1 skipped, 2 deselected in 428.41s**, exit 1.
 All 276 capture and 319 exact legacy cases passed; optional torch was absent,
 and two tokenizer controls were deselected by configuration. External-network,
 cache and tokenizer audit counts were zero, with five permitted loopback events.
 
-The unresolved failure is the existing isolated bench baseline in
+The historical failure was the existing isolated bench baseline in
 `tests/test_mutation_harness.py::test_ptc_real_isolated_baseline_collects_and_passes[bench]`:
 nested exit 1 (2 failed, 509 passed, 1 skipped, 2 deselected in 38.30s).
-Retained inner detail names the parity interruption-cleanup case; the other
-detail is unavailable. The baseline copies ptc/ledger/bench, not train.
+Retained inner detail names the parity interruption-cleanup case; the second ID
+and both assertion bodies are unavailable. The baseline copies ptc/ledger/bench,
+not train.
 Direct outer parity cases passed. Startup-fixture investigation ended with
 all candidate timer edits reverted, no weakened guards and 17 probe PIDs absent.
-No fixture repair remains assigned or retained. Baseline infrastructure remains
-an unresolved blocker, not a proven production cleanup defect. See the
+No fixture repair remained at that checkpoint. The later readiness repair above
+demonstrates and fixes a fresh gap; it cannot identify the unknown historical
+failure or establish a production cleanup defect. See the
 [capture contract](../spec/sql-execution-capture.md) for exact scope and receipts.
 
-The capture prerequisite is complete. Next research gates remain executable
-skill generation/promotion with held-out
-transfer, adaptive context/delegation policy with complete economics, and the
-real native rollout/optimizer/checkpoint gate. None is supplied by capture.
+The capture prerequisite was complete. Caller-authored qualification/reuse has
+since been implemented above; model generation and held-out benefit, adaptive
+context/delegation policy with complete economics, and the real native
+rollout/optimizer/checkpoint gate remain separate. None is supplied by capture.
 No model/provider trajectory, token fidelity, learning gain, crash recovery,
 exactly-once effect, OS sandbox, or experiment-ready claim follows. The
 [Prime/T3 synthesis](../research/2026-10-24-prime-t3-opportunities.md) ranks those
 experiments separately. Later sections retain earlier checkpoint receipts.
 
-## Current boundary
+## Earlier native-training checkpoint
 
 The repository has a working SQL execution instrument and offline training
 components. `train.grpo_ptc.sql_environment(task)` now binds a fresh PTC
@@ -86,8 +138,8 @@ probe nor a frozen-policy frontier measurement. See [v10](probe-v10.md).
 
 Native construction passed **139 targeted tests**. Six independent in-memory
 source controls failed as expected (1/1/1/1/2/1), with six passing baselines.
-The current offline warm-cache suite passed **1861 tests, one optional torch
-skip**, in 291.67s. Python/security review was static. Conditional tokenizer
+At that checkpoint the offline warm-cache suite passed **1861 tests, one optional
+torch skip**, in 291.67s. Python/security review was static. Conditional tokenizer
 rendering passed, but cached automatic template selection remains rejected.
 No actual native Trainer/gradient/checkpoint run was performed. Receipts:
 [`research/2026-10-23-native-training.json`](../research/2026-10-23-native-training.json).
@@ -289,30 +341,33 @@ See [the test-first plan](../spec/process-watchdog.md)
 and [validation record](../research/2026-10-23-process-watchdog.json).
 It does not contain setsid escapes, bound output volume or fix sweep daemons.
 
-## Blocking findings still open
+## Remaining acceptance and experiment gates
 
-1. **Sweep timeouts still leave work alive.** Wrapper isolation fixes the
-   reproduced wrong-database race, not cancellation. A daemon can retain CPU
-   and its private directory until the query finishes or the process exits.
-2. **The default suite is not cold-cache offline.** With fresh temporary HF
-   caches and offline flags, both tokenizer-backed contamination controls
-   failed with `LocalEntryNotFoundError`/`OSError`. Warm-cache green does not
-   establish a reproducible bootstrap. A complete development dependency
-   contract and explicit tokenizer-integration path remain to be chosen.
+1. **Bounded offline acceptance is complete.** The complete configured default
+   run passed 2,446 tests, with one optional torch skip and two existing
+   tokenizer-integration deselections. Three independent static reviews found
+   no issues. Historical non-green results remain historical; this does not
+   establish the unknown old assertions' root causes.
+2. **Native runtime/bootstrap remains unverified.** Default pytest already
+   excludes two tokenizer integration controls; explicit local integration is
+   artifact-pinned. That separation does not approve an actual model/template,
+   compatible patched training stack or reproducible model bootstrap.
 3. **Invalid-gold reward policy remains unresolved.** The reward still maps
    invalid golds to zero. Result-set validation does not decide whether future
    training should void or mask those tasks.
 
-These findings block an experiment-ready claim. No new GPU job or paid call is
-needed to reproduce them.
+These gates block an experiment-ready claim. Targeted offline mechanics do not
+authorize training.
 
 ## Completion order and acceptance checks
 
-### 1. Close remaining process and bootstrap gaps
+### 1. Close integrated validation and runtime/bootstrap gates
 
-Cancel timed-out sweep work; mutation suites now have bounded original-group
-cleanup. Choose a reproducible tokenizer integration path. Resolve invalid-gold
-void/masking policy separately from the
+The bounded default-suite/review gate is complete. Sweep work already runs
+in owned isolated processes; the fixture handshake tests readiness without
+changing production deadlines. Keep explicit tokenizer integration separate
+from default offline checks and choose a reproducible approved model/runtime
+bootstrap. Resolve invalid-gold void/masking policy separately from the
 completed SQL-action and result-set repairs. Preserve the failing controls and
 valid-query parity tests. Do not silently repair the eight historical channel
 divergences.

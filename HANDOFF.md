@@ -1,12 +1,152 @@
 # HANDOFF — model-harness co-training
 
-**Current state is this section. Everything under [History](#history) is the body this
-section superseded, kept verbatim** — the convention in this repo is to correct visibly, not
-to overwrite.
+**The first current-state section supersedes every earlier checkpoint below.**
+Historical receipts, including non-green runs, are retained rather than rewritten.
+The original body remains under [History](#history).
 
 ---
 
-## Current state, 2026-10-24, incremental SQL/PTC execution capture
+## Current state, 2026-10-24, executable skills and fixture readiness
+
+**Bounded offline acceptance receipt, 2026-10-24.** The implementation base is
+`8efeb93b55f4435c7b6913156c082b87f4290fc1`, branch
+`fix/nonfinite-dead-group-monitor`. Acceptance binds tested source bytes, not
+future commit metadata or a permanent current-HEAD claim. Complete configured
+default validation passed; independent Python/general/security static reviews
+read all seven implementation files and found no issues. General static review
+also found no issues in the four integration docs before this receipt update.
+Execution validation was performed separately, not by those reviewers. No push
+or deployment occurred.
+
+### Implemented boundary
+
+[Executable SQL skills](spec/sql-executable-skills.md) are caller-authored,
+explicitly opt-in mechanics, not automatic AI learning:
+
+- `create_candidate(source_capture, *, source_task, source_ids, skill_id,
+  program)` is data-only. Required `source_task` corrects the original contract:
+  capture fingerprints cannot recover routing fields. Exact task/ID consistency
+  and declared valid EX=0 are checked; no source rescore or program runs here.
+  Scope is exactly `source`, `shape`, `coarse_shape`, for routing only.
+- `evaluate_candidate` is provisional. Literal `allow_execution is True`
+  submits once through existing capture. Observation must begin at byte zero
+  with `FINAL_SQL:` and a nonempty SQL suffix. Only the suffix reaches `finish`;
+  malformed/runtime rejection aborts unscored, well-framed wrong SQL can score 0.
+- `promote_candidate` checks an external whole-source-envelope SHA and
+  independently rescores source to valid EX=0. It pre-admits exactly four
+  externally supplied qualification cases with matching roles/scope/provenance,
+  non-source splits, and scoped IDs/task fingerprints/DB digests distinct from
+  source and each other. The same program actually runs once per case, at most
+  four submissions, no retries. Only four valid EX=1 results yield a receipt.
+  Actual captures return separately, not as embedded gold/transcripts.
+- `reuse_promoted` checks externally approved whole-promotion-envelope SHA,
+  candidate SHA, exact approval IDs, scope/source and current capture/runtime
+  plus both new module bindings before dispatch. It need not reopen origin or
+  qualification DBs. Payload self-digests and entire-envelope pins differ;
+  neither authenticates approval. Caller owns trusted evaluator/assets/pins.
+
+Programs: at most 65,536 UTF-8 bytes. Separate canonical frozen artifacts:
+at most 8 MiB. No registry or automatic writes. Existing budget counts eight
+PTC submissions, not internal SQL calls; this workflow uses one per case.
+Five-second tracing/output bounds are not an OS sandbox, hard-memory bound or
+hard deadline. Distinct DB bytes/IDs are not independent draws or semantic
+diversity proof; selected source pins are not in-memory attestation.
+
+Native discovery remains exactly one `run_program`; default arms, graders,
+trainer and scientific preregistration are unchanged. No model/provider
+generation, learned policy, weight update, GPU workflow, adaptive
+context/delegation or T3 runtime was added. See [train usage](train/README.md)
+and the [remaining research matrix](research/2026-10-24-prime-t3-opportunities.md).
+
+### Targeted receipts
+
+Evidence base:
+`/Users/nikolassapalidis/scratch/co-train-completion-2026-10-24/`.
+
+- Skills: tests-first **185 failures**, then final **218 new passes**.
+  `skills-regression-02.log`: **813 passed in 57.33s**, comprising skills,
+  unchanged 276 capture and exact 319 legacy cases. Five baseline controls
+  passed; separate source-rescore/disjointness/actual-rerun/scope/approved-pin
+  bypasses each caused one intended assertion failure, not import/stale-binding
+  errors (`skills-control-*-02.log`).
+- Catalog-discovering, identifier-quoting code qualified on four differently
+  named schemas with 0/1/3/7 rows and reused on fresh 11/13-row DBs.
+  `skills-regression-temp-02/test_fresh_process_receipt_reu0/fresh-process-reuse-receipt.json`
+  records two actual dispatches and two valid EX=1 results in a fresh process
+  after origin and qualification DBs were deleted. This proves mechanics,
+  not model-generated skill discovery, scientific generalization or a new win.
+- Bench fixture repair requires real parent/grandchild ACKs and original
+  PID/PGID/session before release. Startup is independently bounded to 5s;
+  cleanup remains under 1s from the real trigger. Late-effect observation is
+  at least 0.8s after return, with a separate 20s emergency supervisor.
+  The 0.2s observer and production 30/45s deadlines are unchanged.
+  `readiness-worker-qs2r82r0/complete-handshake-repeat-results.json`: **80/80**
+  normal runs (four cases, startup delays 0/0.2s, ten repetitions) and
+  **20/20** disabled-termination controls detected actual workers/late effects.
+- `readiness-worker-qs2r82r0/final-baseline-results.json`: three actual fresh-copy
+  isolated bench baselines, each **516 passed, one optional skip, two configured
+  deselections**. Complete parity file: **56 passed**.
+  `final-owned-and-evidence-audit.json` in that directory records 95 observer
+  records with zero errors and 27 PIDs absent per baseline; aggregate 686
+  recorded PIDs absent is not a global process proof. Ten earlier invalid
+  harness runs failed with zero reports and were preserved/excluded.
+
+These earlier targeted harness audits recorded zero network/cache/tokenizer/
+loopback events. They are not the full-run audit below and do not claim
+arbitrary-child telemetry. No dependency download or paid network was needed.
+
+### Independent final acceptance
+
+Evidence directory:
+`/Users/nikolassapalidis/scratch/co-train-completion-2026-10-24/final-validator-vdespsu0/`.
+Primary files: `validation-receipt.json`, `full-suite.log` and
+`evidence-manifest.json`; all 68 evidence files were read back by the validator.
+
+Complete default offline pytest used
+`-q -ra --tb=short -o faulthandler_timeout=60`, with no path selection, filters,
+`-x`, retries or additional deselections: **2,446 passed, 1 skipped,
+2 deselected in 251.42s**, exit **0**. The skip is unavailable optional torch;
+the two deselections are the existing `tokenizer_integration` configuration.
+`step2` is outside configured default testpaths. Actual nested baselines passed:
+PTC **361**, ledger **30**, bench **516**, with the bench optional skip and two
+configured deselections. Full nested output is retained; the bench receipt is
+`nested-0002-ptc.stdout.log` (legacy filename, actual `bench/` arguments).
+
+Pytest-process audit: external-network attempts **0**, cache accesses **0**,
+tokenizer loads **0**, allowed loopback events **5**. Children inherited the
+previously sensitivity-verified OS network-deny sandbox; pytest audit hooks do
+not establish arbitrary-child telemetry. Implementation source bindings stayed
+unchanged throughout validation.
+
+Five fresh skill baseline controls passed. Five separate in-memory bypasses
+each caused one intended assertion failure: source rescoring, disjointness,
+actual qualification reruns, scope and approved promotion pin. The independent
+validator reconstructed these controls against actual exports/tests because the
+author's root scratch script was absent; no import, stale-binding or collection
+failure counted. Four disabled-termination cleanup controls also failed ordinary
+assertions before emergency cleanup, after real parent/grandchild ACKs and
+PID/PGID/session checks. Late effects were observed at least 0.855s after return;
+sentinels remained intact and all 14 recorded owned PIDs, including supervisors,
+were absent afterward. Cleanup controls had 52 observer records, zero errors.
+The full run recorded 27 outer and 27 nested bench fixture PIDs absent;
+combined recorded fixture evidence covered 64 absent PIDs, 252 observations and
+zero observer errors. These are owned recorded PIDs, not global process clearance.
+
+The readiness gap was demonstrated against old source by two RED failures and
+repaired without weakening the observer. The historical full run below had
+**2,222 passed, one outer failure and two nested bench failures**. Only one
+nested ID survived; the second ID and both assertion bodies were lost.
+Fresh readiness evidence cannot explain or retroactively fix the unknown
+historical failure. The current full pass clears the offline blocker without
+proving those lost assertions' root causes or a production watchdog defect.
+
+The bounded offline workflow/readiness gate is accepted. Model-generated
+skills/held-out benefit, context/delegation economics and real native training
+remain separate gates.
+Historical 6.1–8.2× economics were setup-specific, no-cache results; the original
+accuracy thesis failed. No new economic or scientific claim follows.
+
+## Historical checkpoint, 2026-10-24, incremental SQL/PTC execution capture
 
 `train/sql_capture.py` implements trusted host capture through the unchanged
 canonical `train.grpo_ptc.sql_environment(task)`. `start_capture` requires

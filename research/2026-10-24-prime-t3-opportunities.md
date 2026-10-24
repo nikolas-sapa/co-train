@@ -99,43 +99,51 @@ executed/refused records, protected final-only scoring, and abort without score.
 Capture requires current task/ID/DB/source/settings bindings and data-only
 decoding. Finish must not replay actions.
 
-Status: implemented trusted-host capture. The real offline harness first produced
-252 expected missing-API failures, then 252 focused passes. The independent
-exact legacy + capture scope passed 571; an earlier 570 used a different fourth
-legacy module, not one missing test. Python review found quadratic extraction
-work possible within the format size cap. Capture now limits UTF-8 byte length
-plus raw semicolon-prefix byte work to 64 MiB per extraction invocation,
-conservatively counting discarded text and quoted/comment semicolons.
-Admitted answers still use the unchanged shared extractor.
+Status: implemented trusted-host capture, including the 64 MiB per-invocation
+extraction-work admission bound. Admitted answers use the unchanged extractor.
+The historical default run was non-green (2,222 passed, one outer failure with
+two nested bench failures). One nested ID and both assertion bodies were lost;
+new fixture results cannot explain the unknown historical failure.
 
-The repair had 17 behavioral RED failures, then 24 focused passes and 595 exact
-combined passes. A fresh real-code attack rejected normally under a parent
-10-second kill/reap deadline; bypassing either guard independently produced
-sentry assertion failure. Original DB/budget/replay/sealed controls were also
-verified. All new audit violation counters were zero. General/security reviews
-found no issues; fresh Python static re-review closed the P2 with no new findings.
-Final independent default execution completed all 2,224 selected tests in 38
-modules: **2,222 passed, 1 failed, 1 skipped, 2 deselected in 428.41s**, exit 1.
-All 276 capture and 319 exact legacy cases passed. External-network/cache/tokenizer
-audits were zero; five permitted loopback events occurred. The skip is optional
-torch absent; the deselections are configured tokenizer controls.
-The unresolved isolated bench baseline failure copies ptc/ledger/bench, not train.
-Direct outer parity cases passed; startup-fixture investigation ended with every
-candidate edit reverted and no retained repair or weakened guard. This is a
-baseline infrastructure blocker, not a proven production cleanup defect.
-No full-suite GREEN is claimed; the spec records scope and receipts.
-This is fixture execution, not provider-message/token-faithful model capture,
-a learned policy, or permission to run training. PTC is not an OS sandbox.
+## Bounded executable workflow implemented
 
-## Ranked backlog, capture prerequisite complete
+[Caller-authored executable skills](../spec/sql-executable-skills.md) now support
+data-only candidate creation, provisional evaluation, actual four-case
+qualification and externally approved reuse. Required `source_task` supplies
+the exact routing fields absent from capture. Promotion independently rescores
+the whole-envelope-pinned source to valid EX=0 and reruns the same program once
+on each of four externally supplied, scope-matched cases. All four must return
+valid EX=1. Distinct scoped IDs, task fingerprints, DB digests and non-source
+splits are admission checks, not proof of independent draws or semantic diversity.
+Reuse checks externally approved whole-envelope pins and current bindings.
+Payload self-digests alone authorize nothing; evaluator/assets/approval remain
+trusted-host responsibilities.
 
-Backend capture is implemented and targeted-verified, not fully offline accepted.
-Skill generation/promotion is not implemented. All thresholds below are proposed
-screens, not achieved results or build approval.
+The combined skills/capture/exact-legacy scope passed **813 checks**, including
+fresh-process reuse after origin/qualification DB deletion. Five separate
+guard bypasses failed intended assertions. Catalog-discovering, identifier-quoting
+code transferred across local fixture schemas; this demonstrates executable
+mechanics, not model generation, learned policy or scientific generalization.
+The bench readiness fixture now has a parent/grandchild handshake and targeted
+positive/disabled-termination controls without changing production timeouts.
+**Bounded offline acceptance, 2026-10-24:** complete configured default execution
+finished **2,446 passed, 1 skipped, 2 deselected in 251.42s**, exit 0. Torch was
+unavailable; the tokenizer-integration deselections were already configured.
+Independent Python/general/security static reviews found no issues; execution
+validation was separate. This clears the bounded offline gate, not a learning
+or performance claim. Raw full-suite receipt, audit scope and historical
+boundaries: [HANDOFF](../HANDOFF.md).
+
+## Ranked backlog, capture and caller-authored mechanics complete
+
+Automatic candidate generation and broader learned-policy experiments remain
+unimplemented. All thresholds below are proposed screens, not achieved results
+or build approval. Native discovery, default arms, graders and training gates
+are unchanged; no T3 runtime or provider integration was added.
 
 | Rank | Bet and prior art | Cheapest useful screen | Defer or kill when |
 |---|---|---|---|
-| 1 | Executable skills that transfer. Prime packaging, Voyager-style libraries, Continual Harness, GEPA motivate versioned code plus applicability contracts and independent promotion. | 20 development + 40 unseen schema/project variants, 3 paired seeds. Compare no library, descriptions only, frozen hand-written helpers, ordinary reflection, and evaluated executable promotion. Target at least 20% fewer repeated tool failures, success loss at most 1 percentage point, all-in cost at most 10% above strongest baseline. | Capture prerequisite complete; generation/promotion remains unimplemented and separately gated. Kill on any promoted known-wrong helper or no failure reduction. Require fresh-process imports/invocations and held-out cross-interface transfer before a learning claim. |
+| 1 | Executable skills that transfer. Prime packaging, Voyager-style libraries, Continual Harness, GEPA motivate versioned code plus applicability contracts and independent promotion. | 20 development + 40 unseen schema/project variants, 3 paired seeds. Compare no library, descriptions only, frozen hand-written helpers, ordinary reflection, and evaluated executable promotion. Target at least 20% fewer repeated tool failures, success loss at most 1 percentage point, all-in cost at most 10% above strongest baseline. | Caller-authored qualification/reuse mechanics accepted through the bounded offline gate. Automatic generation and this comparison remain gated. Kill on any promoted known-wrong helper or no failure reduction. Local fresh-process invocation is not held-out cross-interface transfer or a learning claim. |
 | 2 | Evidence/context and delegation economics. RLM computation, Prime retrieval/factory, T3 routing/handoff, GEPA motivate choosing observations and specialists under deterministic admission/budgets. | 30 development + 60 unseen tasks, 3 seeds, 8,000-token observation budget. Compare lexical, hybrid reranked, fixed-fanout, no-delegation, and learned allocation. Target 20% lower complete cost with at most 1-point success loss, or 5-point success gain at matched cost. | Defer adaptive retrieval and provider/native integration. Kill if savings disappear after child/summary charges or reasoning/tool options change silently. Strong deterministic routing may be enough. |
 | 3 | Witnessed continuation and correct stopping. Prime goals/gates and T3 generation/transfer/ACK patterns motivate requirement-indexed evidence deltas. | 50 blocked + 50 solvable tasks, each with 3 fresh continuation points. Against fixed retries, deterministic evidence gates, and always-continue: 25% fewer unnecessary continuations, false success below 1%, success loss at most 1 point. At least 95% of unchanged blockers stop/escalate within 3 cycles. | Defer retained-worker protocol changes. Kill on false completion from a missing required artifact. Do not promise arbitrary exactly-once effects or restart continuation. |
 | 4 | Small-model/tool co-specialization. Continual Harness DAgger/PRM/SFT and ordinary distillation motivate weight × tool/library ablations. | First prove 10 real rollout/update/reload examples: nonzero changed trainable tensors, checkpoint identity, fresh-process generation, and a zero-learning-rate negative control. Only then compare frozen/trained weights × frozen/updating library on 40 fresh tasks, 3 seeds, with a withheld task family. | Native training remains fail-closed. Stop on template/runtime/update/reload failure. Defer GPU/training until this gate and demand justify cost. Scripted replay or incremental capture does not satisfy it. |
@@ -162,7 +170,8 @@ report training amortization at 100, 1,000, and 10,000 uses. Immutable held-out
 tasks and evaluator assets stay outside solver control. Negative controls must
 actually fail before green results are trusted.
 
-Near term: resolve the documented isolated bench baseline blocker before claiming
-full offline acceptance. Skills, context/delegation policy,
-witnessed continuation, and native model training remain separate gated work.
+The bounded offline gate is accepted. The demonstrated fixture readiness gap is
+repaired, not a reconstruction of both historical failures. Model-generated
+skills, context/delegation policy, witnessed continuation and native model
+training remain separate gated work.
 Neither accepted refinement nor durable "done" status establishes improvement.

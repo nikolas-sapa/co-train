@@ -65,9 +65,13 @@ def _executing(pid):
         ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True,
         text=True, check=False, timeout=0.2,
     )
-    return status.returncode == 0 and bool(status.stdout.strip()) and not (
-        status.stdout.strip().startswith("Z")
-    )
+    state = status.stdout.strip()
+    assert status.returncode in (0, 1), (pid, status)
+    assert (status.returncode == 1 and not state) or (
+        status.returncode == 0 and state and state != "UNKNOWN"
+        and state[0] in "IRSDTUXZ"
+    ), f"process observer failed: {pid}: {status}"
+    return status.returncode == 0 and not state.startswith("Z")
 
 
 def _already_reaped(pid):
@@ -78,8 +82,8 @@ def _already_reaped(pid):
     return False
 
 
-def _probe(mode, root):
-    """Runs inside an independent <3s supervisor, never in pytest's process."""
+def _probe(mode, root, startup_delay=0.0):
+    """Separate <=5s readiness from the real watchdog's measured cleanup."""
     import process_watchdog
 
     first, second = _task(root, 17), _task(root, 29)
@@ -87,17 +91,86 @@ def _probe(mode, root):
     parent.mkdir()
     sentinel = parent / "unrelated"
     sentinel.write_text("preserve")
-    directories, allowances, commands = [], [], []
+    directories, allowances, commands, readiness = [], [], [], []
     state = {"mode": mode, "timeout": 0.10 if mode in ("slow", "binding") else 1.0}
     original_run = process_watchdog.run_bounded
     original_command = getattr(sweep, "_worker_command", None)
     original_deadline = getattr(sweep, "_with_deadline", None)
+    original_popen = subprocess.Popen
+
+    class FixturePopen(original_popen):
+        """Only fixture launches wait before production enters communicate().
+
+        run_bounded constructs Popen BEFORE its try/communicate(timeout) call.
+        Keep that real call and its timeout intact; stage startup here, release
+        both executing processes at the communication boundary, then start work.
+        Inherit context-manager/wait/poll behavior, including real cleanup calls.
+        """
+
+        def __init__(self, args, **kwargs):
+            self.control = None
+            launched_at = time.monotonic()
+            super().__init__(args, **kwargs)
+            if len(args) < 4 or args[1] != str(FIXTURE):
+                return
+            if kwargs.get("start_new_session"):
+                # Persist the actual launch group even if startup never reaches
+                # the fixture's own identity write. Outer emergency cleanup owns it.
+                identity = {"pid": self.pid, "pgid": os.getpgid(self.pid),
+                            "sid": os.getsid(self.pid), "owner": str(root)}
+                assert identity["pgid"] == identity["sid"] == self.pid
+                (root / f"launch-{self.pid}.json").write_text(json.dumps(identity))
+            if args[3] not in ("slow", "binding", "leader-exit", "interrupt", "finite"):
+                return
+            self.control = root / f"ready-{Path(args[4]).name}"
+            self.ready_until = launched_at + 5.0
+            identities = self.wait_for("ready.json")
+            assert len(identities) == (1 if args[3] == "finite" else 2)
+            assert identities[0]["pid"] == self.pid
+            for owned in identities:
+                assert owned["owner"] == str(root)
+                assert owned["pgid"] == owned["sid"] == self.pid
+                assert os.getpgid(owned["pid"]) == os.getsid(owned["pid"]) == self.pid
+                assert _executing(owned["pid"]), "readiness requires executing work"
+            self.record = {"mode": args[3], "identities": identities, "launched_at": launched_at,
+                           "ready_at": time.monotonic()}
+            readiness.append(self.record)
+
+        def wait_for(self, name):
+            path = self.control / name
+            while not path.exists():
+                assert self.poll() is None, f"fixture exited before {name}"
+                assert time.monotonic() < self.ready_until, f"missing readiness: {name}"
+                time.sleep(0.001)
+            return json.loads(path.read_text())
+
+        def publish(self, name, value):
+            path = self.control / name
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(value))
+            temporary.replace(path)
+
+        def communicate(self, *args, **kwargs):
+            if self.control is not None and "released_at" not in self.record:
+                released_at = time.monotonic()
+                self.publish("release.json", released_at)
+                assert self.wait_for("released.json") == self.record["identities"]
+                # Both peers acknowledged release before the short deadline.
+                assert time.monotonic() < self.ready_until
+                self.record.update(released_at=released_at,
+                                   release_ack_at=time.monotonic())
+                self.publish("go.json", True)
+                self.record["communicate_at"] = time.monotonic()
+                self.record["timeout"] = kwargs["timeout"]
+            return super().communicate(*args, **kwargs)
+
+    subprocess.Popen = FixturePopen
 
     def fixture_command(bindir, command=(), result=None):
         directories.append(Path(bindir))
         return [
             sys.executable, str(FIXTURE), str(root), state["mode"],
-            str(bindir), str(result or "-"), *map(str, command),
+            str(bindir), str(result or "-"), str(startup_delay), *map(str, command),
         ]
 
     def bounded(args, **kwargs):
@@ -149,8 +222,15 @@ def _probe(mode, root):
         # cleanup exception itself as proof our liveness assertions are sensitive.
         row = {"agreed": False, "error": str(error),
                "delivery_causes": ["cleanup_failure"], "render_causes": []}
-    returned = time.monotonic() - started
     returned_at = time.monotonic()
+    trigger = root / f"ready-{directories[0].name}" / "trigger.json"
+    if mode in ("interrupt", "leader-exit"):
+        assert trigger.exists(), "fixture must reach its actual trigger"
+        trigger_at = json.loads(trigger.read_text())
+    elif readiness:
+        trigger_at = readiness[0]["communicate_at"] + state["timeout"]
+    else:
+        trigger_at = started
     private_at_return = [str(path) for path in directories if path.exists()]
     pids_path = root / "pids.json"
     pids = json.loads(pids_path.read_text()) if pids_path.exists() else []
@@ -162,14 +242,19 @@ def _probe(mode, root):
         with ThreadPoolExecutor(max_workers=2) as pool:
             rows = list(pool.map(lambda task: sweep._one(task, parent, "set", 10),
                                  (first, second)))
-    # More than fixture's .80s marker delay; return-to-check remains <1s.
+    binding_pids = [owned["pid"] for ready in readiness[1:] for owned in ready["identities"]]
+    # At least .80s AFTER return, also beyond the release-relative marker delay.
     # Protocol-error workers create no descendants, so need no late-marker wait.
     if pids:
         time.sleep(max(0.0, returned_at + 0.85 - time.monotonic()))
     return {
-        "row": row, "rows": rows, "returned_s": returned,
+        "row": row, "rows": rows, "returned_s": returned_at - trigger_at,
+        "wall_s": returned_at - started, "readiness": readiness,
         "pids": pids, "live_at_return": live_at_return,
         "leader_reaped": leader_reaped,
+        "binding_pids": binding_pids,
+        "binding_live": [pid for pid in binding_pids if _executing(pid)],
+        "binding_reaped": all(_already_reaped(pid) for pid in binding_pids),
         "late_check_elapsed_s": time.monotonic() - returned_at,
         "live_after": [pid for pid in pids if _executing(pid)],
         "late_marker": (root / "late-marker").exists(),
@@ -181,12 +266,12 @@ def _probe(mode, root):
     }
 
 
-def _supervised(tmp_path, mode):
+def _supervised(tmp_path, mode, startup_delay=0.0):
     """Independent supervisor: never call the production watchdog or its helpers."""
     started = time.monotonic()
     process = subprocess.Popen(
         [sys.executable, "-B", str(Path(__file__).resolve()),
-         "--probe", mode, str(tmp_path)],
+         "--probe", mode, str(tmp_path), str(startup_delay)],
         cwd=ROOT, start_new_session=True, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, text=True,
         env={**os.environ, "PYTHONPATH": str(ROOT), "PYTHONDONTWRITEBYTECODE": "1",
@@ -194,16 +279,20 @@ def _supervised(tmp_path, mode):
              "HF_DATASETS_OFFLINE": "1"},
     )
     try:
-        stdout, stderr = process.communicate(timeout=2.5)
+        # Emergency ceiling only. Binding starts three workers; none of this
+        # startup/observation time belongs to the <1s cleanup measurement.
+        stdout, stderr = process.communicate(timeout=20.0)
         assert process.returncode == 0, stderr
         report = json.loads(stdout)
     finally:
         # Probe has already captured return-time liveness and waited for markers.
         # Only now clean the supervisor's group and recorded original worker groups.
         groups = {process.pid}
-        records = [json.loads(path.read_text()) for path in tmp_path.glob("group-*.json")]
+        records = [json.loads(path.read_text()) for pattern in ("group-*.json", "launch-*.json")
+                   for path in tmp_path.glob(pattern)]
+        assert all(owned["owner"] == str(tmp_path) for owned in records)
         groups.update(owned["pgid"] for owned in records
-                      if owned["pgid"] == owned["pid"])
+                      if owned["pgid"] == owned["sid"] == owned["pid"])
         for pgid in groups:
             try:
                 os.killpg(pgid, signal.SIGKILL)
@@ -211,31 +300,41 @@ def _supervised(tmp_path, mode):
                 pass
             except PermissionError:
                 # Darwin can deny signals to a group containing only zombies.
-                pids = tmp_path / "pids.json"
-                assert pids.exists() and not any(
-                    _executing(pid) for pid in json.loads(pids.read_text()))
+                members = ({process.pid} if pgid == process.pid else
+                           {owned["pid"] for owned in records if owned["pgid"] == pgid})
+                assert members and not any(_executing(pid) for pid in members)
         process.wait(timeout=0.15)
         process.stdout.close()
         process.stderr.close()
         assert all(owned["pgid"] in groups for owned in records)
-    assert time.monotonic() - started < 3.0
+    assert time.monotonic() - started < 20.0
     return report
 
 
 def _assert_owned_stopped(report):
     assert len(report["pids"]) == 2, "worker AND grandchild must actually start"
+    assert len(report["readiness"]) == (3 if report["rows"] else 1)
+    ready = report["readiness"][0]
+    assert [owned["pid"] for owned in ready["identities"]] == report["pids"]
+    for ready in report["readiness"]:
+        assert (ready["launched_at"] <= ready["ready_at"] <= ready["released_at"]
+                <= ready["release_ack_at"] <= ready["communicate_at"])
+        assert ready["release_ack_at"] - ready["launched_at"] <= 5.0
+    assert 0 <= report["returned_s"] < 1.0, "cleanup must finish <1s after trigger"
     assert not report["live_at_return"], f"owned work still executing: {report}"
-    assert report["leader_reaped"], "owned leader must already be reaped"
-    assert not report["live_after"], report
     assert not report["late_marker"], "owned descendant produced a late side effect"
-    assert report["late_check_elapsed_s"] < 1.0
+    assert report["leader_reaped"], "owned leader must already be reaped"
+    assert not report["binding_live"] and report["binding_reaped"]
+    assert not report["live_after"], report
+    assert report["late_check_elapsed_s"] >= 0.8
     assert not report["private_at_return"], "parent must clean before returning"
     assert not report["private_after"]
     assert report["sentinel"] == "preserve"
 
 
-def test_timeout_stops_owned_work(tmp_path):
-    report = _supervised(tmp_path, "slow")
+@pytest.mark.parametrize("startup_delay", [0.0, 0.2])
+def test_timeout_stops_owned_work(tmp_path, startup_delay):
+    report = _supervised(tmp_path, "slow", startup_delay)
     assert report["row"]["delivery_causes"] == ["sweep_timeout"]
     assert not report["row"]["agreed"]
     assert report["returned_s"] < 1.0
@@ -243,20 +342,24 @@ def test_timeout_stops_owned_work(tmp_path):
     _assert_owned_stopped(report)
 
 
-def test_cleanup_after_normal_leader_exit(tmp_path):
-    report = _supervised(tmp_path, "leader-exit")
+@pytest.mark.parametrize("startup_delay", [0.0, 0.2])
+def test_cleanup_after_normal_leader_exit(tmp_path, startup_delay):
+    report = _supervised(tmp_path, "leader-exit", startup_delay)
     assert report["row"]["agreed"]
     assert report["row"]["bash_rows"] == report["row"]["ptc_rows"] == 1
     _assert_owned_stopped(report)
 
 
-def test_task_binding_after_timeout(tmp_path):
-    report = _supervised(tmp_path, "binding")
+@pytest.mark.parametrize("startup_delay", [0.0, 0.2])
+def test_task_binding_after_timeout(tmp_path, startup_delay):
+    report = _supervised(tmp_path, "binding", startup_delay)
     assert report["row"]["delivery_causes"] == ["sweep_timeout"]
     assert [row["question_id"] for row in report["rows"]] == [17, 29]
     assert all(row["agreed"] and row["bash_rows"] == row["ptc_rows"] == 1
                for row in report["rows"])
     assert len(report["directories"]) == len(set(report["directories"])) == 3
+    assert len(set(report["binding_pids"])) == 2
+    assert all(ready["mode"] == "finite" for ready in report["readiness"][1:])
     _assert_owned_stopped(report)
 
 
@@ -453,13 +556,15 @@ def test_cleanup_failure_stays_explicit(tmp_path, monkeypatch, error_type):
     assert len(list((tmp_path / "worker").glob("query-*"))) == 1
 
 
-def test_interruption_cleans_owned_work_and_propagates(tmp_path):
-    report = _supervised(tmp_path, "interrupt")
+@pytest.mark.parametrize("startup_delay", [0.0, 0.2])
+def test_interruption_cleans_owned_work_and_propagates(tmp_path, startup_delay):
+    report = _supervised(tmp_path, "interrupt", startup_delay)
     assert report["row"] == {"interrupted": True}
     assert report["returned_s"] < 1.0
     # An interrupted caller cannot assert cleanup succeeded. Preserve its private
     # directory, but the real watchdog must still stop/reap its executing work.
     assert len(report["private_at_return"]) == 1
+    assert report["private_after"] == report["private_at_return"]
     report = {**report, "private_at_return": [], "private_after": []}
     _assert_owned_stopped(report)
 
@@ -496,17 +601,18 @@ def test_main_ownership_failure_never_writes_success_summary(tmp_path, monkeypat
     assert len(list((output.parent / "bin").glob("query-*"))) == 1
 
 
-def test_sweep_termination_guard_sensitivity(tmp_path, monkeypatch):
+@pytest.mark.parametrize("startup_delay", [0.0, 0.2])
+def test_sweep_termination_guard_sensitivity(tmp_path, monkeypatch, startup_delay):
     # Isolated mutation: suppress ORIGINAL-group signals, not production edits.
     # The finite fixture is safe even if both cleanup escalation signals disappear.
     # Mutation affects only the probe's production watchdog, NEVER its supervisor.
     monkeypatch.setenv("SWEEP_TEST_DISABLE_TERMINATION", "1")
-    report = _supervised(tmp_path, "slow")
+    report = _supervised(tmp_path, "slow", startup_delay)
     assert len(report["pids"]) == 2
     assert report["late_marker"], "negative control must produce a real late side effect"
     assert report["live_at_return"] or report["late_marker"]
     with pytest.raises(AssertionError, match="owned work still executing|late side effect"):
-        _assert_owned_stopped({**report, "leader_reaped": True})
+        _assert_owned_stopped(report)
 
 
 if __name__ == "__main__":
@@ -514,4 +620,4 @@ if __name__ == "__main__":
         import process_watchdog
         process_watchdog._signal_group = lambda process, signum: None
     assert sys.argv[1] == "--probe"
-    print(json.dumps(_probe(sys.argv[2], Path(sys.argv[3]))))
+    print(json.dumps(_probe(sys.argv[2], Path(sys.argv[3]), float(sys.argv[4]))))
