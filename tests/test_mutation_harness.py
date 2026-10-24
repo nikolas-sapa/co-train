@@ -7,6 +7,7 @@ unbounded payloads. Exit-code aggregation tests replace only the runner's run().
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import io
 import itertools
@@ -48,6 +49,26 @@ def test_registered_training_mutations_have_unique_anchors():
         if count != 1:
             invalid.append((label, filename, count))
     assert invalid == []
+
+
+@pytest.mark.parametrize("label, target", [
+    ("gate: preflight skips the gate", "preflight"),
+    ("gate: native SQL preflight skips the gate", "native_sql_preflight"),
+])
+def test_registered_gate_mutations_affect_only_the_named_lane(label, target):
+    module = _load_runner("train")
+    _, filename, old, replacement = next(row for row in module.MUTATIONS if row[0] == label)
+    source = (REPO / filename).read_text()
+    assert source.count(old) == 1
+    tree = ast.parse(source.replace(old, replacement, 1))
+    for name in ("preflight", "native_sql_preflight"):
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name)
+        calls = [
+            node for node in ast.walk(function)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id == "require_frontier_taskset"
+        ]
+        assert len(calls) == int(name != target)
 
 
 def _local_tempdirs(monkeypatch, module, tmp_path):

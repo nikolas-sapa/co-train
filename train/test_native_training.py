@@ -64,14 +64,16 @@ def tasks(tmp_path):
 
 def _replace_preflight(monkeypatch, api, replacement):
     """Patch actual module and an optional imported alias, not a public bypass."""
-    monkeypatch.setattr(grpo_ptc, "preflight", replacement)
-    if hasattr(api, "preflight"):
-        monkeypatch.setattr(api, "preflight", replacement)
+    monkeypatch.setattr(grpo_ptc, "native_sql_preflight", replacement)
+    if hasattr(api, "native_sql_preflight"):
+        monkeypatch.setattr(api, "native_sql_preflight", replacement)
 
 
 def _replace_runtime_requirement(monkeypatch, api, replacement):
     runtime = importlib.import_module("train.native_runtime")
     monkeypatch.setattr(runtime, "require_native_runtime", replacement)
+    if hasattr(grpo_ptc, "require_native_runtime"):
+        monkeypatch.setattr(grpo_ptc, "require_native_runtime", replacement)
     if hasattr(api, "require_native_runtime"):
         monkeypatch.setattr(api, "require_native_runtime", replacement)
 
@@ -88,9 +90,10 @@ def wiring(monkeypatch, api, tasks, tmp_path):
         stock_template="STOCK_TOKENIZER_TEMPLATE_WIRING_ONLY",
     )
 
-    def preflight(arms=grpo_ptc.TRAINED_ARMS_DEFAULT, root=guards.REPO_ROOT, *, steps=200):
+    def preflight(*, root=guards.REPO_ROOT, steps=200):
         state.events.append(("preflight", Path(root), steps))
-        return grpo_ptc.training_config(arms, steps=steps)
+        importlib.import_module("train.native_runtime").require_native_runtime()
+        return grpo_ptc.training_config(steps=steps)
 
     def require_runtime():
         state.events.append(("require_native_runtime",))
@@ -101,6 +104,15 @@ def wiring(monkeypatch, api, tasks, tmp_path):
     ).require_native_runtime
     _replace_preflight(monkeypatch, api, preflight)
     _replace_runtime_requirement(monkeypatch, api, require_runtime)
+    state.model_dir = tmp_path / "model-source-wiring-only"
+
+    def verify_model(model_dir, *, model_revision):
+        state.events.append(("verify_model", Path(model_dir), model_revision))
+        assert Path(model_dir) == state.model_dir
+        assert model_revision == REVISION
+        return SimpleNamespace(path=str(state.model_dir))
+
+    monkeypatch.setattr(api.native_model, "verify_local_model", verify_model)
 
     class FastLanguageModel:
         @staticmethod
@@ -229,7 +241,7 @@ def wiring(monkeypatch, api, tasks, tmp_path):
 
     def build(**overrides):
         values = dict(
-            output_dir=state.output, model_revision=REVISION,
+            output_dir=state.output, model_dir=state.model_dir, model_revision=REVISION,
             max_seq_length=grpo_ptc.training_config()["max_completion_length"] + 21,
         )
         values.update(overrides)
@@ -244,10 +256,11 @@ def wiring(monkeypatch, api, tasks, tmp_path):
 def test_public_constructor_has_no_runtime_or_gate_injection(api):
     signature = inspect.signature(api.build_sql_trainer)
     assert list(signature.parameters) == [
-        "tasks", "db_root", "output_dir", "model_revision", "max_seq_length", "steps", "root",
+        "tasks", "db_root", "output_dir", "model_dir", "model_revision", "max_seq_length", "steps", "root",
     ]
-    for name in ("output_dir", "model_revision", "max_seq_length", "steps", "root"):
+    for name in ("output_dir", "model_dir", "model_revision", "max_seq_length", "steps", "root"):
         assert signature.parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
+    assert signature.parameters["model_dir"].default is inspect.Parameter.empty
     assert signature.parameters["steps"].default == 200
     assert Path(signature.parameters["root"].default) == guards.REPO_ROOT
 
@@ -269,6 +282,7 @@ def test_real_gate_blocks_before_runtime_side_effects(api, tasks, tmp_path, monk
     monkeypatch.setattr(builtins, "__import__", guarded_import)
     monkeypatch.setattr(api, "_load_runtime", forbidden)
     _replace_runtime_requirement(monkeypatch, api, forbidden)
+    monkeypatch.setattr(api.native_model, "verify_local_model", forbidden)
     from train import sql_bridge
     monkeypatch.setattr(sql_bridge, "prepare_sql_training", forbidden)
     if hasattr(api, "prepare_sql_training"):
@@ -276,7 +290,8 @@ def test_real_gate_blocks_before_runtime_side_effects(api, tasks, tmp_path, monk
     output = tmp_path / "never-created"
     with pytest.raises(guards.PreconditionUnmet, match="gate|frontier"):
         api.build_sql_trainer(
-            tasks, tmp_path, output_dir=output, model_revision=REVISION, max_seq_length=8192,
+            tasks, tmp_path, output_dir=output, model_dir=tmp_path / "unread-model",
+            model_revision=REVISION, max_seq_length=8192,
         )
     assert attempted == []
     assert not output.exists()
@@ -297,6 +312,7 @@ from train.native_training import build_sql_trainer
 tasks = [SqlTask(**row) for row in json.loads(sys.argv[1])]
 try:
     build_sql_trainer(tasks, sys.argv[2], output_dir=sys.argv[3],
+                      model_dir=pathlib.Path(sys.argv[2])/'unread-model',
                       model_revision='a'*40, max_seq_length=8192)
 except guards.PreconditionUnmet:
     if pathlib.Path(sys.argv[3]).exists():
@@ -319,10 +335,10 @@ else:
     assert not output.exists()
 
 
-def test_preflight_then_fresh_runtime_requirement_then_imports(wiring):
+def test_fixed_preflight_then_model_verification_then_imports(wiring):
     wiring.build()
-    assert [event[0] for event in wiring.events[:3]] == [
-        "preflight", "require_native_runtime", "load_runtime",
+    assert [event[0] for event in wiring.events[:4]] == [
+        "preflight", "require_native_runtime", "verify_model", "load_runtime",
     ]
     assert wiring.events[0] == ("preflight", guards.REPO_ROOT, 200)
 
@@ -376,8 +392,9 @@ def test_constructor_arguments_are_separate(wiring, steps):
     trainer = wiring.build(steps=steps)
     assert len(wiring.loader_calls) == len(wiring.peft_calls) == len(wiring.config_calls) == 1
     loader = wiring.loader_calls[0]
-    assert loader["model_name"] == dead_group_probe.MODEL
-    assert loader["revision"] == REVISION
+    assert loader["model_name"] == str(wiring.model_dir)
+    assert loader["use_exact_model_name"] is True
+    assert "revision" not in loader
     assert loader["local_files_only"] is True
     assert loader["dtype"] is wiring.dtype
     assert loader["max_seq_length"] == trainer.args.max_completion_length + 21
@@ -413,6 +430,7 @@ def test_checkpoint_configuration_is_not_restore_proof(wiring):
 @pytest.mark.parametrize("override", [
     {"model_revision": None}, {"model_revision": "main"}, {"model_revision": "a" * 39},
     {"model_revision": "g" * 40}, {"model_revision": True},
+    {"model_dir": None}, {"model_dir": "relative/model"},
     {"max_seq_length": 0}, {"max_seq_length": -1}, {"max_seq_length": True},
     {"max_seq_length": 3537.0}, {"max_seq_length": "3537"},
     {"steps": 0}, {"steps": True}, {"steps": 1.5},

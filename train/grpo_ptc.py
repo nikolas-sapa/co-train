@@ -67,6 +67,7 @@ from train.guards import (
     require_stack,
     resolved_versions,
 )
+from train.native_runtime import require_native_runtime
 
 # -------------------------------------------------------- the one tool, again
 
@@ -280,7 +281,26 @@ def preflight(
     """
     require_frontier_taskset(root)
     require_stack(versions)
+    return _preflight_invariants(arms, root, steps)
 
+
+def native_sql_preflight(
+    *, root: pathlib.Path = REPO_ROOT, steps: int = 200,
+) -> dict[str, Any]:
+    """Fixed native SQL lane, with the same frontier and scientific invariants.
+
+    Installed metadata is read afresh by the native policy. Its unresolved
+    verification requirements still refuse activation, even at the exact pins.
+    """
+    require_frontier_taskset(root)
+    require_native_runtime()
+    return _preflight_invariants(TRAINED_ARMS_DEFAULT, root, steps)
+
+
+def _preflight_invariants(
+    arms: Sequence[str], root: pathlib.Path, steps: int,
+) -> dict[str, Any]:
+    """Shared scientific invariants, after the lane's frontier and stack gates."""
     config = training_config(arms, steps=steps)
     environment = environment_factory(root)()
     assert_one_tool(environment.tools)

@@ -5,9 +5,11 @@ The constraints describe the candidate in ``spec/native-training.md`` and
 resolver, complete graph, dynamic inspection of installed requirements or ABI
 certificate. No training frameworks are imported.
 
-The frozen Transformers<5 rule is delegated to ``guards.check_stack`` unchanged.
-Native environments additionally require >=5.2, so production enforcement is
-closed today regardless of whether the selected metadata bounds look plausible.
+The frozen Transformers<5 rule is delegated to ``guards.check_stack`` unchanged
+as default-policy diagnostics. The fixed native-only policy requires the exact
+core below, including Transformers==5.17.0. Shared stack faults are enforced
+independently. Unresolved artifact, ABI and runtime requirements still block
+production, even if every selected metadata check passes.
 """
 
 from __future__ import annotations
@@ -31,6 +33,24 @@ _CANDIDATE_CORE = (
     ("trl", "1.13.0"),
     ("transformers", "5.17.0"),
 )
+_POLICY_ID = "native-sql-tf517-v1"
+_BLOCKING_CATEGORIES = (
+    "missing", "invalid", "native", "selected", "policy", "unresolved",
+)
+_UNRESOLVED = (
+    "A complete artifact-specific transitive dependency and build graph has not "
+    "been verified, including extras, environment markers and actual artifacts; "
+    "the fixed core version table is not a lockfile.",
+    "Supported hardware, Python, CUDA builds, driver/kernel ABI and the complete "
+    "installed binary combination have not been verified.",
+    "The actual patched Unsloth/TRL runtime, import order and chat-template "
+    "semantics have not been validated for this exact native stack.",
+    "Actual exclusive, read-only artifact isolation has not been established; "
+    "verified-local loading alone does not prove isolation from shared artifacts.",
+    "Scientific measurement review is unresolved: frontier_taskset_status does "
+    "not call _check_measurement. Review is required before native activation; "
+    "this runtime-policy change does not repair or waive that scientific gate.",
+)
 _LIMITATIONS = (
     "Only selected direct constraints of the proposed core are checked; this "
     "is not full transitive dependency, extra or environment-marker resolution.",
@@ -40,8 +60,9 @@ _LIMITATIONS = (
     "formats are unevaluable here, not assumed equivalent to release versions.",
     "Actual platform and Python are recorded, not certified as a supported "
     "Linux CUDA environment by these selected package checks.",
-    "The candidate core is not owner-approved. No sampling, gradients, "
-    "optimizer step, checkpoint restoration or launch authority is established.",
+    "The fixed native-only version exception does not approve a complete "
+    "environment. No sampling, gradients, optimizer step, checkpoint restoration "
+    "or launch authority is established.",
 )
 
 # Deliberately a small release-only grammar, not a partial PEP 440 parser.
@@ -101,7 +122,8 @@ class NativeRuntimeError(RuntimeError):
                         f"{category}/{package}: {message}" for message in messages
                     )
         super().__init__(
-            "native runtime metadata is blocked; no launch is authorized:\n  - "
+            "native runtime policy is blocked; frozen entries are default-policy "
+            "diagnostics only; no launch is authorized:\n  - "
             + "\n  - ".join(diagnostics)
         )
 
@@ -156,6 +178,15 @@ def _build_report(
         for package in _PACKAGES
     }
     frozen = guards.check_stack(frozen_values)
+    policy = guards.check_stack_common(frozen_values)
+    for package, exact in _CANDIDATE_CORE:
+        # Literal strings, deliberately not PEP 440 release equivalence:
+        # 5.17, 5.17.0.0, post/dev/rc/local variants are not the approved pin.
+        if type(values[package]) is not str or values[package] != exact:
+            policy.append(
+                f"{_POLICY_ID}: {package} must be exactly {exact}; installed "
+                "metadata must match the literal version, not a release equivalent"
+            )
     native: dict[str, list[str]] = {}
     selected: dict[str, list[str]] = {}
     transformers = parsed.get("transformers")
@@ -204,7 +235,8 @@ def _build_report(
             )
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
+        "policy_id": _POLICY_ID,
         "metadata_source": source,
         "platform": {
             "system": platform.system(),
@@ -221,6 +253,8 @@ def _build_report(
             "frozen": frozen,
             "native": native,
             "selected": selected,
+            "policy": policy,
+            "unresolved": list(_UNRESOLVED),
         },
         "candidate_approved": False,
         "dependency_graph_verified": False,
@@ -260,13 +294,14 @@ def native_runtime_report(versions: Mapping[str, Any] | None = None) -> dict[str
 
 
 def require_native_runtime() -> dict[str, Any]:
-    """Enforce selected installed-metadata checks, never consume fixture reports.
+    """Enforce fixed native policy against fresh installed metadata, no inputs.
 
-    Current frozen/native Transformers requirements contradict, so this raises.
-    Even a future return after an explicitly approved contract change would be
-    a metadata report, not runtime verification or authorization to launch.
+    Default Transformers<5 diagnostics do not govern this native-only lane.
+    Shared Unsloth/TRL checks are independently enforced by ``issues.policy``.
+    Genuine unresolved requirements still block metadata-perfect environments;
+    no report or approval boolean can satisfy them.
     """
     report = _installed_report()
-    if any(report["issues"].values()):
+    if any(report["issues"][category] for category in _BLOCKING_CATEGORIES):
         raise NativeRuntimeError(report)
     return report

@@ -9,10 +9,12 @@ test failure, never a collection error or an optional-dependency skip.
 Output contract fixed here:
   schema_version, metadata_source ("installed"/"fixture"), platform
   (system/machine/python), versions, candidate_core, metadata_scope, limitations,
-  issues (missing/invalid/frozen/native/selected), and six false proof flags.
+  policy_id, issues (missing/invalid/frozen/native/selected/policy/unresolved),
+  and six false proof flags.
 Missing/invalid issues map package -> nonempty diagnostic. Frozen issues are
 the existing guards.check_stack list. Native/selected issues map package ->
-nonempty diagnostic lists. Always return all five issue categories.
+nonempty diagnostic lists. Policy/unresolved issues are diagnostic lists.
+Frozen issues describe the default policy, not the native enforcement decision.
 NativeRuntimeError carries the complete installed-source report as ``report``.
 """
 
@@ -63,7 +65,9 @@ PROOF_FLAGS = (
     "training_verified",
     "launch_authorized",
 )
-ISSUE_CATEGORIES = {"missing", "invalid", "frozen", "native", "selected"}
+ISSUE_CATEGORIES = {
+    "missing", "invalid", "frozen", "native", "selected", "policy", "unresolved",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -154,7 +158,8 @@ def _installed(monkeypatch, versions):
 def _assert_report(report, *, source, versions):
     assert isinstance(report, dict)
     assert type(report["schema_version"]) is int
-    assert report["schema_version"] == 1
+    assert report["schema_version"] == 2
+    assert report["policy_id"] == "native-sql-tf517-v1"
     assert report["metadata_source"] == source
     assert report["versions"] == versions
     assert set(report["versions"]) == set(PACKAGES)
@@ -182,8 +187,9 @@ def _assert_report(report, *, source, versions):
             assert package in PACKAGES
             assert isinstance(diagnostic, str) and diagnostic.strip()
             assert package in diagnostic
-    assert isinstance(issues["frozen"], list)
-    assert all(isinstance(item, str) and item.strip() for item in issues["frozen"])
+    for category in ("frozen", "policy", "unresolved"):
+        assert isinstance(issues[category], list)
+        assert all(isinstance(item, str) and item.strip() for item in issues[category])
     for category in ("native", "selected"):
         assert isinstance(issues[category], dict)
         for package, diagnostics in issues[category].items():
@@ -214,8 +220,10 @@ def test_runtime_report_never_certifies_execution(api):
     assert report["issues"]["invalid"] == {}
     assert report["issues"]["native"] == {}
     assert report["issues"]["selected"] == {}
-    # Even this hand-selected metadata fixture remains blocked by frozen TF<5.
+    assert report["issues"]["policy"] == []
+    # The default policy is preserved; genuine native blockers remain separate.
     assert report["issues"]["frozen"]
+    assert report["issues"]["unresolved"]
     assert not any(report.get(key, False) for key in ("ready", "compatible", "install_ready"))
 
 
@@ -305,7 +313,7 @@ def test_installed_metadata_is_fresh_not_cached_between_reports(api, monkeypatch
 
 
 @pytest.mark.parametrize("transformers", ["4.57.6", "5.17.0", "5.18.0"])
-def test_frozen_native_conflict_is_explicit_and_uses_existing_guard(api, transformers):
+def test_default_diagnostics_remain_explicit_and_use_existing_guard(api, transformers):
     from train import guards
 
     versions = _versions(transformers=transformers)
@@ -431,6 +439,9 @@ def test_original_unsloth_floor_and_trl_pin_still_block(api, package, version):
     report = api.native_runtime_report(versions)
     assert report["issues"]["frozen"] == guards.check_stack(versions)
     assert any(package in diagnostic for diagnostic in report["issues"]["frozen"])
+    common = guards.check_stack_common(versions)
+    assert common
+    assert all(diagnostic in report["issues"]["policy"] for diagnostic in common)
 
 
 @pytest.mark.parametrize("package", PACKAGES)
@@ -476,7 +487,7 @@ def test_missing_invalid_and_independent_bounds_are_all_visible(api):
 
 
 @pytest.mark.parametrize("transformers", ["4.57.6", "5.17.0", "5.18.0"])
-def test_require_remains_closed_for_each_side_of_frozen_native_contradiction(
+def test_require_remains_closed_under_fixed_native_policy(
     api, monkeypatch, transformers,
 ):
     installed = _versions(transformers=transformers)
@@ -485,7 +496,11 @@ def test_require_remains_closed_for_each_side_of_frozen_native_contradiction(
         api.require_native_runtime()
     report = caught.value.report
     _assert_report(report, source="installed", versions=installed)
-    assert report["issues"]["frozen"] or report["issues"]["native"]
+    assert report["issues"]["unresolved"]
+    if transformers == CANDIDATE_CORE["transformers"]:
+        assert report["issues"]["policy"] == []
+    else:
+        assert report["issues"]["policy"]
 
 
 def test_require_collects_actual_metadata_not_previous_fixture_or_report_cache(api, monkeypatch):
@@ -505,3 +520,100 @@ def test_require_refuses_unevaluable_installed_metadata(api, monkeypatch):
         api.require_native_runtime()
     assert caught.value.report["metadata_source"] == "installed"
     assert "transformers" in caught.value.report["issues"]["invalid"]
+
+
+@pytest.mark.parametrize("package", CANDIDATE_CORE)
+@pytest.mark.parametrize("variant", [
+    "short", "padded", "next_patch", "rc", "dev", "post", "local", "epoch", "missing",
+])
+def test_fixed_core_policy_rejects_every_nonliteral_version(api, package, variant):
+    exact = CANDIDATE_CORE[package]
+    versions = {
+        "short": exact.rsplit(".", 1)[0],
+        "padded": exact + ".0",
+        "next_patch": exact.rsplit(".", 1)[0] + "." + str(int(exact.rsplit(".", 1)[1]) + 1),
+        "rc": exact + "rc1",
+        "dev": exact + ".dev1",
+        "post": exact + ".post1",
+        "local": exact + "+local",
+        "epoch": "0!" + exact,
+        "missing": None,
+    }
+    report = api.native_runtime_report(_versions(**{package: versions[variant]}))
+    diagnostics = report["issues"]["policy"]
+    assert any(package in diagnostic and exact in diagnostic for diagnostic in diagnostics)
+    for key in PROOF_FLAGS:
+        assert report[key] is False
+
+
+def test_native_policy_calls_shared_guard_independently_of_default_diagnostics(api, monkeypatch):
+    from train import guards
+
+    seen = []
+
+    def common(versions):
+        seen.append(dict(versions))
+        return ["shared-stack-sentinel"]
+
+    monkeypatch.setattr(guards, "check_stack_common", common)
+    monkeypatch.setattr(guards, "check_stack", lambda versions: ["default-only-sentinel"])
+    report = api.native_runtime_report(SELECTED)
+    assert seen == [SELECTED]
+    assert report["issues"]["policy"] == ["shared-stack-sentinel"]
+    assert report["issues"]["frozen"] == ["default-only-sentinel"]
+
+
+def test_perfect_installed_metadata_still_refuses_every_unverified_requirement(api, monkeypatch):
+    calls = _installed(monkeypatch, SELECTED)
+    with pytest.raises(api.NativeRuntimeError) as caught:
+        api.require_native_runtime()
+    report = caught.value.report
+    _assert_report(report, source="installed", versions=SELECTED)
+    assert Counter(calls) == Counter(PACKAGES)
+    for category in ("missing", "invalid", "native", "selected", "policy"):
+        assert not report["issues"][category]
+    blockers = report["issues"]["unresolved"]
+    text = " ".join(blockers).lower()
+    for required in ("transitive", "build", "hardware", "abi", "patch", "template",
+                     "exclusive", "read-only", "measurement"):
+        assert required in text
+    for blocker in blockers:
+        assert blocker in str(caught.value)
+    assert all(report[key] is False for key in PROOF_FLAGS)
+
+
+def test_require_reads_fresh_installed_metadata_on_every_call(api, monkeypatch):
+    installed = dict(SELECTED)
+    calls = _installed(monkeypatch, installed)
+    with pytest.raises(api.NativeRuntimeError) as first:
+        api.require_native_runtime()
+    installed["transformers"] = "5.17.0.0"
+    with pytest.raises(api.NativeRuntimeError) as second:
+        api.require_native_runtime()
+    assert first.value.report["issues"]["policy"] == []
+    assert second.value.report["issues"]["policy"]
+    assert Counter(calls) == Counter({package: 2 for package in PACKAGES})
+
+
+@pytest.mark.parametrize("category", [
+    "missing", "invalid", "native", "selected", "policy", "unresolved", None,
+])
+def test_enforcement_categories_exclude_default_frozen_diagnostics(api, monkeypatch, category):
+    """Isolate aggregation only; real reports always retain unresolved blockers."""
+    report = api.native_runtime_report(SELECTED)
+    for entries in report["issues"].values():
+        entries.clear()
+    report["metadata_source"] = "installed"
+    report["issues"]["frozen"] = ["default-only-sentinel"]
+    if category in ("policy", "unresolved"):
+        report["issues"][category] = ["blocking-sentinel"]
+    elif category in ("missing", "invalid"):
+        report["issues"][category] = {"torch": "blocking-sentinel"}
+    elif category is not None:
+        report["issues"][category] = {"torch": ["blocking-sentinel"]}
+    monkeypatch.setattr(api, "_installed_report", lambda: report)
+    if category is None:
+        assert api.require_native_runtime() is report
+    else:
+        with pytest.raises(api.NativeRuntimeError, match="blocking-sentinel"):
+            api.require_native_runtime()

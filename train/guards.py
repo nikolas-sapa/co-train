@@ -97,14 +97,8 @@ def _parse_version(v: str) -> tuple[int, ...]:
     return tuple(out)
 
 
-def check_stack(versions: Mapping[str, str | None]) -> list[str]:
-    """Every fault in a resolved dependency set. An empty list means usable.
-
-    Takes a mapping instead of importing, so the guard is testable offline
-    against synthetic version sets. The training stack is not installed on the
-    dev machine and is not going to be: `trl`, `unsloth` and `torch` all resolve
-    to absent here, which is exactly the input this has to reject.
-    """
+def check_stack_common(versions: Mapping[str, str | None]) -> list[str]:
+    """The Unsloth floor and TRL pin shared by default and native policies."""
     faults: list[str] = []
     floor = ".".join(map(str, UNSLOTH_FLOOR))
     pin = ".".join(map(str, TRL_PIN))
@@ -131,6 +125,18 @@ def check_stack(versions: Mapping[str, str | None]) -> list[str]:
             "-- pin it, do not infer it."
         )
 
+    return faults
+
+
+def check_stack(versions: Mapping[str, str | None]) -> list[str]:
+    """Every fault in a resolved dependency set. An empty list means usable.
+
+    Takes a mapping instead of importing, so the guard is testable offline
+    against synthetic version sets. The training stack is not installed on the
+    dev machine and is not going to be: `trl`, `unsloth` and `torch` all resolve
+    to absent here, which is exactly the input this has to reject.
+    """
+    faults = check_stack_common(versions)
     transformers = versions.get("transformers")
     if not transformers:
         faults.append("transformers is not installed")

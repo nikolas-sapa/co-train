@@ -3,6 +3,12 @@
 2026-10-23. Baseline `d6d04f0`. Implement the missing explicit-task constructor
 path, not a training launch or an approved dependency upgrade.
 
+2026-10-24 scoped owner approval: implement fixed native-SQL policy
+`native-sql-tf517-v1` and source-pinned local-model addressing. Default TF<5 and
+scientific settings stay unchanged. The full dependency graph, hardware/ABI,
+patched runtime, exclusive read-only source isolation and scientific measurement
+review remain unresolved refusals, not authorization inferred from metadata.
+
 ## Failure-first acceptance tests
 
 1. `test_real_gate_blocks_before_runtime_side_effects`: current real preflight
@@ -14,7 +20,9 @@ path, not a training launch or an approved dependency upgrade.
    `runtime_verified=True`, `training_verified=True` or launch authorization.
    Report all missing selected packages, not just the first.
 3. `test_frozen_native_conflict_is_explicit`: TF4.57.6 fails native >=5.2;
-   TF5.17.0 fails the unchanged frozen <5 constraint; installed TF5.18.0 and
+   TF5.17.0 fails the unchanged default <5 diagnostic but satisfies only the
+   native core policy; unresolved runtime requirements still refuse it.
+   Installed TF5.18.0 and
    datasets5.0.1 additionally exceed selected Unsloth metadata bounds.
    All refuse before model loading. A supplied version dictionary cannot
    override the production runtime check.
@@ -95,11 +103,14 @@ require_native_runtime() -> dict
 Only the report accepts caller-supplied version fixtures. Production requirement
 collects fresh installed distribution metadata itself, with no caller bypass.
 No framework imports, installer, network request or environment mutation.
-Use existing `guards.check_stack` for the frozen rules, never rewrite them.
+Preserve `guards.check_stack` for default diagnostics. Share its unchanged
+Unsloth/TRL checks through `check_stack_common`; do not raise the default ceiling.
 
 Inspect selected packages: unsloth, unsloth_zoo, trl, transformers, torch,
 vllm, datasets, accelerate, peft. Explicit core proposal is Unsloth/Zoo
-2026.10.3, TRL1.13.0, Transformers5.17.0. It is not owner-approved.
+2026.10.3, TRL1.13.0, Transformers5.17.0. This literal four-version native policy
+is owner-approved; the complete candidate environment is not. Reject release
+aliases and prerelease/dev/post/local variants in the native policy.
 Report native Transformers >=5.2 separately from the general TRL package
 floor; selected Unsloth ceiling <=5.17 and datasets4.7<=version<5 separately.
 Other selected direct bounds: torch2.4<=version<2.15, vLLM .19.1 through .28,
@@ -110,12 +121,16 @@ excluded early Transformers5 releases). Unknown builds remain unverified.
 
 Use bounded strict release-version parsing, not permissive numeric coercion.
 Unknown/prerelease formats fail closed as unevaluable metadata, never pass.
-Report schema1, metadata source, actual platform/Python, exact supplied/
+Report schema2, fixed policy ID, metadata source, actual platform/Python, exact supplied/
 resolved versions, frozen/native blockers, proposed core, and permanently
 false runtime/training verification and launch-authorization fields.
 Zero selected errors can be called metadata-only, never ready/compatible.
-Require raises a named exception on blockers. Current frozen/native conflict
-must keep it closed. The report itself grants no authority to execute.
+Require raises a named exception on missing/invalid/native/selected/policy/
+unresolved blockers. Frozen diagnostics describe the default policy and do not
+alone veto this explicitly approved native exception. Shared Unsloth/TRL faults
+are independently enforced in the native policy. Unresolved graph/hardware/
+runtime/isolation/scientific requirements keep execution closed. The report
+itself grants no authority to execute.
 
 Public report fields are `schema_version`, `metadata_source` (`installed` or
 `fixture`), `platform` (system/machine/python), `versions`, `candidate_core`,
@@ -125,6 +140,8 @@ guard's list, and `native`/`selected` package-to-list maps. The six permanently
 false fields are `candidate_approved`, `dependency_graph_verified`,
 `abi_verified`, `runtime_verified`, `training_verified`, `launch_authorized`.
 `NativeRuntimeError(RuntimeError)` retains the complete report in `.report`.
+`issues.policy` and `issues.unresolved` are lists. `policy_id` is fixed and is
+not a caller-supplied approval switch.
 
 ## Track B: explicit native trainer construction
 
@@ -134,7 +151,7 @@ Public API:
 
 ```python
 build_sql_trainer(
-    tasks, db_root, *, output_dir, model_revision, max_seq_length,
+    tasks, db_root, *, output_dir, model_dir, model_revision, max_seq_length,
     steps=200, root=REPO_ROOT,
 )
 ```
@@ -143,8 +160,9 @@ Return the constructed Trainer only. Do not call train, save, resume or
 publish. Keep `grpo_ptc.main()` and its post-preflight refusal unchanged.
 
 Validate explicit inputs, but create no files and import no frameworks until
-the existing real `grpo_ptc.preflight(root=root, steps=steps)` and new production
-`require_native_runtime()` pass. No public dependency/preflight injection,
+the fixed `grpo_ptc.native_sql_preflight(root=root, steps=steps)` passes. It
+checks the real frontier first, then `require_native_runtime()`, then the same
+scientific invariant body as default `preflight()`. No public dependency/preflight injection,
 approval boolean, alternate model, arm, G, reward, or task selector.
 Private constructor seams may be replaced in labelled unit tests only.
 
@@ -157,7 +175,10 @@ Load Unsloth before torch, Transformers/TRL/PEFT. Reject a contaminated fresh
 process rather than claim import order was correct after those imports.
 Keep existing model ID and LoRA/precision settings; use constructor-specific
 kwargs, never pass `**model_spec()` wholesale. Loader uses explicit fp16,
-local_files_only=True, required pinned revision and caller context bound.
+local_files_only=True, use_exact_model_name=True, admitted absolute model_dir and
+caller context bound. Do not pass upstream `revision=`: the pinned release
+discards it on the intended fast-inference path. Instead model_revision selects
+and authenticates the source-pinned expected artifact inventory.
 No implicit model/dependency download, fallback precision or alternate backend.
 
 Derive batch sizes with existing `batch_for(NUM_GENERATIONS)`. Reuse unchanged
@@ -183,6 +204,43 @@ Partial construction can allocate approved runtime resources. Do not claim
 cleanup, checkpoint existence, AMP update or arbitrary-program determinism
 from constructor success. Runtime activation remains blocked today.
 
+## Local artifact identity, not immutable storage
+
+`train/native_model.py::verify_local_model(model_dir, *, model_revision)` accepts
+no caller inventory, expected hash or approval boolean. The expected ten-file
+inventory is pinned in trusted project source at `native_model_inventory.json`,
+SHA256 `76badf431bfa877225c6d5ea99935c4074af7b47d10065d4b4e7ccbaa5141c2e`,
+for `unsloth/Qwen3-0.6B` revision
+`db4e90b8359f816f09bf5c944797ce116f26da3c`. Other revisions refuse.
+
+Source identity: official commit-pinned HF tree metadata, non-LFS bytes matched
+to published Git blob IDs, and LFS SHA256/pointer consistency. This is not an
+author signature, scientific manifest, approved template override or evidence
+that weights are installed. The local cache supplied eight tokenizer/config
+files. Generation metadata's 237 bytes independently matched its published Git
+blob. The missing 1,192,135,096-byte model weights have publisher SHA256
+`e2c6471fedf92223e6bd28ac296e720f1ab91cecb531bc91c7cfe03b52daff98`;
+they were not downloaded or loaded.
+
+After real preflight, verify an explicitly materialized, absolute flat directory:
+exact regular-file set, safe ancestry/names, no symlinks/hardlinks/special files,
+bounded descriptor-relative no-follow reads, exact byte counts/SHA256 and stable
+metadata. Refuse -bf16/-bnb-4bit/-unsloth-bnb-4bit directory suffixes to avoid
+upstream precision/remapping heuristics. Original HF symlink snapshots are inadmissible. Stream file contents;
+never download, copy, chmod, repair or write to the source. Return identity
+evidence, with no runtime/launch flag.
+
+Stable metadata and hashing do not prevent later replacement. Exclusively
+controlled read-only staging, no writable aliases and no concurrent writer
+require a separately reviewed actual mechanism. Native runtime admission stays
+closed until that isolation exists. Do not market the byte verifier as
+immutable storage or hostile-filesystem containment.
+
+Pre-existing scientific gap: `_check_measurement()` is not called by
+`frontier_taskset_status()`. This patch preserves that wiring, surfaces the gap,
+and retains a native unresolved blocker for its review. It does not claim the
+helper's G/ceiling/retention checks already execute.
+
 ## Parent ownership and implementation order
 
 Parent owns this spec, promoted references, cross-slice checks, metadata/
@@ -193,9 +251,10 @@ contract clarification here, then implement. No agent commits or pushes.
 
 ## Non-goals / protected boundaries
 
-No frozen version-rule, scientific amendment/signature/manifest, threshold,
+No default/frozen version-rule, scientific signature/manifest/measurement, threshold,
 model/revision selection, G/channel/prompt/tool/scorer/evaluation-membership
-change. No dependency/model install/download, GPU/model/paid run, training launch,
+change beyond the scoped native-only runtime policy. No dependency installation
+or new weight download, GPU/model/paid run, training launch,
 production deployment or push. Do not replace TRL/Unsloth with another trainer.
 Do not add a receipt checker that emits invented gradients/weights or calls
 fixture consistency real learning. Actual sampler/logprob, optimizer and

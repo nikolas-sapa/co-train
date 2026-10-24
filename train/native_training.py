@@ -2,8 +2,8 @@
 
 No training, saving, publishing or dependency/model download is initiated here.
 Constructor success would establish wiring only, not generation, gradients,
-runtime compatibility or checkpoint restoration. The current frozen stack and
-native runtime requirements conflict, so production admission remains closed.
+runtime compatibility or checkpoint restoration. The scoped native policy does
+not establish the unresolved runtime/isolation authority, so admission is closed.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from bench.task import SqlTask
-from train import dead_group_probe, grpo_ptc, guards, native_runtime, sql_bridge
+from train import dead_group_probe, grpo_ptc, guards, native_model, sql_bridge
 
 
 def _load_runtime() -> SimpleNamespace:
@@ -164,6 +164,7 @@ def build_sql_trainer(
     db_root: str | pathlib.Path,
     *,
     output_dir: str | os.PathLike[str],
+    model_dir: str | os.PathLike[str],
     model_revision: str,
     max_seq_length: int,
     steps: int = 200,
@@ -172,9 +173,10 @@ def build_sql_trainer(
     """Construct an explicit-task native Trainer; never start training.
 
     Only caller input/path admission precedes the real preflight. Both real
-    gates must pass before schema preparation or framework loading. Model
-    loading is local-only at the caller's full revision. Partial constructor
-    failures may leave allocated runtime resources; no cleanup is claimed.
+    gates must pass before artifact reads, schema preparation or framework loading.
+    The revision selects a source-pinned inventory, never a mutable repository
+    reference passed to vLLM. Byte admission is not source isolation. Partial
+    constructor failures may leave allocated runtime resources; no cleanup is claimed.
     """
     if (
         not isinstance(model_revision, str)
@@ -184,11 +186,14 @@ def build_sql_trainer(
     _positive_integer(max_seq_length, "max_seq_length")
     _positive_integer(steps, "steps")
     output = _admit_output(output_dir)
+    model_path = pathlib.Path(model_dir)
+    if not model_path.is_absolute() or ".." in model_path.parts:
+        raise ValueError("model_dir must be an absolute canonical directory")
 
-    config = dict(grpo_ptc.preflight(root=root, steps=steps))
-    native_runtime.require_native_runtime()
+    config = dict(grpo_ptc.native_sql_preflight(root=root, steps=steps))
     if max_seq_length <= config["max_completion_length"]:
         raise ValueError("max_seq_length must leave prompt context beyond the completion cap")
+    source = native_model.verify_local_model(model_path, model_revision=model_revision)
     prepared = sql_bridge.prepare_sql_training(tasks, db_root, root=root)
     runtime = _load_runtime()
     dataset = runtime.Dataset.from_list(prepared.dataset_rows)
@@ -205,8 +210,8 @@ def build_sql_trainer(
         push_to_hub=False,
     )
     model, tokenizer = runtime.FastLanguageModel.from_pretrained(
-        model_name=dead_group_probe.MODEL,
-        revision=model_revision,
+        model_name=source.path,
+        use_exact_model_name=True,
         local_files_only=True,
         dtype=runtime.torch.float16,
         max_seq_length=max_seq_length,

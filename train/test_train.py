@@ -18,6 +18,8 @@ keeps finding.
 
 from __future__ import annotations
 
+import ast
+import inspect
 import json
 import pathlib
 import shutil
@@ -869,6 +871,29 @@ def test_the_measured_stack_passes():
     assert guards.check_stack(GOOD_STACK) == []
 
 
+@pytest.mark.parametrize("transformers", ["5.2.0", "5.17.0", "5.18.0"])
+def test_default_stack_keeps_the_transformers_five_ceiling(transformers):
+    versions = {**GOOD_STACK, "transformers": transformers}
+    assert guards.check_stack_common(versions) == []
+    faults = guards.check_stack(versions)
+    assert len(faults) == 1
+    assert "transformers<5" in faults[0]
+    with pytest.raises(guards.StackError, match="transformers<5"):
+        guards.require_stack(versions)
+
+
+def test_default_stack_delegates_shared_checks_without_replacing_them(monkeypatch):
+    seen = []
+
+    def common(versions):
+        seen.append(dict(versions))
+        return ["shared-stack-sentinel"]
+
+    monkeypatch.setattr(guards, "check_stack_common", common)
+    assert guards.check_stack(GOOD_STACK) == ["shared-stack-sentinel"]
+    assert seen == [GOOD_STACK]
+
+
 def test_below_the_unsloth_floor_is_a_different_experiment_not_a_worse_one():
     faults = guards.check_stack({**GOOD_STACK, "unsloth": "2026.9.12"})
     assert len(faults) == 1
@@ -1178,6 +1203,122 @@ def test_preflight_passes_every_invariant_once_the_gate_opens(tmp_path):
     config = grpo_ptc.preflight(root=gate_open_root(tmp_path), versions=GOOD_STACK)
     assert config["max_completion_length"] == guards.completion_cap(("ptc",)).value
     assert config["num_generations"] == 4
+
+
+def test_native_preflight_has_no_runtime_policy_or_fixture_switches():
+    parameters = inspect.signature(grpo_ptc.native_sql_preflight).parameters
+    assert list(parameters) == ["root", "steps"]
+    assert all(parameter.kind is inspect.Parameter.KEYWORD_ONLY
+               for parameter in parameters.values())
+    assert parameters["root"].default == REPO
+    assert parameters["steps"].default == 200
+    with pytest.raises(TypeError):
+        grpo_ptc.native_sql_preflight(versions=GOOD_STACK)
+    with pytest.raises(TypeError):
+        grpo_ptc.native_sql_preflight(arms=("ptc", "bash"))
+    with pytest.raises(TypeError):
+        grpo_ptc.native_sql_preflight(require_runtime=lambda: None)
+
+
+@pytest.mark.parametrize("entrypoint", ["preflight", "native_sql_preflight"])
+@pytest.mark.parametrize("steps", [1, 17, 200])
+def test_both_preflights_check_frontier_before_stack_or_config(
+    tmp_path, monkeypatch, entrypoint, steps,
+):
+    def forbidden(*args, **kwargs):
+        pytest.fail("missing frontier reached stack/runtime/config work")
+
+    monkeypatch.setattr(grpo_ptc, "require_stack", forbidden)
+    monkeypatch.setattr(grpo_ptc, "require_native_runtime", forbidden)
+    monkeypatch.setattr(grpo_ptc, "training_config", forbidden)
+    with pytest.raises(guards.PreconditionUnmet, match="no frontier taskset"):
+        getattr(grpo_ptc, entrypoint)(root=tmp_path, steps=steps)
+
+
+@pytest.mark.parametrize("entrypoint", ["preflight", "native_sql_preflight"])
+@pytest.mark.parametrize("steps", [1, 17, 200])
+def test_optimized_preflight_sources_keep_missing_frontier_closed(
+    tmp_path, entrypoint, steps,
+):
+    """Compile actual gate/entrypoint source with -O semantics, without processes."""
+    guard_namespace = dict(vars(guards))
+    exec(compile(inspect.getsource(guards.require_frontier_taskset),
+                 "<optimized-frontier>", "exec", optimize=1), guard_namespace)
+    tree = ast.parse(pathlib.Path(grpo_ptc.__file__).read_text())
+    tree.body = [
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == entrypoint
+    ]
+    assert len(tree.body) == 1
+    namespace = dict(vars(grpo_ptc))
+    namespace["require_frontier_taskset"] = guard_namespace["require_frontier_taskset"]
+    exec(compile(tree, "<optimized-preflight>", "exec", optimize=1), namespace)
+    with pytest.raises(guards.PreconditionUnmet, match="no frontier taskset"):
+        namespace[entrypoint](root=tmp_path, steps=steps)
+
+
+@pytest.mark.parametrize("steps", [1, 17, 200])
+def test_native_preflight_uses_fixed_arms_and_preserves_requested_steps(
+    tmp_path, monkeypatch, steps,
+):
+    calls = []
+    monkeypatch.setattr(grpo_ptc, "require_native_runtime", lambda: calls.append("native"))
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("native preflight called the default Transformers<5 enforcer")
+
+    monkeypatch.setattr(grpo_ptc, "require_stack", forbidden)
+    root = gate_open_root(tmp_path)
+    config = grpo_ptc.native_sql_preflight(root=root, steps=steps)
+    assert calls == ["native"]
+    assert config == grpo_ptc.training_config(grpo_ptc.TRAINED_ARMS_DEFAULT, steps=steps)
+
+
+def test_native_preflight_keeps_real_runtime_blockers_after_frontier(tmp_path, monkeypatch):
+    from train import native_runtime
+
+    def absent(name):
+        raise native_runtime.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(native_runtime.metadata, "version", absent)
+    with pytest.raises(native_runtime.NativeRuntimeError) as caught:
+        grpo_ptc.native_sql_preflight(root=gate_open_root(tmp_path))
+    assert caught.value.report["issues"]["unresolved"]
+    assert all(not caught.value.report[key] for key in (
+        "candidate_approved", "dependency_graph_verified", "abi_verified",
+        "runtime_verified", "training_verified", "launch_authorized",
+    ))
+
+
+@pytest.mark.parametrize("entrypoint", ["preflight", "native_sql_preflight"])
+@pytest.mark.parametrize("fault", ["tools", "completion_cap", "turn_budget"])
+def test_both_preflights_refuse_each_shared_scientific_fault(
+    tmp_path, monkeypatch, entrypoint, fault,
+):
+    root = gate_open_root(tmp_path)
+    kwargs = {"root": root}
+    if entrypoint == "native_sql_preflight":
+        # Wiring test only: the real native runtime remains blocked elsewhere.
+        monkeypatch.setattr(grpo_ptc, "require_native_runtime", lambda: None)
+    else:
+        kwargs["versions"] = GOOD_STACK
+    if fault == "completion_cap":
+        config = grpo_ptc.training_config()
+        config["max_completion_length"] -= 1
+        monkeypatch.setattr(grpo_ptc, "training_config", lambda *args, **kwargs: config)
+        invariant = 2
+    else:
+        environment = grpo_ptc.environment_factory(root)()
+        if fault == "tools":
+            environment.tools = (grpo_ptc.THE_TOOL_SCHEMA,) * 2
+            invariant = 1
+        else:
+            environment.max_turns += 1
+            invariant = 3
+        monkeypatch.setattr(grpo_ptc, "environment_factory",
+                            lambda root: lambda: environment)
+    with pytest.raises(guards.InvariantViolation, match=f"invariant {invariant}"):
+        getattr(grpo_ptc, entrypoint)(**kwargs)
 
 
 def test_step_zero_tool_success_flags_the_floor_artifact():
