@@ -585,3 +585,116 @@ def test_workflow_paths_reject_objects_before_equality(tmp_path, monkeypatch):
         )
     assert comparisons == [], "field-graph sentry: opaque object comparison executed"
     assert counts == dict(build=0, dispatch=0, score=0)
+
+
+def test_v2_source_candidate_stays_v1_and_binds_whole_capture(tmp_path, monkeypatch):
+    from bench.score import ExResult
+    from train import sql_capture
+    from train.test_sql_capture import isolation_executor, isolation_methods
+    module = api()
+    executor = isolation_executor(tmp_path)
+    calls = isolation_methods(monkeypatch, score=ExResult(0.0, "mismatch", True, "", 1, 1))
+    task = task_at(tmp_path, "v2-origin", 2)
+    actual = sql_capture.start_capture(task, ids=ids(), allow_execution=True,
+                                       executor=executor).finish("SELECT -1")
+    candidate = proposed(module, task, actual)
+    assert candidate.schema_version == 1
+    assert candidate.source.capture_sha256 == pin(sql_capture.encode_capture(actual))
+    assert candidate.source.instrument == actual.instrument
+    assert module.decode_candidate(module.encode_candidate(candidate)) == candidate
+    changed_binding = dataclasses.replace(
+        actual.execution_binding,
+        controller_sources=actual.execution_binding.controller_sources + (
+            __import__("ptc.sql_isolation", fromlist=["SourcePin"]).SourcePin("changed.py", "d" * 64),
+        ),
+    )
+    changed = dataclasses.replace(actual, execution_binding=changed_binding)
+    assert proposed(module, task, changed).source.capture_sha256 != candidate.source.capture_sha256
+    assert [c[0] for c in calls] == ["scorer"]
+
+
+def isolated_promotion(tmp_path, monkeypatch):
+    from train.test_sql_skill_eval import isolated_world
+    module, evaluator = api(), api("sql_skill_eval")
+    state, calls = isolated_world(tmp_path, monkeypatch)
+    receipt, _ = promote(module, evaluator, state, executor=state.executor)
+    calls.clear()
+    return module, receipt, calls
+
+
+def test_v1_promotion_byte_exact_omits_isolation_field(tmp_path):
+    module, evaluator = api(), api("sql_skill_eval")
+    receipt, _ = promote(module, evaluator, world(tmp_path, module, evaluator))
+    historical = dataclasses.asdict(receipt)
+    del historical["binding"]["execution_binding"]
+    assert module.encode_promotion(receipt) == envelope(historical, "sql_skill_promotion")
+    historical["binding"]["execution_binding"] = None
+    with pytest.raises(REJECT):
+        module.decode_promotion(envelope(historical, "sql_skill_promotion"))
+
+
+@pytest.mark.parametrize("path", (
+    ("binding",), ("binding", "execution_binding"),
+    ("binding", "execution_binding", "program"),
+    ("binding", "execution_binding", "scorer"),
+    ("binding", "execution_binding", "controller_sources", 0),
+    ("binding", "execution_binding", "scorer", "limits"),
+))
+@pytest.mark.parametrize("operation", ("extra", "missing", "duplicate"))
+def test_v2_promotion_closed_graph_data_only(tmp_path, monkeypatch, path, operation):
+    module, receipt, calls = isolated_promotion(tmp_path, monkeypatch)
+    payload = json.loads(module.encode_promotion(receipt))["payload"]
+    obj = payload
+    for key in path:
+        obj = obj[key]
+    key = next(iter(obj))
+    if operation == "extra":
+        obj["unexpected"] = 0
+    elif operation == "missing":
+        del obj[key]
+    encoded = envelope(payload, "sql_skill_promotion", schema_version=2)
+    if operation == "duplicate":
+        needle = canonical(key) + b":"
+        index = encoded.index(needle)
+        encoded = encoded[:index] + needle + b"null," + encoded[index:]
+    with pytest.raises(REJECT):
+        module.decode_promotion(encoded)
+    assert calls == []
+
+
+def test_v2_promotion_exact_eight_mib_and_plus_one(tmp_path, monkeypatch):
+    module, receipt, calls = isolated_promotion(tmp_path, monkeypatch)
+    baseline = len(module.encode_promotion(receipt))
+    refs = list(receipt.qualifications)
+    refs[0] = dataclasses.replace(refs[0], result=dataclasses.replace(
+        refs[0].result, detail="x" * (MAX_BYTES - baseline),
+    ))
+    actual = dataclasses.replace(receipt, qualifications=tuple(refs))
+    encoded = module.encode_promotion(actual)
+    assert len(encoded) == MAX_BYTES and module.decode_promotion(encoded) == actual
+    refs[0] = dataclasses.replace(refs[0], result=dataclasses.replace(
+        refs[0].result, detail=refs[0].result.detail + "x",
+    ))
+    with pytest.raises(ValueError):
+        module.encode_promotion(dataclasses.replace(receipt, qualifications=tuple(refs)))
+    with pytest.raises(ValueError):
+        module.decode_promotion(encoded + b" ")
+    assert calls == []
+
+
+@pytest.mark.parametrize("change", ("version", "missing_binding", "none_binding", "v1_new_binding"))
+def test_v2_promotion_version_binding_cannot_downgrade(tmp_path, monkeypatch, change):
+    module, receipt, calls = isolated_promotion(tmp_path, monkeypatch)
+    payload = json.loads(module.encode_promotion(receipt))["payload"]
+    version = 2
+    if change == "version":
+        version = True
+    elif change == "missing_binding":
+        del payload["binding"]["execution_binding"]
+    elif change == "none_binding":
+        payload["binding"]["execution_binding"] = None
+    else:
+        version = payload["schema_version"] = 1
+    with pytest.raises(REJECT):
+        module.decode_promotion(envelope(payload, "sql_skill_promotion", schema_version=version))
+    assert calls == []

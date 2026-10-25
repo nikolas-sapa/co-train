@@ -1,9 +1,11 @@
 # SQL skill pilot: frozen implementation plan
 
-PLAN FROZEN / IMPLEMENTATION PENDING / NO MODEL/PILOT RESULTS.
+PLAN FROZEN / SOURCE IMPLEMENTED / PRODUCTION ACCEPTANCE PENDING.
+NO MODEL/PILOT RESULTS.
 Live inference is FINANCIALLY BLOCKED. This document authorizes no calls, probes,
 downloads or production-acceptance claim. [Protocol](sql-skill-pilot.md) governs
-the 20-case ROWCOUNT experiment. All new paths/APIs below are planned, not exports.
+the 20-case ROWCOUNT experiment. Paths/APIs below are frozen contracts; existing
+source and offline checks do not imply production acceptance.
 
 ## 1. Test plan: before implementation
 
@@ -19,14 +21,16 @@ two explicit nondefault files below; missing infrastructure FAILS, never skips.
 | T04 OS/resources | Both roles deny real AST-bypassing host-read/write/socket/fork attempts. Touched 288 MiB OOMs at 256 MiB; touched 96 MiB fails at 64/succeeds at 128. Verify swap=0/pids=1/nofile=64 and subsequent benign success. Never uncap VM. |
 | T05 scorer confinement | Giant cell, wide result, recursive SQL and Counter/comparison allocation hit bounds inside SCORER, including proven comparison entry. No host hostile SQL/materialization. |
 | T06 deadlines/reexec | PROGRAM 10s/whole-grade 30s external deadlines, owned cleanup ≤12s after trigger; next benign succeeds. Allowed same-PID exec retains strict 14 non-ENV/7 status/6 namespace fields. Initial ENV7 exact; post-ENV is mutable, not an exemption for kernel state. |
-| T07 lifecycle | Guardian journal/ACK precedes CREATE; single-fault/lost-create/start/inherited-FD controls clean owned resources. Actual SIGKILL409 transition plus 9 strict negatives: 0 STARTs for unknown/stale/retired/foreign states. Join ACK precedes REMOVE. |
-| T08 binding/admission | Wrong image/config/platform/source/profile each yields 0 START. Missing/stale/>4s/lower-headroom samples refuse. Cross-process/profiles/run-directories overlap=0; unresolved history prevents next admission. |
+| T07 lifecycle | Guardian journal/ACK precedes CREATE; single-fault/lost-create/start/inherited-FD controls clean owned resources. Actual SIGKILL409 transition plus 9 strict negatives: 0 STARTs for unknown/stale/retired/foreign states. Join ACK precedes REMOVE. On the CLOSED path the guardian reap wait is hygiene only: a guardian that exits slowly past the wait bound still returns the completed typed outcome, never a raw exception. |
+| T08 binding/admission | Wrong image/config/platform/source/profile each yields 0 START. Missing/stale/>4s/lower-headroom samples refuse. Sample age is measured from each sample's finished timestamp; a slow-but-successful sample near its own budget never forces UNRESOLVED. Cross-process/profiles/run-directories overlap=0; unresolved history prevents next admission. |
 | T09 DB/wire | Original mutation or any WAL/SHM/journal sidecar rejects without deletion. Hostile prefix/frame/digest/role/request/bootstrap/UTF-8/overflow inputs fail closed. Whole output envelope, READY and bootstrap count toward caps. |
-| T10 isolated records | V2 host-score calls=0; rescore PROGRAM launches=0. Native rejection containing FINAL_SQL preserves its flag/text/receipt and causes 0 SCORER calls; it cannot originate, qualify or rescore. Typed abort keeps unscored evidence; exact v1 defaults/bytes unchanged. Four actual qualification successes; fresh-process reuse on 2 fresh DBs after historical DB removal. |
+| T10 isolated records | V2 host-score calls=0; rescore PROGRAM launches=0. Every accepted receipt matches its dispatched canonical request hash; foreign PROGRAM hashes cause 0 subsequent SCORER calls, and foreign SCORER successes cause 0 successful captures/promotions. Native rejection containing FINAL_SQL preserves its flag/text/receipt and causes 0 SCORER calls; it cannot originate, qualify or rescore. Typed abort keeps unscored evidence; exact v1 defaults/bytes unchanged. Four actual qualification successes; fresh-process reuse on 2 fresh DBs after historical DB removal. |
 | T11 controller/leakage | Manifest 20 distinct cases: 8/4/8, 0 cross-partition IDs/fingerprints/DB hashes. All 8 pairs retained. Payload gold/credential/qualification/held-out canaries=0 where prohibited; raw ExResult.detail absent from proposal. |
-| T12 action/request | Both arms expose exactly 1 identical submit schema/all 4 required fields. Direct bytes never count as approved reuse; unknown selection has 0 fallback/retry. Native rejection is MODEL failure within denominator 8, not infrastructure INCOMPLETE. Exactly 2 messages/request; maximum 25 requests, output request 2,048 tokens. |
-| T13 money/transport | Missing/incomplete profile or approval: 0 HTTP/0 credential reads. One durable claim/one attempt, 0 retries; ambiguous delivery/usage holds full reservation across restart. Receipt-field/hash/currency/charge mismatches never settle. Committed ledger remains unchanged. |
+| T12 action/request | Both arms expose exactly 1 identical submit schema/all 4 required fields. Direct bytes never count as approved reuse; unknown selection has 0 fallback/retry. Native rejection is MODEL failure within denominator 8, not infrastructure INCOMPLETE. Malformed outer provider JSON/envelope means protocol STOP and 0 subsequent model requests, not an ordinary invalid-action failure. Exactly 2 messages/request; maximum 25 requests, output request 2,048 tokens. |
+| T13 money/transport | Missing/incomplete profile or approval: 0 HTTP/0 credential reads. One durable claim/one attempt, 0 retries; ambiguous delivery/usage holds full reservation across restart. Credential collision/echo fixtures, including escaped and JSON-in-JSON strings/keys, leave 0 credential-bearing artifacts; request collision causes 0 HTTP. Receipt-field/hash/currency/charge mismatches never settle. Committed ledger remains unchanged. |
 | T14 sensitivity | Bypass each binding/confinement/routing/rescore/qualification/approval/budget/sanitization guard separately: ≥1 intended assertion RED per bypass, never stale-binding/import/infrastructure failure. |
+| T15 manifest DB admission | Replace a DB after HTTP admission for direct/reuse: 0 PROGRAM/SCORER dispatches and no COMPLETE report. Construction/restore races never adopt replacement hashes; source/evaluation/all four qualifications/reuse propagate the exact saved hash. Post-PROGRAM mutation causes unscored SCORER rejection. Normal/rejected/exception-carried captures must match asset hash/IDs/fingerprint. Conflicting expectations reject; None preserves v1 defaults/bytes. |
+| T16 development graph | Coherently rehash response/capture/checkpoint/approval inconsistencies, including one comment/newline: 0 endpoint claims/API/executor constructions/credential reads/HTTP calls. Valid responses require matching captures; invalid actions require MODEL_ACTION_INVALID with null score/route and no capture. Fabricated prior classifications reject; disable action comparison and require an intended assertion RED. |
 
 Offline transport/receipt fixtures prove only local protocol behavior, never
 current Vyce prices, authoritative settlement or a provider ceiling.
@@ -72,6 +76,12 @@ from observation text. Infrastructure/resource abort requires observation=None
 and rejected=False. Reject integer flags. The new outcome codec requires exactly
 four keys, including rejected; the existing two-field wire response is unchanged.
 Round-trip rejected FINAL_SQL text without losing flag, text or receipt.
+Observation means the exact returned native PtcResult.observation, not an
+additional capture of internal print buffers. Forward native rejection unchanged.
+The native runner discards earlier prints on failure; do not recover, combine or
+invent those unavailable prints. A real print-then-fail test must retain its
+returned native error and rejection with zero scoring. SQL-looking rejected
+observations are also tested directly at the wire/outcome/record boundary.
 SecurityPolicy is the closed,
 typed final effective HostConfig/hostname/mount-slot/environment-rule
 representation, not an arbitrary dictionary or callback.
@@ -118,7 +128,10 @@ Both stderr=65536/input=8388608; program UTF-8≤65536. Execve remains allowed.
 
 Bind image/config/platform/effective policy before START. Require fresh
 min(VM MemAvailable, VM total minus summed RAW container charges)≥469762048,
-age≤4000ms, live controller and healthy observer before START. Start original
+age≤4000ms, live controller and healthy observer before START. Sample age is
+measured from the sample's finished timestamp (the data's true as-of time),
+never its start: a sample that succeeds within its own budget is fresh on
+completion and must not force UNRESOLVED. Start original
 deadline before START, never reset. One compartment across pilot processes.
 Watchdog sampling below reserve=201326592 or missing/stale observations kills
 only owned compartment. Sampling is mitigation, not continuous capacity proof.
@@ -167,6 +180,41 @@ Retire observer/CLI and join ACK before REMOVE; retired samples
 are never reused. Fresh absence permits authorized CLOSED history append, never
 deletion of original block. Cleanup assumes one supervisor survives and daemon
 responds; simultaneous death/outage/reboot/power loss are outside guarantees.
+Failure discovered while joining an in-flight observer sample must propagate:
+zero successful outcomes, zero CLOSED transitions, and the next admission blocked.
+A replacement guardian must reconcile durable observer/CLI ownership and spawn
+intent, including interrupted registration. observer=None is not join evidence.
+Without positive actor absence, retain UNRESOLVED; emit zero synthetic join ACKs
+and perform no removal dependent on that ACK. Never signal an unproven actor.
+Perform final controller-liveness, observer/headroom/freshness and original-
+deadline checks after all pre-START durable writes, immediately before START.
+Delayed-write controls for stale samples, expired deadlines, lost controller or
+failed observer each require zero STARTs. Bound START by the remaining deadline.
+Set one absolute cleanup deadline at the cleanup trigger; every transport and
+observer/CLI join consumes that same remaining twelve-second budget. Deadline
+exhaustion retains UNRESOLVED, not retrospective success after twelve seconds.
+Add an intended guard-disabled assertion RED for each of these four paths.
+Once the guardian has durably written its outcome and the journal is CLOSED,
+reaping the guardian process is hygiene: a bounded reap wait that expires must
+be tolerated (kill+wait or continue), never discarding the completed typed
+outcome with a raw subprocess exception.
+The isolated guardian must import SCORER records/packages only from its verified
+staged closure, not an installed or original-checkout copy. Test successful
+SCORER decoding in the actual isolated interpreter without the checkout on its
+import path. An attempted CREATE with unknown CID and unknown completion stays
+UNRESOLVED even when reconciliation temporarily lists zero matches; never retry
+CREATE or infer completion from an empty list. Include delayed-registration proof
+that a later CREATE cannot release the block or enable another START.
+Per-socket inactivity timeouts are insufficient: bound whole progressing HTTP
+transactions and delayed START by absolute operation/original deadlines, while
+external supervision remains effective during blocking calls.
+Observe actual allocation exceptions out-of-band within each isolated native
+call, including MemoryError swallowed by native handlers. Such cases must exit
+through the memory-abort path, with no EX result or native-rejection label.
+Do not classify observation strings or change protected native grading logic.
+Inject MemoryError beneath each native catch boundary; ordinary ZeroDivisionError
+still produces unchanged native rejection. Never run hostile allocations/SQL on
+the host to test this. Add separate intended assertion mutants for these guards.
 
 ## 4. Existing capture/promotion integration
 
@@ -176,6 +224,46 @@ _instrument/_bind/_current_binding/_admit_origin/_execute/session.
 V2 step calls PROGRAM only; finish calls SCORER only; rescore calls SCORER with
 zero PROGRAM replay. V1 None retains exact trusted-host behavior.
 
+Frozen database admission adds only these optional public arguments:
+
+```python
+start_capture(task, *, ids, allow_execution=False, executor=None,
+              expected_db_sha256: str | None = None)
+SkillCase(role, task, ids, *, expected_db_sha256: str | None = None)
+```
+
+Validate non-None expectations with existing strict digest validation.
+SkillCase remains a frozen host-only record with its three positional arguments;
+the new field is keyword-only. No persistent artifact/producer API changes.
+After literal execution consent, a supplied expectation becomes the admitted
+capture db_sha256. Verify actual bytes against it; never substitute a fresh hash.
+Construct with that hash, explicitly verify constructed capture equality and
+recheck database binding before returning the session. None retains the existing
+fresh-snapshot path. Step/finish/rescore/executor staging keep using the immutable
+capture hash, not a newly read replacement hash.
+
+Resolve the existing private _execute expected_db_sha256 against the case field;
+conflicting supplied values reject. Pass the resolved value to start_capture
+and check all returned and exception-carried captures against it. Qualification
+admission uses supplied case hashes for byte checks/disjointness and retains
+them for execution. Reuse does not unconditionally adopt _db_digest(case.task).
+Origin admission requires source-case expectation equal source_capture.db_sha256
+before source rescoring. No callback/wrapper/task-path relocation or new rescore
+argument. Cover construction/restore races and disable propagation separately
+for intended assertion REDs. This prevents replacement rebinding, not a claim
+of hostile-host filesystem snapshot isolation.
+
+Before accepting any returned receipt, reconstruct the dispatched request using
+the existing public ProgramRequest/ScoreRequest and request_sha256 helpers.
+PROGRAM binds exact code, action_max_rows and the captured DB digest. SCORER
+binds the existing task with only db_path translated to /db.sqlite, exact SQL,
+scorer_timeout_s, scorer_max_rows, compare and the captured DB digest.
+A mismatched receipt becomes AbortInfo(stage, "protocol"), without accepting its
+observation/result/rejection or appending the foreign receipt as matching evidence.
+Apply this check to completed and aborted outcomes that carry receipts. Fixtures
+must calculate actual request hashes, not reuse placeholder hashes. Separately
+disable each adapter's hash check and require an intended test-body RED.
+
 SqlCapture adds execution_binding=None, runtime_receipts=(),
 execution_abort=None. V1 encoding omits these keys and requires empty defaults.
 V2 requires its closed fieldset/version-aware size admission.
@@ -183,6 +271,11 @@ execution_aborted has result=None/typed AbortInfo, retaining final/extracted SQL
 when available. finish returns capture; failed step/rescore raises
 CaptureExecutionAborted carrying frozen unscored capture. Resource/infra aborts
 are not fabricated EX0/invalid-gold outcomes; endpoint abort means INCOMPLETE.
+If a later qualification raises CaptureExecutionAborted, the promotion aggregator
+returns no promotion and the ordered prefix including that abort capture.
+Two completed qualifications followed by a PROGRAM abort retain exactly three
+captures; the fourth qualification and held-out execution have zero launches.
+The controller persists all retained qualification captures before stopping.
 
 Native rejection is separate. V2 step appends the unchanged ActionObservation
 and receipt, then seals terminal_label="program_rejected", result=None and
@@ -253,6 +346,13 @@ Trusted-storage deletion/rollback is outside ledger guarantees.
 Order: validate current complete approval/profile/bounds/ledger → reserve →
 durable claim → memory-only credential → one HTTPX attempt. TLS verification,
 trust_env=False, no redirects/retries, response body≤8 MiB, deadline120s.
+After claim, inspect actual request strings for credential collisions before
+persisting request bytes or dispatching. Inspect bounded response JSON string
+keys/values, including serialized nested JSON, without repr-based comparisons
+before persistence. Retain raw-byte checks. Decode/work-limit uncertainty fails
+closed without saving unsafe raw bytes. Malformed outer provider JSON/envelopes
+stop the protocol, not an ordinary model-action failure; unsafe/undecodable raw
+bodies need only hash-only rejection evidence, never credential-bearing artifacts.
 Persist no auth header/raw key. Ambiguous delivery never replays. Unknown
 charge/usage remains reserved. Implement no extra financial adapters or ledger
 changes; unsupported current billing continues to fail closed.
@@ -275,6 +375,13 @@ Independent random.Random(seed) construction creates each DB from scratch.
 provenance. Manifest fixes all questions/seeds/splits/hashes before requests;
 pair-first B,L,L,B,B,L,L,B. Outputs/DBs/manifest live outside checkout.
 prepare --manifest target must not exist; check/run only read existing manifest.
+
+Supply each asset.db_sha256 to direct start_capture and to source,
+qualification and approved-reuse SkillCase construction. Verify every normal,
+rejected and exception-carried capture against the asset hash/fingerprint/IDs
+before accepting it. Mismatch is admission/infrastructure failure, not a model
+failure: preserve existing evidence, mark INCOMPLETE and never let the final
+endpoint produce COMPLETE against replacement bytes.
 
 CLI prepare/check/run require --manifest --execution-profile --output-dir.
 init-budget adds approved financial arguments/paths. run additionally requires
@@ -311,6 +418,98 @@ arm, maximum25 total, zero retries, all failures retained/denominator8.
 Report tokens/latency/invocation/accuracy; setup/ongoing overhead separately.
 Dollars require actual receipts; amortization100/1000/10000/break-even only with
 defensible positive net savings.
+
+### 6.1 External promotion approval and one-shot continuation
+
+Test this amendment before implementing it:
+
+1. Missing/malformed/mismatched external approval or checkpoint permits zero
+   endpoint requests, credential reads, HTTP calls, executions or approved reuse
+   during continuation admission. Qualification alone permits zero held-out work.
+2. Valid continuation repeats zero development requests, proposals, source
+   grading or qualification executions.
+3. Any changed artifact/IDs/manifest/execution profile/billing approval/run path/
+   budget directory/ledger snapshot rejects before endpoint activity.
+4. The checkpoint has exactly 2–9 settled requests, the actual development prefix
+   plus one proposal; require 16 remaining request slots and enough remaining
+   budget for sixteen maximum-charge reservations, with total requests at most 25.
+5. Eight concurrent continuation processes obtain at most one durable endpoint
+   claim. Repeated invocation or claimant death never permits another claimant.
+6. Kill after endpoint claim or financial dispatch claim: restart replays zero
+   requests, never resets the ledger, and retains unresolved reservations.
+7. Keep all eight pairs and B,L,L,B,B,L,L,B order, including explicit UNRUN/
+   INCOMPLETE outcomes after crashes. Verify real whole-file pins, not constants.
+
+Split only at the qualification boundary, not a generalized resume facility.
+`run` retains unused-ledger admission and exclusive `pilot-<run_id>` creation.
+After four successful actual qualifications it persists source/candidate/
+promotion/captures/request evidence and an AWAITING_PROMOTION_APPROVAL report,
+with all endpoint pairs UNRUN. It must not author a promotion approval or
+advertise a library. Fsync the report first; publish the checkpoint last.
+
+Checkpoint envelope: format=sql_pilot_qualification_checkpoint, schema_version=1,
+closed payload exactly:
+
+```text
+run_id, run_directory, manifest_sha256, execution_profile_sha256,
+billing_approval_sha256, budget_directory, ledger_snapshot_sha256,
+request_count, source_case_id, source_capture_sha256, candidate_sha256,
+promotion_sha256, promotion_ids, artifacts
+```
+
+`artifacts` is sorted/unique `{path,sha256}` entries for planned/report files,
+candidate/promotion, development/qualification captures and request/response/
+telemetry evidence. Paths are run-relative regular files without traversal or
+symlinks. Snapshot hash is SHA256 of existing canonical_bytes(asdict(snapshot)),
+not a new ledger representation. Require active status, all requests settled and
+exact expected history. Revalidate the source/candidate/promotion/four-qualified-
+capture graph and current binding by data inspection, not execution.
+
+Before endpoint claim, parse EVERY historical development response with existing
+parse_response(..., library=[], program_only=True). A valid action requires its
+corresponding capture with exactly one step and exact UTF-8 program equality to
+capture.steps[0].action. Validate asset/runtime identity and receipt request
+hashes. Require report failure_type/score/route equal
+capture_result(actual, route="DIRECT"), and report telemetry equal persisted
+request telemetry. Use terminal-aware validation: graded, program_rejected and
+no-final aborted outcomes differ; infrastructure-aborted development cannot lead
+to an eligible qualification checkpoint. ModelActionError requires
+MODEL_ACTION_INVALID, null score/route and no capture file; ProtocolStop rejects
+the checkpoint. Preserve the selected source's valid-zero/proposal checks and
+proposal-to-candidate checks. This reconstructs semantic provenance with zero
+execution/rescoring, not a new pin mechanism or external attestation claim.
+
+Keep external sql_pilot_host_approval payload exactly
+`{promotion_sha256,candidate_sha256,ids}`. Add required approval_sha256 to
+ApprovedSkill and verify the externally supplied WHOLE-envelope hash before
+existing checks. Approval file is outside the controller-owned run directory;
+the controller reads it, never authors/overwrites it. Caller also supplies the
+whole-checkpoint SHA. This is trusted-host approval, not PKI or pricing proof.
+
+```text
+continue_pilot(manifest, execution_profile, *, output_dir,
+  checkpoint_path, checkpoint_sha256, promotion_approval_path,
+  promotion_approval_sha256, billing_profile_path, approval_sha256,
+  budget_dir, allow_execution=False, allow_model_requests=False)
+```
+
+CLI continue-endpoint requires existing run arguments/both consent flags, plus
+--checkpoint, --checkpoint-sha256, --promotion-approval and
+--promotion-approval-sha256. Derive the same existing run directory from the
+original output parent; checkpoint must be its expected file. Create no new run.
+
+Before API/executor construction: validate external pins/closed graph, same
+current financial approval/canonical budget directory, exact checkpoint ledger
+snapshot/capacity, and current execution sources. Then exclusively create/fsync
+endpoint-claim.json, closed payload exactly
+`{checkpoint_sha256,promotion_approval_sha256,ledger_snapshot_sha256,request_ids}`.
+request_ids contains all sixteen deterministic endpoint IDs in frozen order.
+Never delete/reset this claim; partial files block too. Crash consumes the one
+continuation opportunity, not permission to resume uncertain endpoint work.
+Use one exclusive endpoint/ directory and endpoint-report.json, preserving
+phase-one evidence. Persist progress atomically after each outcome; original
+planned pairs remain authoritative if a crash interrupts a progress write.
+No ledger changes, approval callbacks, extra providers or extra model requests.
 
 ## 7. Implementation order and ownership
 
@@ -364,4 +563,64 @@ Security/Python spike reviews do not approve future production.
 Non-goals: new probes/root commands, live inference, weights/dependencies/image
 pulls, VM changes/unrelated jobs, training/BIRD-wide claims, native/default-arm/
 scientific changes, global configuration, new financial adapters, ledger edits,
-Git push/PR/deploy. No production implementation or new runtime validation was run here.
+Git push/PR/deploy. The implementation passed focused source reviews and
+independent offline regression, not production confinement acceptance. The
+attempted nondefault native-pair check failed at fixture setup because the approved Docker socket
+was absent, with no container created. No runtime/kernel or model result follows.
+
+### 8.1 Independent offline verification, 2026-10-25
+
+The default configured selection, with no trailing `.` or marker override,
+passed **3,108 tests**, with **one existing optional Torch skip**, **two deliberate
+tokenizer-integration deselections**, and **10 warnings**, in **1,055.54 seconds**.
+All **2,447 historical node IDs** (2,446 passes plus the optional skip) were
+retained; 662 nodes were added. The 106 committed budget cases appear once.
+Runtime (133), records (684), and controller (233) are subsets, not additional
+totals. No production Python source or pytest configuration changed during the
+run. The protected scorer and committed budget implementation/tests/spec stayed
+byte-identical.
+
+Focused Python/general/security reviews closed the final saved-database and
+development-response provenance findings with no new findings. These were source
+reviews; they did not execute the kernel acceptance or authorize inference.
+
+The independent launcher used OS-level external IPv4/IPv6 denial, inherited by
+children, plus cold-cache/tokenizer/network audit guards. UNIX access was admitted
+only for exact `fixture.sock` paths in the first-party test's registered,
+same-UID-owned temporary roots. The run recorded zero external-network attempts,
+zero cache accesses, zero tokenizer loads, 18 loopback events, and 20 owned UNIX
+events. The fixture counted 12 accepted UNIX connections including its child.
+All 133 runtime cases retained zero FD delta and zero new live threads; 47
+recorded actor PIDs were independently absent afterward. The native process
+observer recorded 188 observations with zero observer errors. This is owned
+fixture evidence, not a general proof of child behavior or container confinement.
+
+Seven negative launcher controls each failed for the intended denial, with a
+positive owned-loopback control. A separate deliberate assertion failed inside
+its test body, proving the launcher preserves a failing pytest exit. A focused
+runtime/real-HTTPX-loopback selection passed 137 tests before the full run.
+Earlier canary attempts that failed because of Darwin UNIX path length or
+pytest traversing denied cold-cache metadata were retained and excluded from
+valid sensitivity evidence.
+
+The 10 warnings are CPython `DeprecationWarning`s from three controller process
+tests using `os.fork()` after the pytest process became multithreaded. All three
+tests passed with matched before/after FD identities and reaped actors, but this
+does not eliminate the inherited-lock/deadlock risk. No warning was suppressed.
+
+Evidence directory:
+`/Users/nikolassapalidis/scratch/co-train-completion-2026-10-24/production-independent-final-z8xbqjvl`.
+`independent-validation.json` SHA256:
+`084f7b8fac6330c4678305418d5c80dfcc02d5d91a65460b7f8c670e181140da`.
+The receipt binds 132 Python/configuration files and retains node, audit,
+resource, process, and proof-limit results; `full.log` and `full.xml` retain
+the actual pytest outcome. Historical spike reference files remain unchanged.
+
+Production acceptance is still blocked. The approved
+`/Users/nikolassapalidis/.colima/default/docker.sock` remained absent at final
+verification; no real-container acceptance launch or infrastructure restoration
+was attempted. Complete authoritative pricing/fees/billable maxima and supported
+USD settlement receipts remain unavailable; no provider hard ceiling is
+established. Zero live pilot/model inference requests were made. Offline success
+does not establish fresh-task skill benefit, native weight training, kernel
+confinement, or an external spending guarantee.

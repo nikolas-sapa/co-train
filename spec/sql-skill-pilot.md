@@ -1,12 +1,13 @@
 # Model-generated SQL skill pilot: frozen protocol
 
-## Test plan: planned, not run
+## Test plan: production acceptance pending
 
-PLAN FROZEN / IMPLEMENTATION PENDING / NO RESULTS (model/pilot).
-Live execution remains FINANCIALLY BLOCKED.
+PLAN FROZEN / SOURCE IMPLEMENTED / PRODUCTION ACCEPTANCE PENDING.
+NO MODEL/PILOT RESULTS. Live model inference remains FINANCIALLY BLOCKED.
 
 The [test-first implementation plan](sql-skill-pilot-plan.md) freezes interfaces,
-ownership and acceptance gates. Future APIs below are not existing exports.
+ownership and acceptance gates. APIs below are frozen contracts, not acceptance
+claims. Source implementation and offline checks do not establish confinement.
 
 1. **Split integrity:** 20 independently constructed databases, 8 development,
    4 qualification, 8 untouched held-out; 0 cross-partition ID, task-fingerprint
@@ -35,6 +36,16 @@ ownership and acceptance gates. Future APIs below are not existing exports.
    source capture/rescore, 4/4 qualification successes and externally pinned
    fresh-process held-out reuse. Report all 8 pairs, failures included; mocks and
    historical fixtures establish no pilot result.
+6. **Frozen database admission:** replacing a DB after HTTP admission causes
+   0 PROGRAM/SCORER dispatches for direct execution and approved reuse. Pass the
+   manifest digest through capture construction, source/qualification cases and
+   reuse; never adopt replacement bytes. Mutation before scoring yields an
+   unscored infrastructure failure. Returned and exception-carried captures must
+   match the asset digest, task fingerprint and IDs; no last-pair COMPLETE escape.
+7. **Development provenance:** every development response must match its capture
+   or invalid-action report. A one-comment/newline program mismatch rejects even
+   with coherently rebuilt artifact/checkpoint/approval hashes, with 0 endpoint
+   claims, API/executor constructions, credential reads or HTTP requests.
 
 ## Pilot protocol
 
@@ -55,6 +66,14 @@ Preserve [existing promotion](../train/sql_skill_eval.py) rules: independently r
 actually rerun the frozen candidate on 4 distinct external, same-scope qualification
 cases with separate splits/IDs. Require all 4 valid EX=1; otherwise STOP without
 promotion. External approval supplies the pin, never script self-authorization.
+After qualification, run pauses with a frozen checkpoint and no held-out work.
+Only explicit one-shot continue-endpoint with externally supplied checkpoint
+and approval whole-file pins may use the same run and ledger for endpoint pairs.
+It never repeats development/proposal/qualification or resets financial state.
+The external approval file lives outside the controller-owned run directory.
+Continuation links every development response to its exact captured action or
+invalid-action classification, not only the proposal to its candidate. It
+reconstructs this graph by data inspection, with zero execution or rescoring.
 Payload self-digests differ from external whole-envelope hashes. Preserve
 8 MiB artifact, 65,536-byte UTF-8 program and 64 MiB extraction-work limits in
 [the existing contract](sql-executable-skills.md).
@@ -70,7 +89,7 @@ skill selection is not guaranteed.
 No test tuning/post-hoc subsets. Budget-stopped partial runs are INCOMPLETE.
 Freeze pair-first order `B,L,L,B,B,L,L,B` (baseline/library) before calls.
 
-Unimplemented pilot contract: require exactly
+Frozen pilot contract: require exactly
 `{kind, program, skill_id, promotion_sha256}`, no extras. `kind=program` requires
 nonempty program and both reference fields empty; `kind=approved_skill` requires
 empty program, exact library ID and external promotion pin. Baseline library is
@@ -117,7 +136,7 @@ process races and durable-claim SIGKILL coverage. Python/general/security review
 completed; portable-fixture P2 fixed and relocated 106-case verification passed.
 This is not provider integration or an upstream cost bound.
 
-## Frozen production design: implementation pending
+## Frozen production design: acceptance pending
 
 Architecture and spike closure reviewed; production acceptance remains pending.
 Static review/reference feasibility does not verify future production code.
@@ -167,12 +186,20 @@ never fabricated EX=0/invalid-gold outcomes or dropped endpoint cases.
 Source abort blocks promotion; endpoint abort remains reported and makes the
 experiment INCOMPLETE.
 
-Frozen, not exported: typed immutable `PilotExecutor`
+Frozen interface: typed immutable `PilotExecutor`
 owns both engines and composite `ExecutionBinding`, no arbitrary callback.
 Optional `executor=None` on `start_capture`, `rescore_capture`,
 `evaluate_candidate`, `promote_candidate`, `reuse_promoted` preserves trusted-host
 v1 defaults. Isolated step launches PROGRAM only; finish launches SCORER only;
 rescore may launch SCORER with 0 PROGRAM launches/action replay.
+Add optional keyword-only expected_db_sha256=None to start_capture and SkillCase.
+A supplied strict digest is the admitted capture/case hash, never replaced by a
+fresh digest; verify database binding and constructed capture before dispatch.
+The pilot supplies the manifest asset hash in every direct/source/qualification/
+reuse path. None preserves existing trusted-host fresh-snapshot behavior.
+SkillCase remains host-only; no capture/candidate/promotion schema changes.
+Reject mismatching returned or exception-carried captures as infrastructure
+failures, retaining existing evidence and marking the pilot INCOMPLETE.
 
 Bind both engines' image/platform/runtime/source/seccomp/full actual resource config,
 including the same 256-MiB profile for both arms, admission/reserve policy and
@@ -180,14 +207,23 @@ protocol: audit binding, not cryptographic attestation. Separately versioned, st
 fieldsets include isolated `ExecutionBinding`; preserve v1 canonical bytes and
 data-only decoding exactly. V1 approval never authorizes v2; no fallback.
 V2 grading abort retains final/extracted SQL, result=None and typed reason.
+Capture adapters accept receipts only when their request hash matches the exact
+dispatched PROGRAM/SCORER request, including the saved DB digest and scorer task
+translated to /db.sqlite. Foreign receipts produce unscored protocol aborts,
+never successful captures or promotions.
 Native PROGRAM rejection instead retains its flag, exact observation and receipt
 as an unscored v2 program_rejected capture. Never extract or score SQL-looking
 text from that rejected observation. It cannot originate, qualify or rescore.
+Preserve the native API's returned observation; pre-failure prints discarded by
+that API are unavailable evidence, not recovered or combined by the worker.
 Endpoint native rejection is MODEL failure within denominator eight, not an
 infrastructure abort.
 Candidate remains v1: unchanged strict `SourceRef.instrument` plus whole-v2-capture
 SHA transitively binds both engines; fresh record-graph tests must establish compatibility.
-Production isolation/worker/scorer modules remain unimplemented.
+Production isolation/worker/scorer sources passed focused source review and
+independent offline regression. Real isolation acceptance has not passed.
+The [verification receipt and limits](sql-skill-pilot-plan.md#81-independent-offline-verification-2026-10-25)
+separate these checks from kernel acceptance and live model results.
 The linked plan is the additive v2 contract; preserve existing v1 behavior.
 No monkeypatches, fabricated captures or fake legacy bindings.
 
@@ -246,3 +282,7 @@ No changes to trusted defaults or the native tool schema; no new dependencies/pr
 training/GPU, registry, context/delegation, default-arm/scientific-preregistration
 changes, public claims or push.
 Historical [roadmap](../docs/completion-roadmap.md) evidence establishes no pilot/model results.
+The attempted nondefault native-pair check failed during fixture setup because
+the approved Docker socket was absent. No container was created; this is neither
+a successful runtime check nor an intended sensitivity failure. No VM restoration,
+daemon switch or additional privileged command is authorized.
