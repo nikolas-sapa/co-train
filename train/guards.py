@@ -518,9 +518,9 @@ MEASUREMENT_REQUIRED = ("g", "dead_ceiling", "trainable_band", "n_candidates", "
 - **`trainable_band`** must equal this lane's own `viable_band(g, ceiling)`. Two
   independent bisections of the same function; if they disagree, one of them
   retained the wrong tasks.
-- **`n_candidates` and `retention`** are what carry information after subsetting.
-  `n_tasks > 0` passes on a suite where 197 of 198 drawn tasks were discarded as
-  untrainable, and that suite is not "near the frontier" in any sense §344 means.
+- **`n_candidates` and `retention`** bind the retained count to its denominator.
+  The counts and reported rate must agree. Sample size is governed by
+  `MIN_FRONTIER_TASKS`, not by a separate retention threshold.
 """
 
 MIN_FRONTIER_TASKS = power_pairs(0.25, 0.5)
@@ -559,31 +559,29 @@ class Precondition:
 
 
 def retention_floor(band: tuple[float, float]) -> float:
-    """The retention a difficulty-blind suite would get, which is the floor.
+    """Diagnostic band width, NOT an admission threshold.
 
-    **Derived, not chosen.** If a suite's per-task solve rates were uniform on
-    [0, 1] — i.e. the tasks were drawn with no regard for the policy at all — the
-    fraction landing inside the trainable band is exactly the band's width, 0.760
-    at G=4. §344 asks for "a taskset whose tasks sit near a 0.6B model's
-    frontier. **Not merely more shapes**", so a suite that retains *less* than a
-    difficulty-blind draw would is positive evidence that its tasks are
-    concentrated in the dead tails, which is the opposite of the requirement.
-
-    This is the strictest defensible floor and it is the one threshold in this
-    gate that the spec does not supply. It is a keyword argument everywhere it is
-    used, so lowering it is a one-line owner decision with a recorded reason
-    rather than an edit to this function. **Expect to revisit it on the first
-    real measurement:** nothing has measured a 0.6B policy's per-task solve rates
-    on anything yet, so whether a genuinely frontier-adjacent suite clears 0.760
-    is unknown.
+    Under uniform per-task solve rates on [0, 1], this is the expected retained
+    fraction, about 0.760 at G=4. The historical function name is preserved, but
+    that hypothetical distribution is not scientific evidence or a gate policy.
+    Admission uses `MIN_FRONTIER_TASKS` and checks truthful retention, with no
+    separate retention floor.
     """
     lo, hi = band
     return hi - lo
 
 
+def _is_probability(value: Any) -> bool:
+    """Finite non-bool number in [0, 1], without float-coercing huge integers."""
+    return (
+        isinstance(value, (int, float)) and not isinstance(value, bool)
+        and 0.0 <= value <= 1.0
+    )
+
+
 def _check_measurement(
     manifest: Mapping[str, Any], g: int, ceiling: float, band: tuple[float, float],
-    n_tasks: Any, min_retention: float | None,
+    n_tasks: Any,
 ) -> list[str]:
     """The `measurement` block: the half of the manifest that can still fail.
 
@@ -601,7 +599,9 @@ def _check_measurement(
         reasons.append(f"measurement is missing {', '.join(missing)}")
 
     measured_g = block.get("g")
-    if measured_g != g:
+    if not (isinstance(measured_g, int) and not isinstance(measured_g, bool) and measured_g > 0):
+        reasons.append(f"measurement.g is not a positive int: {measured_g!r}")
+    elif measured_g != g:
         reasons.append(
             f"measurement.g is {measured_g!r} but this lane trains at G={g}. The "
             "trainable band widens with G, so a subset retained at another G "
@@ -610,7 +610,12 @@ def _check_measurement(
         )
 
     measured_ceiling = block.get("dead_ceiling")
-    if measured_ceiling != ceiling:
+    if not _is_probability(measured_ceiling):
+        reasons.append(
+            "measurement.dead_ceiling is not a finite number in [0, 1]: "
+            f"{measured_ceiling!r}"
+        )
+    elif measured_ceiling != ceiling:
         reasons.append(
             f"measurement.dead_ceiling is {measured_ceiling!r}, this lane aborts at "
             f"{ceiling}. Tasks were retained against a different ceiling."
@@ -618,7 +623,12 @@ def _check_measurement(
 
     declared_band = block.get("trainable_band")
     if isinstance(declared_band, (list, tuple)) and len(declared_band) == 2:
-        if any(abs(a - b) > 1e-6 for a, b in zip(declared_band, band)):
+        if not all(_is_probability(value) for value in declared_band):
+            reasons.append(
+                "measurement.trainable_band is not a pair of finite numbers in "
+                f"[0, 1]: {declared_band!r}"
+            )
+        elif any(abs(a - b) > 1e-6 for a, b in zip(declared_band, band)):
             reasons.append(
                 f"measurement.trainable_band {list(declared_band)} disagrees with this "
                 f"lane's own derivation {list(band)} at G={g}, ceiling {ceiling}. Two "
@@ -627,10 +637,16 @@ def _check_measurement(
     elif "trainable_band" in block:
         reasons.append(f"measurement.trainable_band is not a pair: {declared_band!r}")
 
+    declared = block.get("retention")
+    if not _is_probability(declared):
+        reasons.append(
+            f"measurement.retention is not a finite number in [0, 1]: {declared!r}"
+        )
+
     candidates = block.get("n_candidates")
     if not (isinstance(candidates, int) and not isinstance(candidates, bool) and candidates > 0):
         reasons.append(f"measurement.n_candidates is not a positive int: {candidates!r}")
-    elif isinstance(n_tasks, int) and not isinstance(n_tasks, bool):
+    elif isinstance(n_tasks, int) and not isinstance(n_tasks, bool) and n_tasks > 0:
         if n_tasks > candidates:
             reasons.append(
                 f"n_tasks {n_tasks} exceeds measurement.n_candidates {candidates}: more "
@@ -638,26 +654,10 @@ def _check_measurement(
             )
         else:
             realised = n_tasks / candidates
-            declared = block.get("retention")
-            if isinstance(declared, (int, float)) and not isinstance(declared, bool):
-                if abs(declared - realised) > 1e-6:
-                    reasons.append(
-                        f"measurement.retention {declared} does not match n_tasks / "
-                        f"n_candidates = {realised:.6f}; the counts and the rate disagree"
-                    )
-            elif "retention" in block:
-                reasons.append(f"measurement.retention is not a number: {declared!r}")
-
-            floor = retention_floor(band) if min_retention is None else min_retention
-            if realised < floor:
+            if _is_probability(declared) and abs(declared - realised) > 1e-6:
                 reasons.append(
-                    f"retention {realised:.1%} ({n_tasks}/{candidates}) is below the "
-                    f"{floor:.1%} floor, which is the width of the trainable band and so "
-                    "the retention a suite drawn with no regard for the policy would "
-                    "get. §344 asks for tasks that sit near the frontier, not for a thin "
-                    "subset cherry-picked out of a suite that mostly does not. **This is "
-                    "the one threshold the spec does not supply — see "
-                    "guards.retention_floor; lowering it is an owner decision.**"
+                    f"measurement.retention {declared} does not match n_tasks / "
+                    f"n_candidates = {realised:.6f}; the counts and the rate disagree"
                 )
     return reasons
 
@@ -700,6 +700,7 @@ def frontier_taskset_status(
     from train.dead_group_probe import (
         ABORT_CEILING,
         NUM_GENERATIONS,
+        viable_band,
         zero_advantage_fraction,
     )
 
@@ -774,13 +775,22 @@ def frontier_taskset_status(
         drawn = realised.get("n_candidates") if isinstance(realised, dict) else None
         kept = realised.get("retention") if isinstance(realised, dict) else None
         detail = f" (retained {n} of {drawn}, {kept:.1%})" if isinstance(drawn, int) \
-            and isinstance(kept, (int, float)) else ""
+            and _is_probability(kept) else ""
         reasons.append(
             f"n_tasks {n} is below the {MIN_FRONTIER_TASKS} paired tasks the +25 pp "
             f"effect needs at band-centre discordance{detail}. A band over a retained "
             "subset is conformant by construction -- n is where the information is, so "
             "n is where the floor goes."
         )
+
+    band = viable_band(g, ABORT_CEILING)
+    if band is None:
+        reasons.append(
+            f"measurement.trainable_band has no viable interval at G={g}, "
+            f"ceiling {ABORT_CEILING}"
+        )
+    else:
+        reasons.extend(_check_measurement(manifest, g, ABORT_CEILING, band, n))
 
     amendment = str(manifest.get("pre_registration_amendment") or "").strip()
     if not amendment:

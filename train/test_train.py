@@ -1435,7 +1435,9 @@ def test_the_gate_refuses_a_frontier_too_small_to_carry_the_effect(tmp_path):
         status.reasons
 
     # and the boundary itself passes, so the floor is not off by one
-    at_floor = {**GOOD_MANIFEST, "n_tasks": guards.MIN_FRONTIER_TASKS}
+    at_floor = {**GOOD_MANIFEST, "n_tasks": guards.MIN_FRONTIER_TASKS,
+                "measurement": {**GOOD_MANIFEST["measurement"],
+                                "retention": guards.MIN_FRONTIER_TASKS / 198}}
     write_manifest(tmp_path, at_floor, SIGNED)
     assert guards.frontier_taskset_status(tmp_path).ok
 

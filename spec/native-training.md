@@ -9,6 +9,13 @@ scientific settings stay unchanged. The full dependency graph, hardware/ABI,
 patched runtime, exclusive read-only source isolation and scientific measurement
 review remain unresolved refusals, not authorization inferred from metadata.
 
+2026-10-25 follow-up: owner approved local safety fixes and separately scoped
+scratch acquisition of the two missing pinned artifacts. Measurement consistency
+is now enforced under the existing count-only task floor, with no new retention
+threshold. See `spec/frontier-measurement-consistency.md`. Constructor code still
+does not download or install anything; actual artifact acquisition evidence is
+separate from native runtime or scientific approval.
+
 ## Failure-first acceptance tests
 
 1. `test_real_gate_blocks_before_runtime_side_effects`: current real preflight
@@ -236,10 +243,11 @@ require a separately reviewed actual mechanism. Native runtime admission stays
 closed until that isolation exists. Do not market the byte verifier as
 immutable storage or hostile-filesystem containment.
 
-Pre-existing scientific gap: `_check_measurement()` is not called by
-`frontier_taskset_status()`. This patch preserves that wiring, surfaces the gap,
-and retains a native unresolved blocker for its review. It does not claim the
-helper's G/ceiling/retention checks already execute.
+The previously disconnected `_check_measurement()` now runs from
+`frontier_taskset_status()`: G, ceiling, band and count/rate consistency are
+checked. The derived task-count floor is unchanged; retention has no separate
+admission threshold. These checks establish internal consistency, not truthful
+model outcomes or scientific approval. Native scientific review remains closed.
 
 ## Parent ownership and implementation order
 
@@ -253,8 +261,8 @@ contract clarification here, then implement. No agent commits or pushes.
 
 No default/frozen version-rule, scientific signature/manifest/measurement, threshold,
 model/revision selection, G/channel/prompt/tool/scorer/evaluation-membership
-change beyond the scoped native-only runtime policy. No dependency installation
-or new weight download, GPU/model/paid run, training launch,
+change beyond the scoped native-only runtime policy and count-only consistency
+repair. No dependency installation or implicit weight download, GPU/model/paid run, training launch,
 production deployment or push. Do not replace TRL/Unsloth with another trainer.
 Do not add a receipt checker that emits invented gradients/weights or calls
 fixture consistency real learning. Actual sampler/logprob, optimizer and

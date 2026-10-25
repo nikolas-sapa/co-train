@@ -47,9 +47,9 @@ _UNRESOLVED = (
     "semantics have not been validated for this exact native stack.",
     "Actual exclusive, read-only artifact isolation has not been established; "
     "verified-local loading alone does not prove isolation from shared artifacts.",
-    "Scientific measurement review is unresolved: frontier_taskset_status does "
-    "not call _check_measurement. Review is required before native activation; "
-    "this runtime-policy change does not repair or waive that scientific gate.",
+    "Scientific measurement review is unresolved: manifest consistency checks "
+    "do not establish genuine per-task policy outcomes or scientific approval. "
+    "Actual measurement evidence must be reviewed before native activation.",
 )
 _LIMITATIONS = (
     "Only selected direct constraints of the proposed core are checked; this "
