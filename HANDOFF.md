@@ -6,6 +6,27 @@ The original body remains under [History](#history).
 
 ---
 
+## Current state, 2026-10-25, SQL pilot session closed
+
+**Read [SQL pilot next-session handoff](spec/sql-skill-pilot-handoff.md) first.**
+This checkpoint covers the SQL pilot; earlier feature receipts remain below.
+
+- Session scope complete: implementation, offline verification, authorized real
+  trial, separately authorized cleanup and durable evidence are saved locally.
+- Pilot NOT complete: native pair passed; real record lifecycle failed before
+  reuse. Missing-usage RPC completed 4.796 ms before STOPPED; strict discard
+  correctly refused. Full kernel acceptance and model benefit remain unproven.
+- Current-source offline suite: 3,403 passed, one optional Torch skip, two
+  tokenizer deselections, ten existing fork warnings. Reviews found no issues.
+- Latest trial cleanup verified: all four owned containers and 18 actors absent,
+  ten unrelated containers unchanged, no active reservation/unclosed block.
+- Zero model calls. Billing gate closed. Trial/cleanup permissions consumed;
+  no retries, new real trials or push authorized.
+- Next session: bounded offline diagnosis/design for the pre-STOPPED stats gap,
+  not another unchanged trial or infrastructure expansion.
+
+---
+
 ## Current state, 2026-10-24, executable skills and fixture readiness
 
 **Bounded offline acceptance receipt, 2026-10-24.** The implementation base is
