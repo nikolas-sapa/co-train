@@ -111,12 +111,15 @@ positive net savings. Unknown prices/usage prohibit dollar-benefit claims.
 |---|---|
 | Vyce `https://vyceai.com/v1`, `deepseek-v4-flash`, $50 TOTAL ceiling | AUTHORIZED; not proven billing-safe |
 | One pinned Python runtime image download ≤200 MB | AUTHORIZED; completed, no further downloads/dependencies |
+| Start existing stopped default Colima; pinned-image acceptance | Completed scoped attempts; final one-shot consumed. New trial requires approval; no restart/resize/new VM/sudo/unrelated-container changes |
+| Official public Vyce billing documentation | AUTHORIZED; no account/credential/API/model/purchase actions |
 
 `GET /v1/models` reportedly returned 200; opaque alias/context 270k is not billing
 proof. No provider-enforced hard cap is established. Exact model version,
 rates/fees/billable bounds, worst-case charges and effective provider
-context/cache/sampling remain UNSET/unproven. Production execution-profile
-hashes remain unbuilt. NO INFERENCE until complete authoritative charge bounds
+context/cache/sampling remain UNSET/unproven. Diagnostic-stage acceptance profiles
+are retained; the terminal-proof source needs fresh bindings before a newly
+authorized trial. A live-pilot execution profile remains unapproved. NO INFERENCE until complete authoritative charge bounds
 and approved billing/settlement evidence satisfy the frozen financial gate.
 No current Vyce USD-receipt proof or supported collector exists; the planned
 receipt workflow is financially closed and future-only, not a ready live adapter.
@@ -220,10 +223,17 @@ Endpoint native rejection is MODEL failure within denominator eight, not an
 infrastructure abort.
 Candidate remains v1: unchanged strict `SourceRef.instrument` plus whole-v2-capture
 SHA transitively binds both engines; fresh record-graph tests must establish compatibility.
-Production isolation/worker/scorer sources passed focused source review and
-independent offline regression. Real isolation acceptance has not passed.
-The [verification receipt and limits](sql-skill-pilot-plan.md#81-independent-offline-verification-2026-10-25)
-separate these checks from kernel acceptance and live model results.
+Earlier production sources passed focused review and independent offline regression.
+The native pair passed on diagnostic-stage source; the isolated skill lifecycle
+and complete kernel acceptance remain blocked. The terminal-proof revision passed
+428 independent offline runtime tests and focused Python/security review; its
+full offline regression passed 3,403 tests (including those 428), with one
+optional Torch skip, two deliberate tokenizer deselections and ten existing
+multithreaded-fork warnings. This is not real kernel or skill-reuse acceptance.
+The [current real-check results and limits](sql-skill-pilot-plan.md#82-approved-real-checks-and-current-blockers-2026-10-25)
+separate native execution from fresh-process skill reuse and live model results.
+The [terminal-proof verification](sql-skill-pilot-plan.md#84-terminal-proof-verification)
+has separate source pins and does not reuse the consumed real-attempt claim.
 The linked plan is the additive v2 contract; preserve existing v1 behavior.
 No monkeypatches, fabricated captures or fake legacy bindings.
 

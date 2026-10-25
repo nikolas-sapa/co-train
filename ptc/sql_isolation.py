@@ -1408,6 +1408,16 @@ def _verify_owned(obj, journal):
     for key, value in cfg["HostConfig"].items():
         if key == "Mounts":
             continue
+        if (key == "MemorySwappiness" and type(value) is int and value == 0
+                and key in host and host[key] is None
+                and all(type(caps.get(name)) is int and caps[name] > 0
+                        for caps in (cfg["HostConfig"], host)
+                        for name in ("Memory", "MemorySwap"))
+                and host["Memory"] == host["MemorySwap"] ==
+                    cfg["HostConfig"]["Memory"] == cfg["HostConfig"]["MemorySwap"]):
+            # cgroupv2 may normalize requested zero to explicit null. Equal,
+            # positive memory/total-swap caps still prohibit additional swap.
+            continue
         if type(host.get(key)) is not type(value) or host[key] != value:
             raise _Failure("binding", "effective HostConfig mismatch: " + key)
     mounts = obj.get("Mounts")
@@ -1492,8 +1502,77 @@ class _ObservationFailure(_Failure):
         super().__init__("memory", detail)
 
 
+class _MissingRawUsage(_ObservationFailure):
+    def __init__(self, cid, started, finished, stats_rpc_completed_at, validation_cause):
+        super().__init__("terminal candidate missing raw memory usage")
+        self.cid = _digest(cid)
+        self.started, self.finished = started, finished
+        self.stats_rpc_completed_at = stats_rpc_completed_at
+        self.validation_cause = validation_cause
+        if (type(validation_cause) is not ValueError or
+                any(type(t) is not float or not math.isfinite(t) for t in (
+                    started, finished, stats_rpc_completed_at))):
+            raise ValueError("invalid private missing-usage observation")
+
+
+@dataclass(frozen=True, slots=True)
+class _StoppedOwnedProof:
+    cid: str
+    job: Path
+    nonce: str
+    config_sha256: str
+    guardian: int
+    observer_token: str
+    stopped_at: float
+
+    def __post_init__(self):
+        _digest(self.cid); _path(self.job); _text(self.nonce, nonempty=True, maximum=128)
+        _digest(self.config_sha256); _integer(self.guardian, minimum=1)
+        if (type(self.observer_token) is not str or
+                re.fullmatch("[0-9a-f]{32}", self.observer_token) is None or
+                type(self.stopped_at) is not float or not math.isfinite(self.stopped_at) or self.stopped_at < 0):
+            raise ValueError("invalid private stopped proof")
+
+
 def _event(job, kind, **values):
     _append_owned(job / "events.jsonl", {"kind": kind, "at": time.monotonic(), **values})
+
+
+def _diagnostic_type(value):
+    allowed = (type(None), bool, int, float, str, list, dict, ValueError, TypeError,
+               RuntimeError, OSError, TimeoutError, MemoryError, UnicodeDecodeError,
+               json.JSONDecodeError, _Failure, _HTTPFailure, _RPCUncertain, _ObservationFailure)
+    return type(value).__name__ if type(value) in allowed else "other"
+
+
+def _observer_failure_event(job, failure):
+    # No messages, arbitrary filenames/function names, traceback locals or bodies.
+    functions = ("_run", "_memory_sample", "get", "_integer", "_digest", "_vm_memory",
+                 "call", "operation", "_whole_rpc", "_supervise", "_metadata", "pairs",
+                 "constant", "_operation_bound", "run")
+    chain = []
+    for _ in range(4):
+        if failure is None:
+            break
+        frames, seen, tb = [], 0, failure.__traceback__
+        for _ in range(16):
+            if tb is None:
+                break
+            code = tb.tb_frame.f_code
+            if code.co_filename == __file__ and code.co_name in functions:
+                seen += 1
+                frames = (frames + [("ptc/sql_isolation.py", code.co_name, tb.tb_lineno)])[-4:]
+            tb = tb.tb_next
+        reason = failure.reason if type(failure) in (
+            _Failure, _HTTPFailure, _RPCUncertain, _ObservationFailure) else None
+        status = failure.status if type(failure) is _HTTPFailure else None
+        chain.append({"type": _diagnostic_type(failure), "frames": frames,
+                      "frames_truncated": tb is not None or seen > 4,
+                      "reason": reason if type(reason) is str and reason in _ABORT_REASONS else None,
+                      "status": status if type(status) is int and 100 <= status <= 599 else None})
+        failure = failure.__cause__ if failure.__cause__ is not None else (
+            None if failure.__suppress_context__ else failure.__context__)
+    _event(job, "OBSERVER_FAILURE", chain=chain, chain_truncated=failure is not None)
 
 
 def _vm_memory(profile, job, deadline):
@@ -1542,42 +1621,83 @@ def _vm_memory(profile, job, deadline):
 def _memory_sample(profile, daemon, job):
     started = time.monotonic()
     end = started + 4.0
-    def get(path):
+    def get(path, timed=False):
         remaining = min(3.0, end - time.monotonic())
         if remaining <= 0:
             raise _ObservationFailure("complete sample older than four seconds")
-        return daemon.call("GET", path, timeout=remaining)
+        value = daemon.call("GET", path, timeout=remaining)
+        completed = time.monotonic()  # Worker completion, never future-consumption time.
+        return (value, completed) if timed else value
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=16, thread_name_prefix="sql-metadata")
     try:
-        vm = pool.submit(_vm_memory, profile, job, end)
-        info = pool.submit(get, "/info")
-        listing = pool.submit(get, "/containers/json")
-        containers = listing.result(timeout=max(0.001, end - time.monotonic()))
-        if type(containers) is not list or len(containers) > 128:
-            raise _ObservationFailure("invalid running-container inventory")
-        ids = []
-        for container in containers:
-            if type(container) is not dict or container.get("State") not in ("running", "paused", "restarting"):
-                raise _ObservationFailure("unknown running-container state")
-            ids.append(_digest(container.get("Id")))
-        if len(set(ids)) != len(ids):
-            raise _ObservationFailure("duplicate running CID")
-        charges = [(cid, pool.submit(get, f"/containers/{cid}/stats?stream=false&one-shot=true"))
-                   for cid in ids]
-        total, available = vm.result(timeout=max(0.001, end - time.monotonic()))
-        daemon_info = info.result(timeout=max(0.001, end - time.monotonic()))
-        if type(daemon_info) is not dict or _integer(daemon_info.get("MemTotal"), minimum=1) != total:
-            raise _ObservationFailure("VM/daemon total mismatch")
-        raw = []
-        for cid, future in charges:
-            stats = future.result(timeout=max(0.001, end - time.monotonic()))
-            if type(stats) is not dict or type(stats.get("memory_stats")) is not dict:
-                raise _ObservationFailure("missing raw memory statistics")
-            charge = _integer(stats["memory_stats"].get("usage"))
-            raw.append((cid, charge))
+        try:
+            vm = pool.submit(_vm_memory, profile, job, end)
+            info = pool.submit(get, "/info")
+            listing = pool.submit(get, "/containers/json")
+            containers = listing.result(timeout=max(0.001, end - time.monotonic()))
+            if type(containers) is not list or len(containers) > 128:
+                raise _ObservationFailure("invalid running-container inventory")
+            ids = []
+            for container in containers:
+                if type(container) is not dict or container.get("State") not in ("running", "paused", "restarting"):
+                    raise _ObservationFailure("unknown running-container state")
+                ids.append(_digest(container.get("Id")))
+            if len(set(ids)) != len(ids):
+                raise _ObservationFailure("duplicate running CID")
+            charges = [(cid, pool.submit(get, f"/containers/{cid}/stats?stream=false&one-shot=true", True))
+                       for cid in ids]
+            total, available = vm.result(timeout=max(0.001, end - time.monotonic()))
+            daemon_info = info.result(timeout=max(0.001, end - time.monotonic()))
+            if type(daemon_info) is not dict or _integer(daemon_info.get("MemTotal"), minimum=1) != total:
+                raise _ObservationFailure("VM/daemon total mismatch")
+            raw, missing, hard = [], [], []
+            for cid, future in charges:
+                stats, received = None, False
+                try:
+                    stats, completed = future.result(timeout=max(0.001, end - time.monotonic()))
+                    received = True
+                    if type(stats) is not dict or type(stats.get("memory_stats")) is not dict:
+                        raise _ObservationFailure("missing raw memory statistics")
+                    if any(key in stats and (type(stats[key]) is not str or stats[key] != cid)
+                           for key in ("id", "Id", "ID")):
+                        raise _ObservationFailure("contradictory stats identity")
+                    charge = _integer(stats["memory_stats"].get("usage"))
+                except BaseException as exc:
+                    memory = stats.get("memory_stats") if type(stats) is dict else None
+                    try:
+                        _event(job, "MEMORY_STATS_REJECTED", cid=cid, response_received=received,
+                               sample_started=started, stats_rpc_completed_at=completed if received else None,
+                               stats_type=_diagnostic_type(stats),
+                               memory_stats_present=type(stats) is dict and "memory_stats" in stats,
+                               memory_stats_type=_diagnostic_type(memory),
+                               usage_present=type(memory) is dict and "usage" in memory,
+                               usage_type=_diagnostic_type(memory.get("usage") if type(memory) is dict else None))
+                    except BaseException:
+                        hard.append(exc)  # A failed rejection write cannot authorize discard.
+                    else:
+                        if type(exc) is ValueError and type(memory) is dict and "usage" not in memory:
+                            missing.append((cid, completed, exc))
+                        else:
+                            hard.append(exc)
+                    continue
+                raw.append((cid, charge))
+            if hard:
+                raise hard[0]
+            if sum(v for _, v in raw) > total:
+                raise _ObservationFailure("inconsistent raw charged memory")
+        finally:
+            # Candidate creation also requires every future and HTTP alias gone.
+            pool.shutdown(wait=True, cancel_futures=True)
+            if daemon.active or daemon.workers:
+                raise _ObservationFailure("metadata HTTP aliases not closed")
         finished = time.monotonic()
         if finished > end:
             raise _ObservationFailure("complete memory sample exceeded four seconds")
+        if missing:
+            if len(missing) != 1:
+                raise _ObservationFailure("multiple missing raw usage observations")
+            cid, completed, cause = missing[0]
+            raise _MissingRawUsage(cid, started, finished, completed, cause) from cause
         headroom = min(available, total - sum(v for _, v in raw))
         if headroom < 0:
             raise _ObservationFailure("inconsistent raw charged memory")
@@ -1590,11 +1710,6 @@ def _memory_sample(profile, daemon, job):
         if isinstance(exc, _ObservationFailure):
             raise
         raise _ObservationFailure("incomplete/error raw memory observation") from exc
-    finally:
-        # Every call has a per-request remaining deadline. Never abandon futures.
-        pool.shutdown(wait=True, cancel_futures=True)
-        if daemon.active or daemon.workers:
-            raise _ObservationFailure("metadata HTTP aliases not closed")
 
 
 class _Observer:
@@ -1606,6 +1721,10 @@ class _Observer:
         self.failure = None
         self.tokens = []
         self.retired = False
+        self.pending = None
+        self.stopped_owned = None
+        self.retired_at = None
+        self.last_valid = None
         self.token = uuid.uuid4().hex
         _event(job, "OBSERVER_SPAWN_INTENT", token=self.token, guardian=os.getpid())
         self.thread = threading.Thread(target=self._run, name="sql-memory-observer", daemon=False)
@@ -1615,12 +1734,16 @@ class _Observer:
             try:
                 sample = _memory_sample(self.profile, self.daemon, self.job)
                 with self.lock:
-                    sample["eligible"] = not self.retired
+                    sample["eligible"] = not self.retired and self.failure is None and self.pending is None
                     self.tokens.append(sample)
                     self.latest = sample
             except BaseException as exc:
                 with self.lock:
-                    self.failure = exc
+                    if (type(exc) is _MissingRawUsage and self.failure is None and self.pending is None
+                            and self.retired and type(self.stopped_owned) is _StoppedOwnedProof):
+                        self.pending = exc
+                    elif self.failure is None:
+                        self.failure = self._ordinary_failure(exc)
                 # A failed sample never becomes an eligible cached zero-charge frame.
                 self.stop.wait(0.25)
                 continue
@@ -1628,7 +1751,7 @@ class _Observer:
 
     def check(self, *, after=None, admission=False):
         with self.lock:
-            if self.retired or self.failure is not None:
+            if self.retired or self.pending is not None or self.failure is not None:
                 raise _ObservationFailure("observer retired or failed")
             sample = self.latest
             if sample is None or not sample["eligible"]:
@@ -1644,13 +1767,57 @@ class _Observer:
 
     def _raise_if_failed(self):
         if self.failure is not None:
-            raise _ObservationFailure("failure discovered during observer retirement")
+            try:
+                _observer_failure_event(self.job, self.failure)
+            finally:
+                raise _ObservationFailure("failure discovered during observer retirement") from self.failure
 
-    def retire(self, deadline=None):
+    def _ordinary_failure(self, exc):
+        if type(exc) is _MissingRawUsage:
+            failure = _ObservationFailure("incomplete/error raw memory observation")
+            failure.__cause__ = exc.validation_cause
+            return failure
+        return exc
+
+    def _terminal_discard_allowed(self, journal, deadline):
+        candidate, proof, last = self.pending, self.stopped_owned, self.last_valid
+        if (type(candidate) is not _MissingRawUsage or type(proof) is not _StoppedOwnedProof
+                or type(last) is not dict or self.failure is not None
+                or self.thread.is_alive() or self.daemon.active or getattr(self.daemon, "workers", set())):
+            return False
+        now = time.monotonic()
+        times = (candidate.started, candidate.finished, candidate.stats_rpc_completed_at,
+                 proof.stopped_at, self.retired_at, last.get("finished"), deadline, now)
+        if any(type(t) is not float or not math.isfinite(t) for t in times):
+            return False
+        digest = hashlib.sha256(canonical_json_bytes(journal["config"])).hexdigest()
+        return (
+            candidate.cid == proof.cid == journal.get("cid")
+            and proof.job == self.job and proof.nonce == journal.get("nonce")
+            and proof.config_sha256 == journal.get("config_sha256") == digest
+            and proof.guardian == os.getpid() and proof.guardian in journal["guardians"]
+            and proof.observer_token == self.token and self.retired
+            and candidate.started <= self.retired_at <= candidate.finished <= now
+            and 0 <= candidate.finished - candidate.started <= 4.0
+            and proof.stopped_at <= self.retired_at
+            and candidate.started <= candidate.stats_rpc_completed_at
+            and proof.stopped_at <= candidate.stats_rpc_completed_at <= candidate.finished
+            and last.get("eligible") is True
+            and type(last.get("available")) is int and last["available"] >= self.profile.reserve_bytes
+            and 0 <= proof.stopped_at - last["finished"] <= 4.0
+            and 0 <= now - proof.stopped_at <= 4.0
+            and deadline == journal.get("cleanup_deadline") and now < deadline)
+
+    def retire(self, deadline=None, *, stopped_owned=None):
         with self.lock:
+            self.last_valid = dict(self.latest) if type(self.latest) is dict and self.latest.get("eligible") is True else None
+            self.stopped_owned = stopped_owned
+            self.retired_at = time.monotonic()
             self.retired = True
             for sample in self.tokens:
                 sample["eligible"] = False
+            if type(self.latest) is dict:
+                self.latest["eligible"] = False
         _event(self.job, "OBSERVER_RETIRED")
         self.stop.set()
         self.thread.join(timeout=max(0, min(4.5, deadline - time.monotonic())) if deadline is not None else 4.5)
@@ -1660,6 +1827,20 @@ class _Observer:
         self._raise_if_failed()
         journal = _metadata(_read_owned(self.job / "journal.json"))
         _prove_actor_absence(self.job, journal)
+        if self.pending is not None:
+            try:
+                if not self._terminal_discard_allowed(journal, deadline):
+                    raise _ObservationFailure("terminal stopped proof refused")
+                _event(self.job, "MEMORY_TERMINAL_DISCARDED", cid=self.pending.cid,
+                       started=self.pending.started, finished=self.pending.finished,
+                       stats_rpc_completed_at=self.pending.stats_rpc_completed_at,
+                       stopped_at=self.stopped_owned.stopped_at, retired_at=self.retired_at)
+                if not self._terminal_discard_allowed(journal, deadline):
+                    raise _ObservationFailure("terminal stopped proof expired")
+            except BaseException:
+                if self.failure is None:
+                    self.failure = self._ordinary_failure(self.pending)
+                self._raise_if_failed()
         _event(self.job, "OBSERVER_JOIN_ACK", samples=len(self.tokens), failed=False)
 
 
@@ -1839,6 +2020,7 @@ def _stream_result(profile, daemon, journal, job, control, observer, attached):
 
 
 def _cleanup_owned(profile, daemon, journal, job, observer):
+    stopped_owned = None
     _begin_cleanup(journal)
     daemon.cleanup_deadline = journal["cleanup_deadline"]
     _save_journal(job, journal)
@@ -1870,9 +2052,22 @@ def _cleanup_owned(profile, daemon, journal, job, observer):
         obj = _inspect(daemon, journal)
         if obj is None or not _stopped_state(obj.get("State")):
             raise _Failure("cleanup", "owned stop not positively proven")
-        _event(job, "STOPPED", cid=journal["cid"])
+        _cleanup_remaining(journal)
+        stopped_at = time.monotonic()
+        if (type(observer) is _Observer and observer.job == job and observer.profile is profile
+                and obj["State"].get("Status") in ("created", "exited")
+                and not daemon.active and not getattr(daemon, "workers", set())
+                and journal.get("config_sha256") == hashlib.sha256(canonical_json_bytes(journal["config"])).hexdigest()
+                and journal["config"]["Labels"].get(_OWNER_LABEL) == journal["nonce"]
+                and os.getpid() in journal["guardians"]):
+            stopped_owned = _StoppedOwnedProof(journal["cid"], job, journal["nonce"],
+                journal["config_sha256"], os.getpid(), observer.token, stopped_at)
+        _event(job, "STOPPED", cid=journal["cid"], stopped_at=stopped_at)
     if observer is not None:
-        observer.retire(deadline=journal["cleanup_deadline"])
+        if type(observer) is _Observer:
+            observer.retire(deadline=journal["cleanup_deadline"], stopped_owned=stopped_owned)
+        else:
+            observer.retire(deadline=journal["cleanup_deadline"])
     else:
         _prove_actor_absence(job, journal)
         _event(job, "OBSERVER_JOIN_ACK", samples=0, failed=False, actor_absence_proven=True)

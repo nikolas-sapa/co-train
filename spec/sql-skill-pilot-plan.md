@@ -616,11 +616,200 @@ The receipt binds 132 Python/configuration files and retains node, audit,
 resource, process, and proof-limit results; `full.log` and `full.xml` retain
 the actual pytest outcome. Historical spike reference files remain unchanged.
 
-Production acceptance is still blocked. The approved
-`/Users/nikolassapalidis/.colima/default/docker.sock` remained absent at final
-verification; no real-container acceptance launch or infrastructure restoration
-was attempted. Complete authoritative pricing/fees/billable maxima and supported
+At completion of this offline verification, production acceptance was blocked.
+The approved `/Users/nikolassapalidis/.colima/default/docker.sock` was absent;
+no real-container acceptance or restoration had yet been attempted. The later
+bounded restoration and real checks are recorded in §8.2. Complete authoritative pricing/fees/billable maxima and supported
 USD settlement receipts remain unavailable; no provider hard ceiling is
 established. Zero live pilot/model inference requests were made. Offline success
 does not establish fresh-task skill benefit, native weight training, kernel
 confinement, or an external spending guarantee.
+
+### 8.2 Approved real checks and current blockers, 2026-10-25
+
+**PRODUCTION ACCEPTANCE PENDING / NO MODEL RESULTS.** The existing stopped default
+Colima VM was started under host external-network denial, with context activation,
+configuration saving and SSH-config generation disabled. Its saved configuration
+hash and 2-CPU/2-GiB/disk allocation were unchanged. No restart, resize, new VM,
+image pull, sudo or unrelated-container operation was requested.
+
+Read-only preflight verified the existing pinned image, Docker 29.5.2/cgroup v2,
+and ten unrelated containers (nine running, one exited). The first real run
+exposed Docker normalizing requested `MemorySwappiness=0` to explicit `null`.
+The source now permits only that present-null normalization with requested exact
+integer zero and matching positive integer memory/total-swap caps. Missing,
+invalid, unlimited or changed caps/configuration still reject; CREATE and all
+resource limits remain unchanged. Test-first RED and four guard-mutant REDs were
+retained. The 133 original runtime nodes plus 132 normalization nodes passed.
+
+On that normalization-only source, the runtime/records/controller selection
+passed **1,182 tests** in **865.98 seconds**, with three existing
+`record_property`/JUnit-xunit2 compatibility warnings, zero external-network,
+cache or tokenizer attempts, 12 loopback events and 20 registered fixture UNIX
+events. This is an intermediate-source result, not a full-suite result for later
+diagnostic additions. The §8.1 full regression remains bound to its original
+source receipt.
+
+The earlier diagnostic-stage source
+`4d9a1dbca3efc880467957470bbacaebdaa2ea775edf293eb1083f6074b0c129`
+passed **280 runtime tests** independently in **9.75 seconds**: all 265 prior
+nodes plus 15 diagnostic cases, zero external/cache/tokenizer attempts, 67
+registered UNIX events, and zero FD/new-live-thread deltas. Focused Python and
+security reviews found no outstanding P1/P2 issue. Cause and field-shape
+diagnostics are bounded and allowlisted; they exclude messages, locals, arbitrary
+filenames, raw bodies, environment values and metadata values. Diagnostic I/O
+does not replace the original failure. No observer guard or deadline was relaxed.
+
+On that diagnostic source, the real native pair passed **2 tests in 3.26 seconds**: quoted
+catalog/ROWCOUNT with all six native scorer fields, and actual print-then-native
+rejection with zero scoring. The frozen acceptance-profile whole-file SHA256 is
+`31ffde906f49c59d39c15c3f99616725284e9ce4f0e817eaf59c7ffcaddbcf84`.
+These two checks do not establish all T04–T09 resource/adversarial gates.
+
+The real isolated skill lifecycle **FAILED** before fresh-process reuse. An
+in-flight stats response for the exact owned container contained a dictionary
+`memory_stats` without `usage`. It was consumed after positive STOPPED proof;
+the original stats-RPC completion timestamp was not captured, so this does not
+prove the response was produced after STOPPED. Healthy CLI completion was
+recorded. The strict observer correctly retained UNRESOLVED instead of using a
+zero charge or returning a successful capture. No completed qualification,
+promotion, fresh-process reuse or model-generated skill benefit is claimed.
+No missing charge is replaced with zero or a fixed OWN reservation. The narrow
+conditional terminal-discard test plan in §8.3 does not authorize a discard unless
+all of its proof predicates pass.
+
+All **14 created owned containers** were independently absent afterward;
+**63 recorded actor PIDs** were absent. Ten ordinary jobs closed within their
+original cleanup budgets. Four separately authorized late recoveries used fresh
+complete ownership/stopped/actor checks and exact non-force deletion. Every
+original failed journal, event, outcome, profile and request remained byte-identical,
+with original deadlines and UNRESOLVED blocks retained. Linked closure records
+release only the proven recovered reservations. Late recovery is explicitly
+**not** retrospective production acceptance. The ten unrelated containers
+remained unchanged.
+
+Evidence root:
+`/Users/nikolassapalidis/scratch/co-train-completion-2026-10-24/production-real-acceptance-flx9gm02`.
+`real-evidence-validation.json` SHA256:
+`61b60bcc6fd8672281dddcab2f4ecad34b8b96ae0199b68ffbaf2184b251c1b7`.
+Failed runs, one-shot claims, recovery receipts, native XML/logs and current
+diagnostic validation are retained there. Separate normalization and diagnostic
+RED/GREEN/mutant evidence remains under `normalization-fix-kz03jw2s` and
+`diagnostic-fix-7lkczul7` in the same completion root.
+
+Public-only research retrieved [official Vyce terms](https://vyceai.com/terms)
+on 2026-10-25. Section 6 describes prepaid per-token billing at dashboard rates;
+section 2 permits upstream routing changes. Neither establishes complete rates,
+all billable maxima, a pending-inclusive $50 hard ceiling, or request-specific
+settled USD receipts. Failure to locate public documentation is not proof that
+documentation does not exist. `public-billing-evidence.json` records the findings
+and limits. The approved pilot model remains `deepseek-v4-flash`, distinct from
+the agent model. No account access, provider API probes, purchases or live pilot
+inference occurred. The financial gate remains closed.
+
+### 8.3 Strict conditional terminal observation: test-first addendum
+
+This is a narrowly conditional observation rule, not a claim that the captured
+failure satisfies it. Actual stats-RPC completion must be timestamped inside the
+stats worker, immediately after the bounded daemon call returns; the later
+consumer/rejection timestamp is insufficient. The original four-second complete
+sample and twelve-second cleanup budgets remain unchanged.
+
+**Test plan before implementation:**
+
+| Named check | Numeric acceptance |
+|---|---|
+| Terminal OWN positive | Both roles: exactly one absent-usage observation discarded; zero new memory samples, tokens or replacement charges; JOIN_ACK before DELETE. |
+| Shape and identity | Explicit null/bool/string/negative usage, absent/non-dict memory_stats, malformed/HTTP/JSON responses, foreign CID/job/nonce/config/guardian/token, changed caps and live/paused/restarting/nonzero-PID states: zero discards, JOIN_ACKs or successful outcomes. |
+| Time and order | Last-valid age exactly 4.000s at STOPPED may qualify; 4.001s refuses. Proof age 4.001s and stats-RPC completion before STOPPED proof refuse. |
+| Genuine failure priority | Any other failed stats future, VM/info error, timeout or earlier latched failure wins in both container-order permutations: zero discards/JOIN_ACK/DELETE/CLOSED. |
+| Diagnostics and join | Failed diagnostic/discard writes, outstanding thread/future/CLI/HTTP aliases or expired original budget: zero successful discards/JOIN_ACK/DELETE/CLOSED. |
+| Rejection timing evidence | Both roles, RPC completion before and after STOPPED: four cases retain worker-side completion and sample-start times in the bounded rejection event, including refusals. No response values or exception text. |
+| Admission and sensitivity | Retired/pending-discard state permits zero STARTs. Bypassing CID, freshness, failure-priority or join predicates produces at least one intended assertion RED per gate. Retain all 280 prior runtime nodes and the real in-flight-error regression. |
+
+**Selected private implementation:** distinguish only an actual dictionary
+memory_stats with absent usage using a typed observation exception containing the
+validated requested CID, sample bounds, stats-RPC completion and original cause.
+Any supplied contradictory response identity rejects. Validate every other
+stats result, VM/info consistency and known charges before raising the candidate;
+any genuine error takes priority. Never emit a valid MEMORY_SAMPLE or calculate
+replacement headroom from that candidate.
+
+The existing final verified owned inspect in cleanup may mint an immutable
+private proof bound to full CID, job, nonce, config digest, guardian and observer
+token, with a monotonic STOPPED timestamp. It adds no daemon call. Only the
+concrete observer retirement call receives this proof. Under its existing lock,
+retirement captures the last eligible valid frame, installs proof/time and
+invalidates every token. A missing-usage candidate can become pending only if
+proof/retirement were already installed when handled; otherwise it remains a
+failure. A genuine failure is first-failure-latched, never overwritten.
+
+After all existing joins and durable actor proof, discard only if identities all
+match, candidate spans retirement, stats RPC completed at/after STOPPED proof,
+last eligible valid sample had reserve headroom and was at most four seconds old
+at STOPPED, proof is at most four seconds old now, all aliases are absent and the
+original cleanup deadline remains unexpired. Emit one bounded
+MEMORY_TERMINAL_DISCARDED before existing JOIN_ACK. Diagnostic failure or any
+predicate failure retains the original UNRESOLVED path. Existing guardian
+failure/uncertain outcomes are never cleared. Retired/pending state cannot
+authorize execution or admission.
+
+**Non-goals:** zero/fixed-cap charge substitution, relaxed RAW accounting,
+general observer-error suppression, retries/recovery API, extra daemon calls,
+new resource limits or runtime changes. No quantitative upper bound on OWN RAW
+charge overshoot has been established; a fixed cap/reserve substitution is not
+accepted as conservative. This conditional rule may still refuse the captured
+case if the actual response completed before STOPPED. A real acceptance claim
+requires fresh passing native and record-lifecycle evidence on the new source.
+
+### 8.4 Terminal-proof verification
+
+The §8.3 implementation received focused Python and security reviews with no
+actionable findings. Both were static reviews, not runtime acceptance.
+Current source SHA-256 pins:
+
+- `ptc/sql_isolation.py`: `4f382b45d2c96ccd540329bbcbd6a82b1336982136ee6d588c3956e40187d602`
+- `ptc/test_sql_isolation.py`: `5949730ff26ce1c55bc5c6ea8326f16bb50677b609e21b34c370c233e32aa4bc`
+
+Main independently ran all 428 runtime cases: 428 passed, with zero FD/thread
+deltas, external-network attempts, cold-cache accesses or tokenizer loads.
+All 424 worker-delivered nodes remain; four added cases first failed for absent
+timing evidence, then passed. Rejection events now preserve sample start and
+worker-side RPC completion even when terminal discard is refused; unsuccessful
+RPCs record no completion time. The closed-field diagnostic assertion was
+extended, not relaxed to arbitrary fields or response values.
+
+Independent gate mutants produced intended assertion failures: CID 2,
+freshness 4, genuine-failure priority 4, join 6, RPC-before-STOPPED 2. Seven
+offline guard canaries refused their forbidden operation; owned loopback passed.
+The full offline regression passed **3,403 tests**, including the 428 runtime
+cases, with one unchanged optional Torch skip and two deliberate tokenizer
+deselections. All 2,447 historical nodes and all 3,109 prior implementation
+nodes remain selected without duplicates. The fresh 132-file source snapshot
+remained unchanged. Its harness is byte-identical to the reviewed earlier
+harness, with current-source pins and fresh output paths.
+
+Independent result validation found zero errors: all 428 runtime FD/thread
+deltas were zero; 47 recorded actors were absent; 188 native process
+observations had zero errors. External-network, cache and tokenizer audit
+counts were zero (18 loopback and 1,175 owned-UNIX events allowed). Protected
+budget/scorer hashes remain unchanged. Ten existing multithreaded-fork
+DeprecationWarnings remain; inherited-lock risk has not been eliminated.
+The 60-second faulthandler diagnostic during a long nested mutation-baseline
+test was retained; that test subsequently passed. Full pytest time was
+1,203.49 seconds, not an acceptance or cleanup deadline measurement.
+
+Evidence:
+`/Users/nikolassapalidis/scratch/co-train-completion-2026-10-24/terminal-independent-FiZOcW0x/`
+contains `runtime-independent-validation.json`, runtime XML/logs, the timing
+test-first RED, mutation/guard results and completed full-run artifacts.
+`independent-validation.json` SHA-256:
+`694a885b151c6f606ecf3f831b73bcb8a35273e27f22cdb4621206a5c2db9be3`.
+The worker's separate 424-case stage remains under `terminal-proof-snf57oy_`.
+
+No real daemon trial was run on these source pins. The earlier final one-shot
+claim is consumed and must not be replayed. Any further native/record-lifecycle
+trial requires fresh authorization and fresh execution-profile bindings.
+The captured historical RPC completion remains unknown; this conditional rule
+may correctly refuse it. Full kernel acceptance, fresh-process skill reuse and
+live model benefit remain unproven. The financial gate remains closed.

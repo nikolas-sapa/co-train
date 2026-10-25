@@ -532,6 +532,162 @@ def _owned_fixture_object(j):
                         "RW": False, "Propagation": "rprivate"} for x in host["Mounts"]]}
 
 
+def _normalization_fixture(tmp_path, role):
+    m = api(); profile = fixture_profile(tmp_path)
+    journal = {"cid": "a" * 64, "name": "co-train-sql-normalization", "role": role,
+               "config": m._container_config(profile, role, tmp_path, "normalization")}
+    return journal, _owned_fixture_object(journal)
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("swappiness", [0, None], ids=["requested-zero", "explicit-null"])
+def test_swappiness_normalization_accepts_only_capped_zero(tmp_path, role, swappiness):
+    m = api(); journal, obj = _normalization_fixture(tmp_path, role)
+    requested = m.canonical_json_bytes(journal["config"])
+    host = journal["config"]["HostConfig"]
+    assert type(host["MemorySwappiness"]) is int and host["MemorySwappiness"] == 0
+    assert host["Memory"] == host["MemorySwap"] == 268435456
+    obj["HostConfig"]["MemorySwappiness"] = swappiness
+    failure = None
+    try:
+        verified = m._verify_owned(obj, journal)
+    except m._Failure as exc:
+        failure = exc
+    assert failure is None, "explicit capped zero/null swappiness rejected: " + str(failure)
+    assert verified is obj
+    assert m.canonical_json_bytes(journal["config"]) == requested, "CREATE payload was normalized"
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("swappiness", ["missing", False, True, 0.0, "0", 1, -1],
+                         ids=["missing", "false", "true", "float", "string", "nonzero", "unlimited"])
+def test_swappiness_normalization_rejects_other_values(tmp_path, role, swappiness):
+    m = api(); journal, obj = _normalization_fixture(tmp_path, role)
+    if swappiness == "missing":
+        obj["HostConfig"].pop("MemorySwappiness")
+    else:
+        obj["HostConfig"]["MemorySwappiness"] = swappiness
+    with pytest.raises(m._Failure, match="HostConfig mismatch: MemorySwappiness"):
+        m._verify_owned(obj, journal)
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("expected", [False, True, 0.0, "0", 1, -1],
+                         ids=["false", "true", "float", "string", "nonzero", "unlimited"])
+def test_swappiness_normalization_requires_requested_integer_zero(tmp_path, role, expected):
+    m = api(); journal, obj = _normalization_fixture(tmp_path, role)
+    journal["config"]["HostConfig"]["MemorySwappiness"] = expected
+    obj["HostConfig"]["MemorySwappiness"] = None
+    with pytest.raises(m._Failure, match="HostConfig mismatch: MemorySwappiness"):
+        m._verify_owned(obj, journal)
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("key", ["Memory", "MemorySwap"])
+@pytest.mark.parametrize("side", ["actual", "both"])
+@pytest.mark.parametrize("value", ["missing", None, False, True, 268435456.0, "268435456",
+                                  0, -2, -1, 134217728],
+                         ids=["missing", "null", "false", "true", "float", "string",
+                              "zero", "negative", "unlimited", "changed"])
+def test_swappiness_normalization_requires_exact_caps(tmp_path, role, key, side, value):
+    m = api(); journal, obj = _normalization_fixture(tmp_path, role)
+    obj["HostConfig"]["MemorySwappiness"] = None
+    hosts = [obj["HostConfig"]]
+    if side == "both":
+        hosts.append(journal["config"]["HostConfig"])
+    for host in hosts:
+        if value == "missing":
+            host.pop(key)
+        else:
+            host[key] = value
+    with pytest.raises(m._Failure, match="HostConfig mismatch"):
+        m._verify_owned(obj, journal)
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("fault", ["cid", "image", "label", "config", "pids", "capability",
+                                  "mount-source", "mount-write", "extra-mount"])
+def test_swappiness_normalization_keeps_other_bindings(tmp_path, role, fault):
+    m = api(); journal, obj = _normalization_fixture(tmp_path, role)
+    obj["HostConfig"]["MemorySwappiness"] = None
+    if fault == "cid":
+        obj["Id"] = "b" * 64
+    elif fault == "image":
+        obj["Image"] = "sha256:" + "b" * 64
+    elif fault == "label":
+        obj["Config"]["Labels"][m._OWNER_LABEL] = "foreign"
+    elif fault == "config":
+        obj["Config"]["User"] = "0:0"
+    elif fault == "pids":
+        obj["HostConfig"]["PidsLimit"] = True
+    elif fault == "capability":
+        obj["HostConfig"]["CapAdd"] = ["SYS_ADMIN"]
+    elif fault == "mount-source":
+        obj["Mounts"][0]["Source"] = "/foreign"
+    elif fault == "mount-write":
+        obj["Mounts"][0]["RW"] = True
+    else:
+        obj["Mounts"].append(dict(obj["Mounts"][0]))
+    with pytest.raises(m._Failure):
+        m._verify_owned(obj, journal)
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("expired", [False, True], ids=["remaining-budget", "expired-budget"])
+def test_swappiness_normalization_created_cleanup_keeps_order_and_budget(tmp_path, monkeypatch, role, expired):
+    m = api(); profile = fixture_profile(tmp_path)
+    job, journal = _review_job(tmp_path, profile, cid="a" * 64)
+    journal["role"] = role
+    journal["config"] = m._container_config(profile, role, job, journal["nonce"])
+    clock = [100.0]
+    monkeypatch.setattr(m.time, "monotonic", lambda: clock[0])
+    m._begin_cleanup(journal)
+    trigger, deadline = journal["cleanup_trigger"], journal["cleanup_deadline"]
+    assert deadline - trigger == 12.0
+    clock[0] += 12.0 if expired else 7.0
+    class Fixture:
+        active = set()
+        removed = False
+        def __init__(self):
+            self.calls = []
+        def call(self, method, path, *args, **kwargs):
+            self.calls.append((method, path))
+            clock[0] += 0.5
+            if method == "POST":
+                assert path == f"/containers/{journal['cid']}/kill?signal=SIGKILL"
+                raise m._HTTPFailure(409)
+            if method == "DELETE":
+                self.removed = True
+                return None
+            assert method == "GET" and path == f"/containers/{journal['cid']}/json"
+            if self.removed:
+                raise m._HTTPFailure(404)
+            obj = _owned_fixture_object(journal)
+            obj["HostConfig"]["MemorySwappiness"] = None
+            obj["State"]["Status"] = "created"
+            return obj
+    daemon = Fixture()
+    failure = None
+    try:
+        m._cleanup_owned(profile, daemon, journal, job, None)
+    except m._Failure as exc:
+        failure = exc
+    assert journal["cleanup_trigger"] == trigger and journal["cleanup_deadline"] == deadline
+    assert daemon.cleanup_deadline == deadline
+    kinds = [json.loads(line)["kind"] for line in (job / "events.jsonl").read_text().splitlines()]
+    if expired:
+        assert failure is not None and failure.reason == "cleanup", "expired original budget was reset"
+        assert not daemon.calls and not daemon.removed
+        assert not any(kind in kinds for kind in ("STOPPED", "OBSERVER_JOIN_ACK", "DELETE", "ABSENCE"))
+    else:
+        assert failure is None, "normalized created-state cleanup failed: " + str(failure)
+        assert [k for k in kinds if k in ("STOPPED", "OBSERVER_JOIN_ACK", "DELETE", "ABSENCE")] == [
+            "STOPPED", "OBSERVER_JOIN_ACK", "DELETE", "ABSENCE"]
+        assert kinds.count("KILL409_STOPPED_PROOF") == 1 and daemon.removed
+        assert journal["cleanup_elapsed"] == 10.0 < 12.0
+        assert len(daemon.calls) == 6
+
+
 class _LocalHTTP:
     """Owned UNIX fixture. Handler receives raw request, returns status/body/delay."""
     def __init__(self, path, handler):
@@ -739,6 +895,491 @@ def test_review_3_inflight_retirement_failure_cannot_ack_or_close(tmp_path, monk
     kinds = [json.loads(line)["kind"] for line in (job / "events.jsonl").read_text().splitlines()]
     assert "OBSERVER_JOIN_ACK" not in kinds
     assert "CLOSED" not in kinds
+
+
+def _diagnostic_retirement(tmp_path, monkeypatch, case, write_failure=None):
+    import os
+    import threading
+    m = api(); p = _review_profile(tmp_path); job, j = _review_job(tmp_path, p, cid="a" * 64)
+    j["guardians"] = [os.getpid()]
+    m._save_journal(job, j)
+    observer = m._Observer(p, m._Daemon(p), job)
+    entered, release = threading.Event(), threading.Event()
+    canary = "DIAGNOSTIC_PRIVATE_CANARY_94c0"
+    def vm_memory(*args):
+        assert observer.stop.wait(1)
+        return 1073741824, 1073741824
+    monkeypatch.setattr(m, "_vm_memory", vm_memory)
+    original_event = m._event
+    def event(path, kind, **values):
+        if kind in (write_failure or ()):
+            raise OSError(canary)
+        return original_event(path, kind, **values)
+    monkeypatch.setattr(m, "_event", event)
+    def handler(line):
+        assert line.startswith("GET "), "diagnostic fixture attempted a daemon mutation"
+        if line.startswith("GET /info "):
+            return 200, b'{"MemTotal":1073741824}', 0, 0
+        if line.startswith("GET /containers/json "):
+            if case == "invalid-cid":
+                entered.set(); assert observer.stop.wait(1)
+                return 200, m.canonical_json_bytes([{"Id": canary, "State": "running"}]), 0, 0
+            return 200, m.canonical_json_bytes([{"Id": j["cid"], "State": "running"}]), 0, 0
+        assert line.startswith(f"GET /containers/{j['cid']}/stats?")
+        entered.set()
+        if case == "deadline":
+            release.wait(0.8)
+        else:
+            assert observer.stop.wait(1)
+        if case == "http503":
+            return 503, canary.encode(), 0, 0
+        if case == "bad-json":
+            return 200, ('{"' + canary + '":').encode(), 0, 0
+        stats = {"memory_stats": {"usage": 1048576}, "private": canary}
+        if case == "missing-usage":
+            stats["memory_stats"] = {"private": canary}
+        elif case == "string-usage":
+            stats["memory_stats"]["usage"] = canary
+        elif case == "missing-memory-stats":
+            stats.pop("memory_stats")
+        elif case == "invalid-stats":
+            stats = canary
+        return 200, m.canonical_json_bytes(stats), 0, 0
+    class Cleanup:
+        active = set()
+        removed = False
+        def call(self, method, path, *args, **kwargs):
+            if method == "POST":
+                assert path.endswith("/kill?signal=SIGKILL")
+                raise m._HTTPFailure(409)
+            if method == "DELETE":
+                self.removed = True
+                return None
+            assert method == "GET"
+            if self.removed:
+                raise m._HTTPFailure(404)
+            return _owned_fixture_object(j)
+    daemon = Cleanup()
+    server = _LocalHTTP(p.daemon_socket, handler)
+    observer.thread.start()
+    failure = None
+    try:
+        assert entered.wait(1), "owned metadata RPC did not enter"
+        j["cleanup_trigger"] = m.time.monotonic() - (11.9 if case == "deadline" else 11.0)
+        j["cleanup_deadline"] = j["cleanup_trigger"] + 12.0
+        original = j["cleanup_deadline"]
+        began = m.time.monotonic()
+        try:
+            m._cleanup_owned(p, daemon, j, job, observer)
+        except m._Failure as exc:
+            failure = exc
+        elapsed = m.time.monotonic() - began
+        assert j["cleanup_deadline"] == original and daemon.cleanup_deadline == original
+        if case == "deadline":
+            assert failure is not None and failure.reason == "cleanup"
+            assert elapsed < 0.30, "diagnostics added a fresh join budget"
+        elif case == "healthy":
+            assert failure is None
+        else:
+            assert isinstance(failure, m._ObservationFailure)
+            assert str(failure) == "failure discovered during observer retirement"
+        records = [json.loads(line) for line in (job / "events.jsonl").read_text().splitlines()]
+        assert canary not in (job / "events.jsonl").read_text()
+        if failure is not None:
+            assert not daemon.removed
+            assert not any(e["kind"] in ("OBSERVER_JOIN_ACK", "DELETE", "CLOSED") for e in records)
+        else:
+            assert daemon.removed
+            assert [e["kind"] for e in records if e["kind"] in (
+                "STOPPED", "OBSERVER_JOIN_ACK", "DELETE", "ABSENCE")] == [
+                "STOPPED", "OBSERVER_JOIN_ACK", "DELETE", "ABSENCE"]
+        return records, failure, observer
+    finally:
+        release.set(); observer.stop.set(); observer.thread.join(2); server.close()
+        assert not observer.thread.is_alive()
+
+
+@pytest.mark.parametrize("case", ["missing-usage", "string-usage", "missing-memory-stats",
+                                  "invalid-stats", "http503", "bad-json", "invalid-cid", "healthy"])
+def test_observer_diagnostic_owned_metadata_failure(tmp_path, monkeypatch, case):
+    records, failure, observer = _diagnostic_retirement(tmp_path, monkeypatch, case)
+    diagnostics = [e for e in records if e["kind"] == "OBSERVER_FAILURE"]
+    if case == "healthy":
+        assert not diagnostics
+        assert not any(e["kind"] == "MEMORY_STATS_REJECTED" for e in records)
+        return
+    assert len(diagnostics) == 1, "original observer cause was not durably recorded"
+    diagnostic = diagnostics[0]
+    assert len(json.dumps(diagnostic).encode()) <= 8192
+    assert diagnostic["chain"][0]["type"] == "_ObservationFailure"
+    assert failure.__cause__ is observer.failure
+    rejected = [e for e in records if e["kind"] == "MEMORY_STATS_REJECTED"]
+    if case == "invalid-cid":
+        assert not rejected
+        assert any(f[1] == "_digest" for e in diagnostic["chain"] for f in e["frames"])
+        return
+    assert len(rejected) == 1 and rejected[0]["cid"] == "a" * 64
+    assert set(rejected[0]) == {"kind", "at", "cid", "response_received", "stats_type",
+                               "sample_started", "stats_rpc_completed_at",
+                               "memory_stats_present", "memory_stats_type", "usage_present", "usage_type"}
+    assert type(rejected[0]["sample_started"]) is float
+    if rejected[0]["response_received"]:
+        assert type(rejected[0]["stats_rpc_completed_at"]) is float
+        assert rejected[0]["sample_started"] <= rejected[0]["stats_rpc_completed_at"] <= rejected[0]["at"]
+    else:
+        assert rejected[0]["stats_rpc_completed_at"] is None
+    if case == "http503":
+        assert any(e["type"] == "_HTTPFailure" and e["status"] == 503 for e in diagnostic["chain"])
+        assert rejected[0]["response_received"] is False
+    elif case in ("missing-usage", "string-usage"):
+        assert rejected[0]["usage_present"] is (case == "string-usage")
+        assert rejected[0]["usage_type"] == ("str" if case == "string-usage" else "NoneType")
+        assert any(f[1] == "_integer" for e in diagnostic["chain"] for f in e["frames"])
+    kinds = [e["kind"] for e in records]
+    assert kinds.index("MEMORY_STATS_REJECTED") < kinds.index("OBSERVER_FAILURE")
+
+
+@pytest.mark.parametrize("kinds", [("MEMORY_STATS_REJECTED",), ("OBSERVER_FAILURE",),
+                                  ("MEMORY_STATS_REJECTED", "OBSERVER_FAILURE")])
+def test_observer_diagnostic_write_failure_stays_failed(tmp_path, monkeypatch, kinds):
+    records, failure, observer = _diagnostic_retirement(tmp_path, monkeypatch, "missing-usage", kinds)
+    assert failure.__cause__ is observer.failure, "diagnostic I/O replaced the original observer failure"
+    assert isinstance(observer.failure.__cause__, ValueError)
+    assert not any(e["kind"] in ("OBSERVER_JOIN_ACK", "DELETE", "CLOSED") for e in records)
+
+
+@pytest.mark.parametrize("depth", [2, 10, "cycle"])
+def test_observer_diagnostic_chain_is_bounded_and_private(tmp_path, monkeypatch, depth):
+    import os
+    import threading
+    import types
+    m = api(); p = _review_profile(tmp_path); job, j = _review_job(tmp_path, p)
+    j["guardians"] = [os.getpid()]; m._save_journal(job, j)
+    observer = m._Observer(p, types.SimpleNamespace(active=set()), job)
+    entered = threading.Event()
+    canary = "PRIVATE_EXCEPTION_TYPE_MESSAGE_FILENAME_FUNCTION_76d3"
+    unknown_type = type(canary, (RuntimeError,), {})
+    def nested_failure(*args):
+        entered.set(); assert observer.stop.wait(1)
+        failure = m._HTTPFailure(503)
+        for _ in range(2 if depth == "cycle" else depth):
+            wrapper = unknown_type(canary * 4096); wrapper.__cause__ = failure; failure = wrapper
+        if depth == "cycle":
+            failure.__cause__ = failure
+        exec(compile(f"def {canary}():\n    raise failure\n{canary}()\n",
+                     "/private/" + canary + ".py", "exec"), {"failure": failure})
+    monkeypatch.setattr(m, "_memory_sample", nested_failure)
+    observer.thread.start()
+    try:
+        assert entered.wait(1)
+        with pytest.raises(m._ObservationFailure):
+            observer.retire(deadline=m.time.monotonic() + 1)
+        data = (job / "events.jsonl").read_text()
+        events = [json.loads(line) for line in data.splitlines()]
+        rows = [e for e in events if e["kind"] == "OBSERVER_FAILURE"]
+        assert len(rows) == 1, "nested original cause was not durably recorded"
+        row = rows[0]
+        assert len(json.dumps(row).encode()) <= 8192 and len(row["chain"]) <= 4
+        assert row["chain_truncated"] is (depth != 2)
+        assert row["chain"][0]["type"] == "other"
+        if depth == 2:
+            assert row["chain"][-1]["type"] == "_HTTPFailure" and row["chain"][-1]["status"] == 503
+        for cause in row["chain"]:
+            assert len(cause["frames"]) <= 4
+            for file, function, line in cause["frames"]:
+                assert file == "ptc/sql_isolation.py" and canary not in function
+                assert type(line) is int and line > 0
+        assert canary not in data and str(tmp_path) not in json.dumps(row)
+        assert not any(e["kind"] in ("OBSERVER_JOIN_ACK", "DELETE", "CLOSED") for e in events)
+    finally:
+        observer.stop.set(); observer.thread.join(2)
+        assert not observer.thread.is_alive()
+
+
+def test_observer_diagnostic_preserves_original_cleanup_deadline(tmp_path, monkeypatch):
+    _diagnostic_retirement(tmp_path, monkeypatch, "deadline")
+
+
+def _terminal_owned_fixture(tmp_path, monkeypatch, role, fault=None, reverse=False):
+    import os
+    import threading
+    import types
+    m = api(); p = _review_profile(tmp_path); job, j = _review_job(tmp_path, p, cid="a" * 64)
+    j.update(role=role, guardians=[os.getpid()])
+    j["config"] = m._container_config(p, role, job, j["nonce"])
+    j["config_sha256"] = hashlib.sha256(m.canonical_json_bytes(j["config"])).hexdigest()
+    m._save_journal(job, j)
+    observer = m._Observer(p, m._Daemon(p), job)
+    phase = ["seed"]
+    entered, completed, release, caught = (threading.Event() for _ in range(4))
+    original_is_alive = observer.thread.is_alive
+    original_ordinary = observer._ordinary_failure
+    def ordinary(exc):
+        converted = original_ordinary(exc)
+        caught.set()
+        return converted
+    observer._ordinary_failure = ordinary
+    pool_type = m.concurrent.futures.ThreadPoolExecutor
+    class TrackedPool(pool_type):
+        def submit(self, function, *args, **kwargs):
+            future = super().submit(function, *args, **kwargs)
+            if phase[0] == "terminal" and args and "/stats?" in str(args[0]):
+                future.add_done_callback(lambda _: completed.set())
+            return future
+    monkeypatch.setattr(m.concurrent.futures, "ThreadPoolExecutor", TrackedPool)
+    def vm_memory(*args):
+        if phase[0] == "terminal" and fault != "handled-before-retirement":
+            assert observer.stop.wait(1)
+            if fault == "vm-error":
+                raise m._ObservationFailure("trusted VM failure")
+        return 1073741824, 1073741824
+    monkeypatch.setattr(m, "_vm_memory", vm_memory)
+    parallel = fault in ("other-null", "other-http", "other-json", "two-missing",
+                         "other-unlimited", "other-timeout", "other-over-total", "vm-error", "info-error")
+    original_call = observer.daemon.call
+    def metadata_call(method, path, **kwargs):
+        if phase[0] == "terminal" and fault == "other-timeout" and "/b" + "b" * 63 + "/stats?" in path:
+            kwargs["timeout"] = 0.12
+        return original_call(method, path, **kwargs)
+    observer.daemon.call = metadata_call
+    def handler(line):
+        assert line.startswith("GET ")
+        if line.startswith("GET /info "):
+            if phase[0] == "terminal" and fault == "info-error":
+                assert observer.stop.wait(1)
+                return 200, b'{"MemTotal":1}', 0, 0
+            return 200, b'{"MemTotal":1073741824}', 0, 0
+        if line.startswith("GET /containers/json "):
+            ids = ["a" * 64, "b" * 64] if parallel else ["b" * 64 if fault == "foreign-candidate" else "a" * 64]
+            if reverse: ids.reverse()
+            return 200, m.canonical_json_bytes([{"Id": cid, "State": "running"} for cid in ids]), 0, 0
+        cid = line.split("/containers/")[1].split("/")[0]
+        if phase[0] == "seed":
+            return 200, m.canonical_json_bytes({"id": cid, "memory_stats": {"usage": 1048576}}), 0, 0
+        entered.set()
+        if fault not in ("completed-before-stop", "handled-before-retirement"):
+            assert observer.stop.wait(1)
+        if fault == "join-budget":
+            release.wait(0.8)
+        if cid == "b" * 64 and parallel:
+            if fault == "other-http": return 503, b"", 0, 0
+            if fault == "other-json": return 200, b"{", 0, 0
+            if fault == "other-timeout":
+                return 200, m.canonical_json_bytes({"id": cid, "memory_stats": {"usage": 1048576}}), 0.25, 0
+            usage = None if fault == "other-null" else -1
+            if fault == "other-over-total": usage = 2147483648
+            if fault in ("vm-error", "info-error"): usage = 1048576
+            body = {"id": cid, "memory_stats": {} if fault == "two-missing" else {"usage": usage}}
+        else:
+            body = {"id": cid, "memory_stats": {}}
+            if fault in ("null", "bool", "string", "negative", "float"):
+                body["memory_stats"]["usage"] = {"null": None, "bool": False, "string": "private",
+                                                "negative": -1, "float": 0.0}[fault]
+            elif fault == "absent-memory": body.pop("memory_stats")
+            elif fault == "non-dict-memory": body["memory_stats"] = []
+            elif fault == "non-dict-stats": body = []
+            elif fault == "response-id": body["id"] = "b" * 64
+            elif fault == "response-Id": body["Id"] = "b" * 64
+            elif fault == "response-ID": body["ID"] = "b" * 64
+            elif fault == "absent-response-id": body.pop("id")
+            elif fault == "http": return 503, b"", 0, 0
+            elif fault == "json": return 200, b"{", 0, 0
+        return 200, m.canonical_json_bytes(body), 0, 0
+    server = _LocalHTTP(p.daemon_socket, handler)
+    seed = m._memory_sample(p, observer.daemon, job)
+    observer.latest = seed; observer.tokens.append(seed)
+    phase[0] = "terminal"
+    prior = m._ObservationFailure("prior first-latched failure")
+    if fault == "prior-failure": observer.failure = prior
+    original_event = m._event
+    pending_checks = []
+    def event(path, kind, **values):
+        if (fault == "diagnostic-write" and kind == "MEMORY_STATS_REJECTED" or
+                fault == "discard-write" and kind == "MEMORY_TERMINAL_DISCARDED"):
+            raise OSError("trusted diagnostic write fault")
+        result = original_event(path, kind, **values)
+        if kind == "OBSERVER_THREAD_JOINED":
+            with pytest.raises(m._ObservationFailure):
+                observer.check(admission=True)
+            read, write = os.pipe()
+            try:
+                with pytest.raises(m._ObservationFailure):
+                    m._final_start_checks(read, observer, 0.0, j)
+            finally:
+                os.close(read); os.close(write)
+            pending_checks.append(True)
+            if fault == "metadata-active": observer.daemon.active.add("owned-fixture-alias")
+            if fault == "metadata-worker": observer.daemon.workers.add("owned-fixture-worker")
+            if fault == "thread-active": observer.thread.is_alive = lambda: True
+            if observer.pending is not None:
+                if fault == "sample-old": observer.pending.started = observer.pending.finished - 4.001
+                if fault == "sample-four": observer.pending.started = observer.pending.finished - 4.0
+                if fault == "span-before": observer.pending.finished = observer.retired_at - 0.001
+                if fault == "span-after": observer.pending.started = observer.retired_at + 0.001
+                if fault == "rpc-after-finish": observer.pending.stats_rpc_completed_at = observer.pending.finished + 0.001
+        return result
+    monkeypatch.setattr(m, "_event", event)
+    original_retire = observer.retire
+    captured = []
+    def retire(deadline=None, *, stopped_owned=None):
+        captured.append(stopped_owned)
+        if stopped_owned is not None:
+            changes = {
+                "proof-cid": {"cid": "b" * 64}, "proof-job": {"job": job / "foreign"},
+                "proof-nonce": {"nonce": "foreign"}, "proof-config": {"config_sha256": "b" * 64},
+                "proof-guardian": {"guardian": os.getpid() + 1}, "proof-token": {"observer_token": "b" * 32},
+            }.get(fault, {})
+            if changes: stopped_owned = dataclasses.replace(stopped_owned, **changes)
+            if fault in ("last-four", "last-old", "last-future", "reserve-low"):
+                age = {"last-four": 4.0, "last-old": 4.001, "last-future": -0.001}.get(fault, 0.1)
+                seed["finished"] = stopped_owned.stopped_at - age
+                seed["started"] = seed["finished"] - 0.01
+                if fault == "reserve-low": seed["available"] = p.reserve_bytes - 1
+            if fault == "no-last": observer.latest = None
+            if fault == "ineligible-last": seed["eligible"] = False
+            if fault == "no-proof": stopped_owned = None
+        if stopped_owned is None:
+            return original_retire(deadline=deadline)
+        return original_retire(deadline=deadline, stopped_owned=stopped_owned)
+    observer.retire = retire
+    original_allowed = observer._terminal_discard_allowed
+    def allowed(journal, deadline):
+        if fault in ("proof-four", "old-proof"):
+            now = observer.stopped_owned.stopped_at + (4.0 if fault == "proof-four" else 4.001)
+            with monkeypatch.context() as patch:
+                patch.setattr(m, "time", types.SimpleNamespace(monotonic=lambda: now))
+                return original_allowed(journal, deadline)
+        return original_allowed(journal, deadline)
+    observer._terminal_discard_allowed = allowed
+    if fault == "actor-proof":
+        monkeypatch.setattr(m, "_prove_actor_absence", lambda *args: (_ for _ in ()).throw(m._Failure("cleanup", "actor proof refused")))
+    class Cleanup:
+        active = set()
+        workers = set()
+        removed = False
+        def __init__(self): self.calls = []
+        def call(self, method, path, *args, **kwargs):
+            self.calls.append((method, path))
+            if method == "POST":
+                assert path.endswith("/kill?signal=SIGKILL")
+                raise m._HTTPFailure(409)
+            if method == "DELETE":
+                self.removed = True
+                return None
+            if self.removed: raise m._HTTPFailure(404)
+            obj = _owned_fixture_object(j)
+            obj["State"]["Status"] = "exited"
+            if fault in ("running", "paused", "restarting", "pid", "status"):
+                key, value = {"running": ("Running", True), "paused": ("Paused", True),
+                              "restarting": ("Restarting", True), "pid": ("Pid", 1),
+                              "status": ("Status", "unknown")}[fault]
+                obj["State"][key] = value
+            if fault == "changed-cap": obj["HostConfig"]["Memory"] = 134217728
+            if fault == "cleanup-active": self.active.add("owned-cleanup-alias")
+            return obj
+    daemon = Cleanup()
+    observer.thread.start()
+    failure = None
+    try:
+        assert entered.wait(1)
+        if fault == "completed-before-stop": assert completed.wait(1)
+        if fault == "handled-before-retirement": assert caught.wait(1)
+        m._begin_cleanup(j)
+        original_budget = (j["cleanup_trigger"], j["cleanup_deadline"])
+        if fault == "join-budget":
+            j["cleanup_trigger"] = m.time.monotonic() - 11.9
+            j["cleanup_deadline"] = j["cleanup_trigger"] + 12.0
+            original_budget = (j["cleanup_trigger"], j["cleanup_deadline"])
+        if fault == "expired-budget":
+            j["cleanup_trigger"] = m.time.monotonic() - 12.001
+            j["cleanup_deadline"] = j["cleanup_trigger"] + 12.0
+            original_budget = (j["cleanup_trigger"], j["cleanup_deadline"])
+        try:
+            m._cleanup_owned(p, daemon, j, job, observer)
+        except BaseException as exc:
+            failure = exc
+        assert (j["cleanup_trigger"], j["cleanup_deadline"]) == original_budget
+        events = [json.loads(line) for line in (job / "events.jsonl").read_text().splitlines()]
+        if fault == "prior-failure": assert observer.failure is prior
+        return failure, events, daemon, observer, seed, captured, pending_checks
+    finally:
+        observer.thread.is_alive = original_is_alive
+        release.set(); observer.stop.set(); observer.thread.join(2); server.close()
+        observer.daemon.active.clear(); observer.daemon.workers.clear(); daemon.active.clear()
+        assert not observer.thread.is_alive()
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("fault", [None, "completed-before-stop"])
+def test_terminal_rejection_retains_worker_rpc_timing(tmp_path, monkeypatch, role, fault):
+    failure, events, *_ = _terminal_owned_fixture(tmp_path, monkeypatch, role, fault)
+    rejected = next(e for e in events if e["kind"] == "MEMORY_STATS_REJECTED")
+    stopped = next(e for e in events if e["kind"] == "STOPPED")
+    assert type(rejected.get("sample_started")) is float
+    assert type(rejected.get("stats_rpc_completed_at")) is float
+    assert rejected["sample_started"] <= rejected["stats_rpc_completed_at"] <= rejected["at"]
+    assert len(json.dumps(rejected).encode()) <= 1024
+    if fault == "completed-before-stop":
+        assert failure is not None
+        assert rejected["stats_rpc_completed_at"] < stopped["stopped_at"]
+    else:
+        assert failure is None
+        assert rejected["stats_rpc_completed_at"] >= stopped["stopped_at"]
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("fault", [None, "last-four", "proof-four", "sample-four", "absent-response-id"],
+                         ids=["fresh", "last-exact-four", "proof-exact-four", "sample-exact-four", "absent-response-id"])
+def test_terminal_owned_positive(tmp_path, monkeypatch, role, fault):
+    failure, events, daemon, observer, seed, captured, checks = _terminal_owned_fixture(tmp_path, monkeypatch, role, fault)
+    assert failure is None, "strict post-STOPPED terminal observation was not discarded: " + str(failure)
+    kinds = [e["kind"] for e in events]
+    assert kinds.count("MEMORY_TERMINAL_DISCARDED") == 1
+    assert kinds.count("MEMORY_SAMPLE") == 1 and observer.tokens == [seed]
+    assert kinds.index("MEMORY_TERMINAL_DISCARDED") < kinds.index("OBSERVER_JOIN_ACK") < kinds.index("DELETE")
+    assert daemon.removed and checks and not seed["eligible"]
+    assert [method for method, _ in daemon.calls] == ["GET", "POST", "GET", "GET", "DELETE", "GET"]
+    assert seed["raw_charges"] == [("a" * 64, 1048576)]
+    assert seed["available"] == 1073741824 - 1048576
+    discarded = next(e for e in events if e["kind"] == "MEMORY_TERMINAL_DISCARDED")
+    assert not any(key in discarded for key in ("available", "raw_charges", "token"))
+    assert captured and type(captured[0]) is api()._StoppedOwnedProof
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        captured[0].cid = "b" * 64
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("fault", [
+    "null", "bool", "string", "negative", "float", "absent-memory", "non-dict-memory", "non-dict-stats",
+    "response-id", "response-Id", "response-ID",
+    "http", "json", "foreign-candidate", "proof-cid", "proof-job", "proof-nonce", "proof-config",
+    "proof-guardian", "proof-token", "changed-cap", "running", "paused", "restarting", "pid", "status",
+    "completed-before-stop", "last-old", "last-future", "old-proof", "reserve-low", "no-last",
+    "ineligible-last", "no-proof", "prior-failure", "diagnostic-write", "discard-write",
+    "cleanup-active", "metadata-active", "metadata-worker", "thread-active", "actor-proof",
+    "join-budget", "expired-budget", "handled-before-retirement",
+    "sample-old", "span-before", "span-after", "rpc-after-finish",
+])
+def test_terminal_owned_strict_refusal(tmp_path, monkeypatch, role, fault):
+    failure, events, daemon, observer, *_ = _terminal_owned_fixture(tmp_path, monkeypatch, role, fault)
+    assert failure is not None, "terminal proof accepted forbidden " + fault
+    assert isinstance(failure, api()._Failure), "unexpected non-protocol test failure"
+    assert not daemon.removed
+    assert not any(e["kind"] in ("MEMORY_TERMINAL_DISCARDED", "OBSERVER_JOIN_ACK", "DELETE", "CLOSED") for e in events)
+    with pytest.raises(api()._ObservationFailure):
+        observer.check(admission=True)
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("reverse", [False, True], ids=["own-first", "own-last"])
+@pytest.mark.parametrize("fault", ["other-null", "other-http", "other-json", "other-unlimited",
+                                  "other-timeout", "other-over-total", "two-missing", "vm-error", "info-error"])
+def test_terminal_owned_hard_error_priority(tmp_path, monkeypatch, role, reverse, fault):
+    failure, events, daemon, *_ = _terminal_owned_fixture(tmp_path, monkeypatch, role, fault, reverse)
+    assert failure is not None, "candidate hid a parallel hard error"
+    assert isinstance(failure, api()._Failure), "unexpected non-protocol test failure"
+    assert not daemon.removed
+    assert not any(e["kind"] in ("MEMORY_TERMINAL_DISCARDED", "OBSERVER_JOIN_ACK", "DELETE", "CLOSED") for e in events)
 
 
 @pytest.mark.parametrize("registered", [False, True])
