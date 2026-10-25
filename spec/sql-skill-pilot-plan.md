@@ -22,9 +22,9 @@ two explicit nondefault files below; missing infrastructure FAILS, never skips.
 | T07 lifecycle | Guardian journal/ACK precedes CREATE; single-fault/lost-create/start/inherited-FD controls clean owned resources. Actual SIGKILL409 transition plus 9 strict negatives: 0 STARTs for unknown/stale/retired/foreign states. Join ACK precedes REMOVE. |
 | T08 binding/admission | Wrong image/config/platform/source/profile each yields 0 START. Missing/stale/>4s/lower-headroom samples refuse. Cross-process/profiles/run-directories overlap=0; unresolved history prevents next admission. |
 | T09 DB/wire | Original mutation or any WAL/SHM/journal sidecar rejects without deletion. Hostile prefix/frame/digest/role/request/bootstrap/UTF-8/overflow inputs fail closed. Whole output envelope, READY and bootstrap count toward caps. |
-| T10 isolated records | V2 host-score calls=0; rescore PROGRAM launches=0. Typed abort keeps unscored evidence; exact v1 defaults/bytes unchanged. Four actual qualification successes; fresh-process reuse on 2 fresh DBs after historical DB removal. |
+| T10 isolated records | V2 host-score calls=0; rescore PROGRAM launches=0. Native rejection containing FINAL_SQL preserves its flag/text/receipt and causes 0 SCORER calls; it cannot originate, qualify or rescore. Typed abort keeps unscored evidence; exact v1 defaults/bytes unchanged. Four actual qualification successes; fresh-process reuse on 2 fresh DBs after historical DB removal. |
 | T11 controller/leakage | Manifest 20 distinct cases: 8/4/8, 0 cross-partition IDs/fingerprints/DB hashes. All 8 pairs retained. Payload gold/credential/qualification/held-out canaries=0 where prohibited; raw ExResult.detail absent from proposal. |
-| T12 action/request | Both arms expose exactly 1 identical submit schema/all 4 required fields. Direct bytes never count as approved reuse; unknown selection has 0 fallback/retry. Exactly 2 messages/request; maximum 25 requests, output request 2,048 tokens. |
+| T12 action/request | Both arms expose exactly 1 identical submit schema/all 4 required fields. Direct bytes never count as approved reuse; unknown selection has 0 fallback/retry. Native rejection is MODEL failure within denominator 8, not infrastructure INCOMPLETE. Exactly 2 messages/request; maximum 25 requests, output request 2,048 tokens. |
 | T13 money/transport | Missing/incomplete profile or approval: 0 HTTP/0 credential reads. One durable claim/one attempt, 0 retries; ambiguous delivery/usage holds full reservation across restart. Receipt-field/hash/currency/charge mismatches never settle. Committed ledger remains unchanged. |
 | T14 sensitivity | Bypass each binding/confinement/routing/rescore/qualification/approval/budget/sanitization guard separately: ≥1 intended assertion RED per bypass, never stale-binding/import/infrastructure failure. |
 
@@ -53,7 +53,7 @@ AbortInfo(stage: program|scorer,
 RuntimeReceipt(role, request_sha256, python_version, sqlite_version,
                bootstrap_sha256, journal_sha256)
 ProgramOutcome(observation: str|None, abort: AbortInfo|None,
-               receipt: RuntimeReceipt|None)
+               receipt: RuntimeReceipt|None, *, rejected: bool=False)
 ScoreOutcome(result: ExResult|None, abort: AbortInfo|None,
              receipt: RuntimeReceipt|None)
 MemoryObserver(kind='colima_default_meminfo_v1', binary, binary_sha256,
@@ -65,7 +65,14 @@ ExecutionProfile(schema_version=1, daemon_socket, shared_state_dir,
                  policy: SecurityPolicy, binding: ExecutionBinding)
 ```
 
-Outcomes have exactly one success/abort branch. SecurityPolicy is the closed,
+Outcomes have exactly one completed/abort branch. A completed PROGRAM outcome
+requires observation and program receipt, including native rejection with
+`rejected=True`; preserve both fields from ProgramResponse, never infer rejection
+from observation text. Infrastructure/resource abort requires observation=None
+and rejected=False. Reject integer flags. The new outcome codec requires exactly
+four keys, including rejected; the existing two-field wire response is unchanged.
+Round-trip rejected FINAL_SQL text without losing flag, text or receipt.
+SecurityPolicy is the closed,
 typed final effective HostConfig/hostname/mount-slot/environment-rule
 representation, not an arbitrary dictionary or callback.
 
@@ -176,6 +183,19 @@ execution_aborted has result=None/typed AbortInfo, retaining final/extracted SQL
 when available. finish returns capture; failed step/rescore raises
 CaptureExecutionAborted carrying frozen unscored capture. Resource/infra aborts
 are not fabricated EX0/invalid-gold outcomes; endpoint abort means INCOMPLETE.
+
+Native rejection is separate. V2 step appends the unchanged ActionObservation
+and receipt, then seals terminal_label="program_rejected", result=None and
+execution_abort=None. Preserve existing final_answer/extracted_sql, normally None;
+do not extract or score rejected SQL-looking observation text. Raise new
+CaptureProgramRejected(CaptureError), carrying frozen .capture. Introduce
+CaptureError(RuntimeError) as base for the two new v2 exceptions, without
+changing legacy exceptions. V2 program_rejected requires at least one step,
+a completed PROGRAM receipt, no result and no execution abort; v1 rejects it.
+_execute catches this exception and returns its capture. The controller records
+MODEL failure and continues endpoint cases; rejection is not an origin EX0 or
+qualification success. rescore_capture rejects before any scorer launch.
+A guard mutant dropping rejected must cause an intended assertion failure.
 
 SkillBinding adds execution_binding=None. V2 promotion requires both engines.
 Candidate remains v1, SourceRef.instrument/InstrumentSettings/ActionObservation

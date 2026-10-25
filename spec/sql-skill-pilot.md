@@ -180,6 +180,11 @@ protocol: audit binding, not cryptographic attestation. Separately versioned, st
 fieldsets include isolated `ExecutionBinding`; preserve v1 canonical bytes and
 data-only decoding exactly. V1 approval never authorizes v2; no fallback.
 V2 grading abort retains final/extracted SQL, result=None and typed reason.
+Native PROGRAM rejection instead retains its flag, exact observation and receipt
+as an unscored v2 program_rejected capture. Never extract or score SQL-looking
+text from that rejected observation. It cannot originate, qualify or rescore.
+Endpoint native rejection is MODEL failure within denominator eight, not an
+infrastructure abort.
 Candidate remains v1: unchanged strict `SourceRef.instrument` plus whole-v2-capture
 SHA transitively binds both engines; fresh record-graph tests must establish compatibility.
 Production isolation/worker/scorer modules remain unimplemented.
