@@ -807,9 +807,70 @@ test-first RED, mutation/guard results and completed full-run artifacts.
 `694a885b151c6f606ecf3f831b73bcb8a35273e27f22cdb4621206a5c2db9be3`.
 The worker's separate 424-case stage remains under `terminal-proof-snf57oy_`.
 
-No real daemon trial was run on these source pins. The earlier final one-shot
-claim is consumed and must not be replayed. Any further native/record-lifecycle
-trial requires fresh authorization and fresh execution-profile bindings.
+At completion of this offline verification, no real daemon trial had run on
+these source pins. The earlier final one-shot claim was consumed, not replayed.
+Section 8.5 records a subsequently authorized trial with fresh bindings.
 The captured historical RPC completion remains unknown; this conditional rule
 may correctly refuse it. Full kernel acceptance, fresh-process skill reuse and
 live model benefit remain unproven. The financial gate remains closed.
+
+### 8.5 Newly authorized terminal-proof trial, 2026-10-25
+
+The user explicitly authorized one new native-pair plus record-lifecycle trial,
+at most 19 owned jobs, using only the existing pinned image and running Colima.
+No retries, inference, downloads, VM or unrelated-container changes were allowed;
+late recovery required separate approval. Fresh read-only preflight verified
+the ten-container baseline, no active reservation/unclosed block, local pinned
+image and two healthy memory samples (0.138/0.106 seconds). Saved Colima
+configuration and runtime source pins were unchanged.
+
+The exclusive claim binds runtime commit
+`37a519501e1c1d7f8dc0f4928135b97c75d78c1b` and fresh execution-profile whole SHA-256
+`17c1fd25226768f73339d57036c272b6d3c05f83b6d62701a7c10e2bb803425e`.
+The native pair **passed two tests in 4.49 seconds**, with three ordinary CLOSED
+jobs. Independent checks verified matching shared-history closure hashes,
+original cleanup deadlines, typed container absence and unchanged baseline.
+A validation-only assumption was corrected: CLOSED is a shared-history record,
+not a job event, and the start-intent event is START_ATTEMPT. No acceptance
+test was rerun.
+
+The single real record-lifecycle attempt **failed in 0.86 seconds**, on its first
+PROGRAM, before source scoring, qualification, promotion or fresh-process reuse.
+Its exact owned missing-usage response completed at `36442.182172`, before
+positive STOPPED proof at `36442.186967916`, a **4.795916-ms** gap. Rejection was
+consumed later, at `36442.257090583`. These are monotonic clock values.
+Unlike the earlier diagnostic-only case, worker-side timing is now recorded.
+The §8.3 discard correctly refused this pre-STOPPED response; it did not repair
+this observed cleanup race. No replacement charge, success receipt, JOIN_ACK,
+DELETE or retrospective acceptance was fabricated.
+
+Four owned jobs were created, not 19: three closed normally; the record PROGRAM
+retained its original UNRESOLVED failure. After separate explicit user approval,
+one exact stopped-owned non-force late removal completed with fresh ownership,
+strict exited/PID-zero and actor proof, a new exclusive twelve-second claim,
+typed absence and matching reservation release. The scoped recovery procedure
+received a focused security review with no findings; 12 negative/two positive
+controls passed and stopped-state/proof-target mutants failed as intended.
+Proof writes used a recovery-root copy of the actor manifest.
+
+Independent final verification: **all four owned CIDs absent, all 18 recorded
+actors absent, ten unrelated containers unchanged**, no active reservation or
+unclosed block. All five original failed-job artifacts, original deadline and
+UNRESOLVED journal/block remained unchanged. Only a separate linked late-closure
+record released the matching reservation. Recovery used one exact non-force
+DELETE, zero START/KILL, and is not production acceptance.
+
+Evidence root:
+`/Users/nikolassapalidis/scratch/co-train-completion-2026-10-24/terminal-real-acceptance-hmpp3s96/`.
+`trial-final-validation.json` SHA-256:
+`4d32f539a0e49a01eab48669cb31276de7cb8fdd7a40287c05ba6b1d5b621abc`.
+The separate late-recovery receipt SHA-256:
+`c1ffd170dc8e93657a8ddab90df78e7f3d29111f16258309c9ed62bcd9c10aa6`.
+Claims, preflight, native XML/logs, record failure, captured timing and original
+artifact pins remain retained. Parent record-audit counters do not cover the
+fresh child interpreter; OS external-IP denial was inherited by children.
+
+The newly authorized trial and exact late cleanup are consumed. No retry or
+further trial is authorized. Production record reuse, full kernel acceptance
+and model-generated benefit remain unproven; live inference remains financially
+blocked, with zero provider/model requests.
