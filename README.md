@@ -1,6 +1,33 @@
 # co-train
 
-## Current implementation boundary, 2026-10-23
+Co-train tests whether training a small model around a tool interface improves
+task performance, and whether any improvement survives a harness swap.
+
+## Current orientation, 2026-10-27
+
+Three workstreams have different evidence and blockers:
+
+| Workstream | Latest recorded boundary | Next step |
+|---|---|---|
+| Historical untrained comparison | Retired `ledger` taskset; small-sample result, not a training result. | Read [the report](docs/results-untrained.md) with its provenance limitations. |
+| SQL skill pilot, 2026-10-25 | Caller-authored qualification/reuse mechanics pass offline. Native pair passed, but real record lifecycle failed before reuse. Zero live pilot model calls; financial gate closed. | Bounded offline diagnosis of the pre-STOPPED missing-usage gap, following [the handoff](spec/sql-skill-pilot-handoff.md). |
+| Separate local MLX training, 2026-10-25 | Real sampling and weight updates recorded in another worktree. Improvement unproven; three-seed trial stopped, no holdout evaluation ran. | CPU-only RSS-probe diagnosis under that track's own handoff. |
+
+Start with the [project map](docs/project-map.md) for reading order and directory
+ownership, then the [evidence index](docs/evidence-index.md) for results,
+limitations and application-preparation gaps. These are navigation documents,
+not a product-readiness claim or permission to run experiments.
+
+The SQL checkpoint is local to `fix/nonfinite-dead-group-monitor`; the MLX
+checkpoint is separate and not merged here. A clone does not include local
+scratch receipts. Recorded checks below were not rerun for this documentation
+cleanup. [HANDOFF.md](HANDOFF.md) retains the detailed SQL chronology.
+
+## Historical implementation boundary, 2026-10-23
+
+This dated checkpoint is retained for its native-training constraints and
+validation receipt. It is not the latest SQL-pilot status and does not describe
+the separate MLX workstream.
 
 The historical "pipeline built" and install instructions below do not describe
 a runnable native PTC training path. `train.native_training.build_sql_trainer`
@@ -28,6 +55,13 @@ skips. The preceding 1861-test warm-cache result is historical.
 See [`spec/offline-harness-reliability.md`](spec/offline-harness-reliability.md)
 and the [validation receipt](research/2026-10-23-offline-harness-reliability.json).
 
+## Historical research framing
+
+The framing below predates the separate MLX experiment. Statements about
+unrun training and research-versus-product intent describe that earlier scope;
+the current evidence boundary is above. Company positioning is not settled by
+this historical text.
+
 **Does co-training a small model against a programmatic-tool-calling (PTC) harness reverse the
 bash-over-PTC ordering that arXiv 2609.11999 measured on untrained models — and does the winner
 survive a harness swap?**
@@ -51,17 +85,13 @@ and N1 against it cell by cell.
 
 ## Start here
 
-~6,500 lines of markdown across 24 documents. One row per question a reader actually arrives
-with; read the one file, not the pile.
-
-**Dated note, 2026-10-19:** the totals have moved. `docs/` alone is **23 markdown files,
-8,445 lines** (6,494 of them at its top level; the difference is `docs/superpowers/`), so
-both the file count and the line count above undercount. They are kept because the sentence
-is a reading instruction rather than a measurement, but a reader who checks will find more
-documents than 24.
+Read the document that answers your question. The project map and evidence
+index above distinguish current work from the dated research below.
 
 | If you arrived asking | Read |
 |---|---|
+| **How is the project organized?** | [Project map](docs/project-map.md). |
+| **What can an application honestly claim?** | [Evidence index](docs/evidence-index.md), including missing proof and local-only sources. |
 | **What is the result?** | **`docs/results-untrained.md`** — the pre-committed report on the untrained premise check. Read it before the framing below on this page, which was written before the run. |
 | **What went wrong with the instrument?** | **`docs/deviations.md`** — defect ledger at the top of the file, each fault with the observation that caught it and, where one exists, the run that exposed it. This line read "each fault with the run that exposed it" until 2026-10-13, when a third table arrived for the faults found while building the next instrument: no run could have exposed those, because it had not run yet. |
 | **What is the state, and what is next?** | **`HANDOFF.md`** — current state first, then the dated history below it. |
@@ -84,7 +114,10 @@ reversed** in one untrained arm — so the metric is chosen before the run, not 
 
 ---
 
-## Status
+## Historical build sequence
+
+This original step sequence and its dated corrections are retained below.
+Use the current orientation above for the separate SQL and MLX checkpoints.
 
 | Step | State | Where |
 |---|---|---|
@@ -166,12 +199,19 @@ Developed on CPython 3.12 and 3.14; no lower bound has actually been tested.
 
 ```bash
 .venv-ptc/bin/python -m pytest -q
+```
+
+Optional local-tokenizer integration, requiring the admitted artifact:
+
+```bash
 .venv-ptc/bin/python -m pytest bench/test_contamination.py -q \
   -m tokenizer_integration --tokenizer-artifact /absolute/local/snapshot
-
-.venv-ptc/bin/python -m pytest step2 -q
-.venv-ptc/bin/python -m pytest tests -q
 ```
+
+The commands require an existing compatible environment; `.venv-ptc` is not
+shipped in Git. They are not an installation recipe or authorization to fetch
+dependencies. The legacy `step2` suite is separate and may contact Hugging Face;
+it is not part of the default offline command.
 
 ### Historical suite notes, 2026-10-19 and earlier
 
@@ -221,8 +261,8 @@ installs *below* 2026.10.3, and that is the version where the four seams this pr
 needs are absent (`train/guards.py`, `docs/RUNBOOK-probe.md` §3.3). The `trl==0.29.0` above
 is neither: it is the dev venv's, for template helpers only.
 
-Training runs nowhere locally — the dev machine is darwin/arm64 and prime-rl requires NVIDIA.
-Everything trains on Kaggle or rented hardware.
+That historical GPU stack required Kaggle or rented hardware; prime-rl requires
+NVIDIA. It does not describe the later, separate local MLX experiment.
 
 ---
 
@@ -231,6 +271,12 @@ Everything trains on Kaggle or rented hardware.
 | Path | What it is |
 |---|---|
 | **`HANDOFF.md`** | **Read this to continue the work.** Current state at the top; below the history marker, the original build sequence, hard constraints, the "do NOT do these" list and corpus map, kept as written. |
+| `docs/project-map.md` | Current reading order, workstreams, directory map and checkout boundaries. |
+| `docs/evidence-index.md` | Dated evidence, limitations and application-preparation gaps. |
+| `spec/` | Current implementation contracts, pilot protocol and next-session handoff. |
+| `bench/` | SQL tasks, execution scoring, harness comparisons and frontier controls. |
+| `train/` | Training integration, capture/skill mechanics and gated SQL-pilot control. |
+| `ptc/`, `ledger/` | Restricted PTC runtime and retired untrained-comparison taskset. |
 | `docs/results-untrained.md` | The pre-committed report on the untrained premise check. |
 | `docs/deviations.md` | Append-only amendment log, with the defect ledger at the top. |
 | `docs/HANDOFF-STEP2.md` | What Step 1 learned, and the constraints it places on Steps 3-5. |
@@ -272,11 +318,14 @@ mandatory. A byte-length-identical mutation restored within the same second leav
 
 ---
 
-## Hard constraints
+## Historical GPU-stack constraints
+
+These constraints describe the original GPU path. Current SQL permissions are
+in its handoff; separate MLX limits are in that track's continuation document.
 
 Expensive to rediscover. Full table in `HANDOFF.md`.
 
-- **No local training.** darwin/arm64 dev machine.
+- **No local training on this GPU stack.** darwin/arm64 dev machine; separate MLX work is not this stack.
 - **T4 = fp16 only.** Compute capability 7.5; bf16 needs 8.0.
 - **prime-rl cannot run on a T4 at all** — no float16 in its `DTYPE_MAP`, FSDP hardcoded to
   bfloat16. The Unsloth-on-T4 path and the prime-rl path are *disjoint*, not two rungs of a ladder.
@@ -287,11 +336,17 @@ Expensive to rediscover. Full table in `HANDOFF.md`.
 
 ---
 
-## Branches
+## Local checkout snapshot, 2026-10-27
 
 | Branch | Holds |
 |---|---|
-| `main` | Everything. The current state of the project. |
+| `fix/nonfinite-dead-group-monitor` | SQL-pilot checkpoint, last saved handoff `6bda2ac` before this cleanup. Local work, not a claim about GitHub state. |
+| `docs/mlx-three-seed-handoff-2026-10-25` | Separate MLX continuation, `8c877fd`, in its own local worktree. Not merged here. |
+
+This is not a complete branch inventory. Verify status/log before continuing;
+do not assume `main` contains these checkpoints.
+
+### Historical branch cleanup, 2026-10-11
 
 Six branches were deleted 2026-10-11 after `git rev-list main..<branch>` showed zero unique
 commits on each: `step1-nonsolver-gate`, `step2-kaggle-smoke`, `step2-run`,

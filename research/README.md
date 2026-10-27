@@ -3,6 +3,18 @@
 Model-harness co-training: can a small model, RL-trained against a specific agent harness,
 beat that harness's untrained baseline — and does it survive a harness swap?
 
+## Reading this archive
+
+The original synthesis and headline findings below record the research that
+started the project. They are not the current implementation checklist.
+Start with the [project map](../docs/project-map.md) and
+[evidence index](../docs/evidence-index.md) for current work.
+
+The "nobody has trained" premise below is historical: the
+[related-work analysis](../docs/related-work.md) covers ProgAgent and the
+remaining differences. The separate MLX track records real weight updates,
+but improvement is still unproven.
+
 ## Documents
 | File | What it holds |
 |---|---|
@@ -19,9 +31,9 @@ beat that harness's untrained baseline — and does it survive a harness swap?
 | `05-delta-tierlist-and-rdi.md` | Berkeley RDI broke 8/8 agent benchmarks. Four harnesses the sweep missed. |
 | `06-perplexity-delta.md` | **fp16-on-T4 unknown RESOLVED.** BenchJack tooling, practitioner failure modes, sandbox economics, from-scratch verdict. |
 | `07-prior-art-closure.md` | OpenForgeRL, Harness-Bench, Agentic Routing. Honest novelty assessment: narrower but better-posed. |
-| `2026-10-24-prime-t3-opportunities.md` | Pinned Prime/T3 synthesis and ranked backlog; capture prerequisite implemented/targeted-verified, reviews complete. Full default suite RED on existing isolated bench baseline; skill generation/promotion not implemented. |
+| `2026-10-24-prime-t3-opportunities.md` | Dated Prime/T3 synthesis and ranked backlog. Later caller-authored qualification/reuse mechanics and offline acceptance are recorded in [HANDOFF.md](../HANDOFF.md); the [SQL-pilot handoff](../spec/sql-skill-pilot-handoff.md) records the subsequent real lifecycle failure. Model-generated skill benefit remains unproven. |
 
-## Headline findings
+## Historical headline findings
 1. **PTC loses to plain bash** on untrained models, on both quality and cost (arXiv 2609.11999).
    That is the opportunity: PTC is the harness shape nobody has trained a model for.
 2. **Harness-overfitting is real and fine-tuning-induced.** DCAS (2608.06113): fine-tuning roughly
@@ -59,11 +71,16 @@ beat that harness's untrained baseline — and does it survive a harness swap?
   `exa_search` off, Semantic Scholar 429 blackout, Twitter/Reddit channels off. Recall is
   arXiv + GitHub + Jina Reader only. **No practitioner/forum sources anywhere in this corpus.**
 
-## Status
+## Original research status
 All six research lanes complete (~6,700 lines). `02-synthesis.md` carries the decision, including
 an addendum folding in the bench and browser lanes and a revised build sequence.
 
-## Next
+## Historical proposed sequence
+
+Retained as research history, not an instruction to launch new work. The next
+SQL task is bounded offline stats-gap diagnosis; the separate MLX track has its
+own CPU-only probe diagnosis. See the project map above for their handoffs.
+
 Execute the build sequence in `02-synthesis.md` as amended by `06-perplexity-delta.md` §1 and §2:
 1. Four adversarial toy agents (null, random, prompt-injection, state-tampering) — cheapest
    high-value work available, and they must exist before the environment is called done.
