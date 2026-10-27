@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from train.sql_episodes import InstrumentSettings
 
 Role = Literal["program", "scorer"]
-WireKind = Literal["bootstrap", "request", "result"]
+WireKind = Literal["bootstrap", "request", "result", "exit_grant"]
 AbortReason = Literal["admission", "binding", "start", "deadline", "memory",
                       "output", "protocol", "cleanup", "transport"]
 Json = None | bool | int | float | str | list["Json"] | dict[str, "Json"]
@@ -37,6 +37,7 @@ MAX_ARTIFACT_BYTES = 8388608
 MAX_EXTRACTION_WORK_BYTES = 67108864
 MAX_MESSAGES_TOOLS_BYTES = 131072
 READY = b"PILOT_READY!\n"
+WIRE_SCHEMA_VERSION = 2
 # Public environment from the pinned official image, not host environment.
 APPROVED_ENVIRONMENT: Environment = (
     ("GPG_KEY", "7169605F62C751356D054A26A821E680E5FA6305"),  # Public CPython signing-key fingerprint. gitleaks:allow
@@ -594,7 +595,8 @@ def _policy_sha(*, daemon_socket, shared_state_dir, observer, environment, polic
         "observer": _encode(observer, MemoryObserver), "environment": environment,
         "policy": _encode(policy, SecurityPolicy), "admission_bytes": admission_bytes,
         "reserve_bytes": reserve_bytes, "max_sample_age_ms": max_sample_age_ms,
-        "api_timeout_ms": api_timeout_ms, "wire_format": "sql_pilot_wire", "wire_schema_version": 1}
+        "api_timeout_ms": api_timeout_ms, "wire_format": "sql_pilot_wire",
+        "wire_schema_version": WIRE_SCHEMA_VERSION}
     return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
 
 
@@ -785,10 +787,20 @@ class ProgramResponse:
             raise TypeError("rejected must be bool")
 
 
-WirePayload = Union[BootstrapPayload, ProgramRequest, ScoreRequest, ProgramResponse, "ExResult"]
+@dataclass(frozen=True, slots=True)
+class ExitGrant:
+    result_sha256: str
+
+    def __post_init__(self):
+        _digest(self.result_sha256)
+
+
+WirePayload = Union[BootstrapPayload, ProgramRequest, ScoreRequest, ProgramResponse, ExitGrant, "ExResult"]
 
 
 def _payload(role: Role, kind: WireKind, value: object) -> JsonObject:
+    if kind == "exit_grant":
+        return _encode(value, ExitGrant)
     if kind == "bootstrap":
         return _encode(value, BootstrapPayload)
     if role == "program":
@@ -800,6 +812,8 @@ def _payload(role: Role, kind: WireKind, value: object) -> JsonObject:
 
 
 def _payload_from_dict(role: Role, kind: WireKind, value: JsonObject) -> WirePayload:
+    if kind == "exit_grant":
+        return _flat(value, ExitGrant)
     if kind == "bootstrap":
         d = dict(_closed(value, _fields_for(BootstrapPayload)))
         d["sources"] = _pins_from_json(d["sources"])
@@ -829,7 +843,7 @@ class WireMessage:
     payload: WirePayload
 
     def __post_init__(self):
-        _choice(self.role, ("program", "scorer")); _choice(self.kind, ("bootstrap", "request", "result"))
+        _choice(self.role, ("program", "scorer")); _choice(self.kind, ("bootstrap", "request", "result", "exit_grant"))
         _payload(self.role, self.kind, self.payload)
         if self.kind == "bootstrap":
             if self.request_sha256 is not None:
@@ -846,18 +860,19 @@ def encode_wire_message(role: Role, kind: WireKind, payload: WirePayload, *,
     digest = hashlib.sha256(canonical_json_bytes(data)).hexdigest()
     request = digest if kind == "request" and request_sha256 is None else request_sha256
     WireMessage(role, kind, request, payload)
-    envelope = {"format": "sql_pilot_wire", "schema_version": 1, "role": role, "kind": kind,
+    envelope = {"format": "sql_pilot_wire", "schema_version": WIRE_SCHEMA_VERSION, "role": role, "kind": kind,
                 "request_sha256": request, "payload": data, "sha256": digest}
-    maximum = limits_for(role).input_bytes if kind == "request" else limits_for(role).stdout_bytes
+    maximum = limits_for(role).input_bytes if kind in ("request", "exit_grant") else limits_for(role).stdout_bytes
     return bounded_bytes(canonical_json_bytes(envelope) + b"\n", maximum=maximum)
 
 
 def decode_wire_message(data: bytes, *, role: Role, kind: WireKind,
                         request_sha256: str | None) -> WireMessage:
-    _choice(role, ("program", "scorer")); _choice(kind, ("bootstrap", "request", "result"))
-    maximum = limits_for(role).input_bytes if kind == "request" else limits_for(role).stdout_bytes
+    _choice(role, ("program", "scorer")); _choice(kind, ("bootstrap", "request", "result", "exit_grant"))
+    maximum = limits_for(role).input_bytes if kind in ("request", "exit_grant") else limits_for(role).stdout_bytes
     d = _closed(_json_line(data, maximum=maximum), ("format", "schema_version", "role", "kind", "request_sha256", "payload", "sha256"))
-    _version(d["schema_version"])
+    if type(d["schema_version"]) is not int or d["schema_version"] != WIRE_SCHEMA_VERSION:
+        raise ValueError("unsupported live wire schema")
     if d["format"] != "sql_pilot_wire" or d["role"] != role or d["kind"] != kind or d["request_sha256"] != request_sha256:
         raise ValueError("wire role/kind/request context mismatch")
     if _digest(d["sha256"]) != hashlib.sha256(canonical_json_bytes(d["payload"])).hexdigest():
@@ -994,7 +1009,7 @@ def _secure_directory(path: Path):
 def _read_owned(path: Path, maximum=MAX_ARTIFACT_BYTES) -> bytes:
     parent, name = _open_parent(path)
     try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
         try:
             before = os.fstat(fd); _owned_stat(before)
             data = bytearray()
@@ -1233,6 +1248,8 @@ class _Daemon:
             end = min(end, self.cleanup_deadline)
         elif hasattr(self, "operation_deadline"):
             end = min(end, self.operation_deadline)
+        if getattr(self, "shutdown_supervision", None) is not None:
+            end = min(end, self.operation_deadline)
         return end
 
     def _supervise(self, end, operation_end=None):
@@ -1242,7 +1259,10 @@ class _Daemon:
                 "deadline" if hasattr(self, "operation_deadline") and
                 hard_end >= self.operation_deadline else "transport")
             raise _Failure(reason, "absolute RPC deadline")
-        if not hasattr(self, "cleanup_deadline"):
+        shutdown = getattr(self, "shutdown_supervision", None)
+        if shutdown is not None:
+            shutdown()  # Cleanup mode must never disable coordinated shutdown.
+        elif not hasattr(self, "cleanup_deadline"):
             if getattr(self, "control", None) is not None:
                 _controller_alive(self.control)
             if getattr(self, "observer", None) is not None:
@@ -1459,6 +1479,17 @@ def _worker_handshake(role):
     if message.payload.db_sha256 != digest.hexdigest():
         raise ValueError("guest database mismatch")
     return message.payload, sha
+
+
+def _worker_wait_for_exit_grant(role, sha, result, request):
+    """Guest stays alive after flush; grant binds the exact result bytes + LF."""
+    request_bytes = len(encode_wire_message(role, "request", request, request_sha256=sha))
+    remaining = limits_for(role).input_bytes - request_bytes
+    raw = sys.stdin.buffer.readline(remaining + 1)
+    bounded_bytes(raw, maximum=remaining)
+    grant = decode_wire_message(raw, role=role, kind="exit_grant", request_sha256=sha)
+    if grant.payload.result_sha256 != hashlib.sha256(result).hexdigest():
+        raise ValueError("exit grant result mismatch")
 
 
 def _native_call(function, *args, **kwargs):
@@ -1687,7 +1718,7 @@ def _memory_sample(profile, daemon, job):
                 raise _ObservationFailure("inconsistent raw charged memory")
         finally:
             # Candidate creation also requires every future and HTTP alias gone.
-            pool.shutdown(wait=True, cancel_futures=True)
+            pool.shutdown(wait=True, cancel_futures=False)
             if daemon.active or daemon.workers:
                 raise _ObservationFailure("metadata HTTP aliases not closed")
         finished = time.monotonic()
@@ -1721,6 +1752,8 @@ class _Observer:
         self.failure = None
         self.tokens = []
         self.retired = False
+        self.state = "ACTIVE"
+        self.inflight = False
         self.pending = None
         self.stopped_owned = None
         self.retired_at = None
@@ -1731,6 +1764,14 @@ class _Observer:
 
     def _run(self):
         while not self.stop.is_set():
+            # Reservation and gate closure are atomic under this SAME lock.
+            with self.lock:
+                reserved = self.state == "ACTIVE" and not self.retired and not self.stop.is_set()
+                if reserved:
+                    self.inflight = True
+            if not reserved:
+                self.stop.wait(0.25)
+                continue
             try:
                 sample = _memory_sample(self.profile, self.daemon, self.job)
                 with self.lock:
@@ -1745,13 +1786,14 @@ class _Observer:
                     elif self.failure is None:
                         self.failure = self._ordinary_failure(exc)
                 # A failed sample never becomes an eligible cached zero-charge frame.
-                self.stop.wait(0.25)
-                continue
+            finally:
+                with self.lock:
+                    self.inflight = False
             self.stop.wait(0.25)
 
     def check(self, *, after=None, admission=False):
         with self.lock:
-            if self.retired or self.pending is not None or self.failure is not None:
+            if self.state != "ACTIVE" or self.retired or self.pending is not None or self.failure is not None:
                 raise _ObservationFailure("observer retired or failed")
             sample = self.latest
             if sample is None or not sample["eligible"]:
@@ -1764,6 +1806,68 @@ class _Observer:
             if sample["available"] < required:
                 raise _Failure("admission" if admission else "memory", "insufficient fresh VM headroom")
             return True
+
+    def begin_quiesce(self):
+        with self.lock:
+            if self.state != "ACTIVE" or self.retired:
+                raise _ObservationFailure("observer cannot quiesce")
+            self.state = "QUIESCING"
+        _event(self.job, "OBSERVER_QUIESCING", token=self.token)
+
+    def park(self, *, deadline, supervise=None):
+        """Drain reserved work fully. Never cancel its futures, CLI or HTTP."""
+        while True:
+            if supervise is not None:
+                supervise()
+            if time.monotonic() >= deadline:
+                raise _Failure("cleanup", "original shutdown drain deadline")
+            with self.lock:
+                self._raise_if_failed()
+                if self.state != "QUIESCING" or self.retired or self.pending is not None:
+                    raise _ObservationFailure("observer cannot park")
+                if not self.inflight:
+                    if self.daemon.active or getattr(self.daemon, "workers", set()):
+                        raise _ObservationFailure("observer aliases remain after drain")
+                    self.state = "PARKED"
+                    break
+            self.stop.wait(min(0.01, max(0, deadline - time.monotonic())))
+        self.shutdown_check()
+        _event(self.job, "OBSERVER_PARKED", token=self.token)
+
+    def shutdown_check(self):
+        """Only shutdown may use the original, unsynthesized parked frame."""
+        with self.lock:
+            self._raise_if_failed()
+            if (self.state != "PARKED" or self.retired or self.inflight or self.pending is not None
+                    or self.daemon.active or getattr(self.daemon, "workers", set())):
+                raise _ObservationFailure("observer not healthy parked")
+            sample = self.latest
+            if type(sample) is not dict or sample.get("eligible") is not True:
+                raise _ObservationFailure("missing parked observer frame")
+            age = time.monotonic() - sample["finished"]
+            if not 0 <= age <= 4.0:
+                raise _ObservationFailure("stale parked observer frame")
+            if sample["available"] < self.profile.reserve_bytes:
+                raise _Failure("memory", "insufficient parked VM headroom")
+            return sample
+
+    def abort_scheduler(self, *, deadline):
+        """Failure-only teardown, NOT retirement/actor-absence evidence."""
+        with self.lock:
+            if self.state not in ("QUIESCING", "PARKED", "ABORTED") or self.retired:
+                raise _Failure("cleanup", "only a closed shutdown gate may be aborted")
+            self.state = "ABORTED"
+            if self.failure is None:
+                self.failure = _ObservationFailure("shutdown abandoned without successful cleanup proof")
+            for sample in self.tokens:
+                sample["eligible"] = False
+            if type(self.latest) is dict:
+                self.latest["eligible"] = False
+        self.stop.set()
+        self.thread.join(timeout=max(0, deadline - time.monotonic()))
+        if self.thread.is_alive() or self.inflight or self.daemon.active or getattr(self.daemon, "workers", set()):
+            raise _Failure("cleanup", "aborted scheduler aliases remain unresolved")
+        # Deliberately no RETIRED, STOPPED, absence or JOIN_ACK event.
 
     def _raise_if_failed(self):
         if self.failure is not None:
@@ -1814,15 +1918,23 @@ class _Observer:
             self.stopped_owned = stopped_owned
             self.retired_at = time.monotonic()
             self.retired = True
+            self.state = "RETIRED"
             for sample in self.tokens:
                 sample["eligible"] = False
             if type(self.latest) is dict:
                 self.latest["eligible"] = False
-        _event(self.job, "OBSERVER_RETIRED")
+        event_error = None
+        try:
+            _event(self.job, "OBSERVER_RETIRED")
+        except BaseException as exc:
+            event_error = exc
         self.stop.set()
         self.thread.join(timeout=max(0, min(4.5, deadline - time.monotonic())) if deadline is not None else 4.5)
         if self.thread.is_alive() or self.daemon.active or getattr(self.daemon, "workers", set()):
             raise _Failure("cleanup", "observer/CLI/HTTP join not acknowledged")
+        if event_error is not None:
+            self._raise_if_failed()
+            raise event_error
         _event(self.job, "OBSERVER_THREAD_JOINED", token=self.token, guardian=os.getpid())
         self._raise_if_failed()
         journal = _metadata(_read_owned(self.job / "journal.json"))
@@ -1941,6 +2053,67 @@ def _image_preflight(daemon):
         raise _Failure("binding", "approved local manifest not present; never pull")
 
 
+def _shutdown_check(control, observer, journal, *, parked=True):
+    _controller_alive(control)
+    if time.monotonic() >= journal["deadline"]:
+        raise _Failure("deadline", "original role deadline during shutdown")
+    _cleanup_remaining(journal)
+    if not observer.thread.is_alive():
+        raise _ObservationFailure("observer thread absent before STOPPED")
+    return observer.shutdown_check() if parked else None
+
+
+def _grant_exit(profile, daemon, journal, job, control, observer, attached, request, result_wire):
+    # Durable original cleanup trigger precedes gate closure/drain.
+    _begin_cleanup(journal)
+    journal["shutdown_requested"] = True
+    _save_journal(job, journal)
+    daemon.cleanup_deadline = journal["cleanup_deadline"]
+    _shutdown_check(control, observer, journal, parked=False)
+    observer.begin_quiesce()
+    observer.park(deadline=min(journal["deadline"], journal["cleanup_deadline"]),
+                  supervise=lambda: _shutdown_check(control, observer, journal, parked=False))
+    daemon.shutdown_supervision = lambda: _shutdown_check(control, observer, journal)
+    frame = _shutdown_check(control, observer, journal)
+    obj = _inspect(daemon, journal)
+    _shutdown_check(control, observer, journal)
+    state = obj.get("State") if type(obj) is dict else None
+    if type(state) is dict and (state.get("OOMKilled") is True or state.get("ExitCode") == 70):
+        raise _Failure("memory", "guest OOM/allocation failure before grant")
+    if (type(state) is not dict or state.get("Running") is not True
+            or state.get("Paused") is not False or state.get("Restarting") is not False
+            or type(state.get("Pid")) is not int or state["Pid"] <= 0):
+        raise _Failure("protocol", "guest did not hold owned running state for grant")
+    config_sha = hashlib.sha256(canonical_json_bytes(journal["config"])).hexdigest()
+    if (journal.get("config_sha256") != config_sha or observer.job != job or observer.profile is not profile
+            or journal["config"]["Labels"].get(_OWNER_LABEL) != journal["nonce"]
+            or os.getpid() not in journal["guardians"]):
+        raise _Failure("binding", "grant ownership/configuration mismatch")
+    result_sha = hashlib.sha256(result_wire).hexdigest()
+    grant = encode_wire_message(journal["role"], "exit_grant", ExitGrant(result_sha),
+                                request_sha256=journal["request_sha256"])
+    bounded_bytes(request + grant, maximum=limits_for(journal["role"]).input_bytes)
+    if "exit_grant_intent" in journal:
+        raise _Failure("protocol", "exit grant cannot be retried")
+    intent = {"cid": journal["cid"], "config_sha256": config_sha,
+              "observer_token": observer.token, "request_sha256": journal["request_sha256"],
+              "result_sha256": result_sha, "last_frame_finished": frame["finished"],
+              "deadline": min(frame["finished"] + 4.0, journal["deadline"], journal["cleanup_deadline"])}
+    journal["exit_grant_intent"] = intent
+    _save_journal(job, journal)
+    _event(job, "EXIT_GRANT_INTENT", **intent)
+    _shutdown_check(control, observer, journal)
+    attached.settimeout(min(0.1, max(0.001, intent["deadline"] - time.monotonic())))
+    try:
+        attached.sendall(grant)  # Exactly one attempt, uncertain partial delivery never retries.
+    except BaseException as exc:
+        raise _RPCUncertain("transport", "exit grant delivery uncertain") from exc
+    _shutdown_check(control, observer, journal)
+    attached.settimeout(0.1)
+    _event(job, "EXIT_GRANT_SENT", cid=journal["cid"], result_sha256=result_sha)
+    _shutdown_check(control, observer, journal)
+
+
 def _stream_result(profile, daemon, journal, job, control, observer, attached):
     role = journal["role"]
     limits = limits_for(role)
@@ -1949,13 +2122,18 @@ def _stream_result(profile, daemon, journal, job, control, observer, attached):
     stderr = bytearray()
     bootstrap = None
     result = None
+    result_wire = None
+    granted = False
     ready = False
     request = _read_owned(job / "request.wire")
     while True:
         _controller_alive(control)
         if time.monotonic() >= journal["deadline"]:
             raise _Failure("deadline", "original whole-role deadline")
-        observer.check()
+        if granted:
+            _shutdown_check(control, observer, journal)
+        else:
+            observer.check()
         try:
             raw = attached.recv(65536)
         except socket.timeout:
@@ -2002,11 +2180,25 @@ def _stream_result(profile, daemon, journal, job, control, observer, attached):
                                                  request_sha256=journal["request_sha256"]).payload
                 except (TypeError, ValueError) as exc:
                     raise _Failure("protocol", "invalid result frame") from exc
+                result_wire = wire
                 output.clear()
+        if result is not None and not granted and not mux.buffer and not mux.remaining:
+            _grant_exit(profile, daemon, journal, job, control, observer, attached, request, result_wire)
+            granted = True
+    if not granted:
+        # Allocation failure need not produce a provisional result. Preserve
+        # reserved exit-70/OOM semantics without accepting autonomous success.
+        obj = _inspect(daemon, journal)
+        state = obj.get("State") if type(obj) is dict else None
+        if type(state) is dict and (state.get("OOMKilled") is True or state.get("ExitCode") == 70):
+            raise _Failure("memory", "guest OOM/allocation failure")
+        raise _RPCUncertain("protocol", "guest exited without coordinated exit grant")
+    _shutdown_check(control, observer, journal)
     journal["stdout_bytes"], journal["stderr_bytes"] = mux.counts[1], mux.counts[2]
     _write_owned(job / "stderr.bin", bytes(stderr))
     _save_journal(job, journal)
     obj = _inspect(daemon, journal)
+    _shutdown_check(control, observer, journal)
     if obj is None:
         raise _Failure("cleanup", "owned object disappeared")
     state = obj["State"]
@@ -2014,13 +2206,25 @@ def _stream_result(profile, daemon, journal, job, control, observer, attached):
         raise _Failure("memory", "guest OOM/allocation failure")
     if not _stopped_state(state):
         raise _Failure("protocol", "EOF before proven owned stop")
-    if state.get("ExitCode") != 0 or result is None or output or mux.buffer or mux.remaining:
+    if (type(state.get("ExitCode")) is not int or state["ExitCode"] != 0
+            or state.get("OOMKilled") is not False or result is None or output or mux.buffer or mux.remaining):
         raise _Failure("protocol", "incomplete result or unsuccessful guest exit")
     return result
 
 
 def _cleanup_owned(profile, daemon, journal, job, observer):
     stopped_owned = None
+    success_candidate = bool(journal.get("shutdown_requested") and
+                             getattr(daemon, "shutdown_supervision", None) is not None)
+    success_error = None
+    def success_phase():
+        nonlocal success_error
+        if success_candidate:
+            try:
+                _success_remaining(journal)
+            except _Failure as exc:
+                if success_error is None:
+                    success_error = exc
     _begin_cleanup(journal)
     daemon.cleanup_deadline = journal["cleanup_deadline"]
     _save_journal(job, journal)
@@ -2032,7 +2236,13 @@ def _cleanup_owned(profile, daemon, journal, job, observer):
     if journal["cid"] is not None and obj is None:
         raise _Failure("cleanup", "unexplained owned disappearance before stop proof")
     if obj is not None:
-        if journal["kill_attempted"]:
+        coordinated = journal.get("shutdown_requested") and getattr(daemon, "shutdown_supervision", None) is not None
+        if coordinated:
+            state = obj.get("State")
+            if (not _stopped_state(state) or type(state.get("ExitCode")) is not int
+                    or state["ExitCode"] != 0 or state.get("OOMKilled") is not False):
+                raise _Failure("cleanup", "coordinated shutdown lost successful stopped proof")
+        elif journal["kill_attempted"]:
             # A surviving replacement guardian may observe, but never repeat KILL.
             if not _stopped_state(obj.get("State")):
                 raise _Failure("cleanup", "previous KILL uncertain; no second attempt")
@@ -2063,6 +2273,11 @@ def _cleanup_owned(profile, daemon, journal, job, observer):
             stopped_owned = _StoppedOwnedProof(journal["cid"], job, journal["nonce"],
                 journal["config_sha256"], os.getpid(), observer.token, stopped_at)
         _event(job, "STOPPED", cid=journal["cid"], stopped_at=stopped_at)
+        shutdown = getattr(daemon, "shutdown_supervision", None)
+        if shutdown is not None:
+            shutdown()
+            daemon.shutdown_supervision = None
+    success_phase()
     if observer is not None:
         if type(observer) is _Observer:
             observer.retire(deadline=journal["cleanup_deadline"], stopped_owned=stopped_owned)
@@ -2072,17 +2287,24 @@ def _cleanup_owned(profile, daemon, journal, job, observer):
         _prove_actor_absence(job, journal)
         _event(job, "OBSERVER_JOIN_ACK", samples=0, failed=False, actor_absence_proven=True)
     _cleanup_remaining(journal)
+    success_phase()
     # No sampler, CLI, future or metadata alias exists across DELETE.
     if obj is not None:
         if daemon.active or getattr(daemon, "workers", set()):
             raise _Failure("cleanup", "HTTP aliases active before delete")
+        success_phase()
         daemon.call("DELETE", f"/containers/{journal['cid']}?force=false&v=false", statuses=(204,))
+        success_phase()
         _event(job, "DELETE", cid=journal["cid"])
         if _inspect(daemon, journal) is not None:
             raise _Failure("cleanup", "owned object still present")
+        success_phase()
         _event(job, "ABSENCE", cid=journal["cid"])
     _cleanup_remaining(journal)
+    success_phase()
     journal["cleanup_elapsed"] = time.monotonic() - journal["cleanup_trigger"]
+    if success_error is not None:
+        raise success_error
 
 
 def _begin_cleanup(journal):
@@ -2099,6 +2321,13 @@ def _cleanup_remaining(journal):
         raise _Failure("cleanup", "original absolute cleanup deadline exhausted")
 
 
+def _success_remaining(journal):
+    """Success eligibility, never authorization to skip necessary failure cleanup."""
+    _cleanup_remaining(journal)
+    if time.monotonic() >= journal["deadline"]:
+        raise _Failure("deadline", "original role deadline through successful completion")
+
+
 def _final_start_checks(control, observer, fresh_after, journal):
     _controller_alive(control)
     observer.check(after=fresh_after, admission=True)
@@ -2106,7 +2335,295 @@ def _final_start_checks(control, observer, fresh_after, journal):
         raise _Failure("deadline", "original deadline immediately before START")
 
 
-def _close_reservation(profile, journal, job):
+_PENDING_FIELDS = ("job", "nonce", "role", "profile_sha256", "request_sha256",
+                   "journal_sha256", "outcome_sha256", "guardian_pid", "finalization_token",
+                   "role_deadline", "cleanup_trigger", "cleanup_deadline")
+_ACK_FIELDS = ("format", "schema_version", "pending_sha256", "guardian_pid",
+               "finalization_token", "release_verified_at")
+
+
+def _publish_immutable(path, data):
+    """Same-directory complete staging + fsync + NOOVERWRITE link + dir fsync.
+
+    Only the private staging name may be removed. A visible destination remains
+    a barrier even if publication/directory fsync subsequently raises.
+    """
+    parent, name = _open_parent(path)
+    tmp = "." + name + "." + uuid.uuid4().hex
+    created = False
+    try:
+        _owned_stat(os.fstat(parent), directory=True)
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                     0o600, dir_fd=parent)
+        created = True
+        try:
+            _owned_stat(os.fstat(fd))
+            view = memoryview(data)
+            while view:
+                count = os.write(fd, view)
+                if count <= 0:
+                    raise OSError("short immutable record write")
+                view = view[count:]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.link(tmp, name, src_dir_fd=parent, dst_dir_fd=parent, follow_symlinks=False)
+        os.unlink(tmp, dir_fd=parent)
+        created = False
+        os.fsync(parent)
+    finally:
+        try:
+            if created:
+                os.unlink(tmp, dir_fd=parent)
+        finally:
+            os.close(parent)
+
+
+def _finalization_record(kind, payload):
+    return canonical_json_bytes({
+        "format": "sql_pilot_finalization_" + kind, "schema_version": 1,
+        "payload": payload, "sha256": hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
+    }) + b"\n"
+
+
+def _finalization_time(value):
+    if type(value) is int:
+        return _integer(value)
+    if type(value) is not float or not math.isfinite(value) or value < 0:
+        raise ValueError("finite finalization time required, not bool")
+    return value
+
+
+def _finalization_nonce(value):
+    if type(value) is not str or re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value) is None:
+        raise ValueError("invalid finalization nonce")
+    return value
+
+
+def _finalization_token(value):
+    if type(value) is not str or re.fullmatch("[0-9a-f]{32}", value) is None:
+        raise ValueError("invalid finalization attempt token")
+    return value
+
+
+def _read_finalization_record(raw, kind):
+    record = _closed(_json_line(raw, maximum=16384), ("format", "schema_version", "payload", "sha256"))
+    _version(record["schema_version"])
+    if record["format"] != "sql_pilot_finalization_" + kind:
+        raise ValueError("finalization record format mismatch")
+    payload = _closed(record["payload"], _PENDING_FIELDS if kind == "pending" else
+                      ("pending_sha256", "terminal_ack"))
+    if _digest(record["sha256"]) != hashlib.sha256(canonical_json_bytes(payload)).hexdigest():
+        raise ValueError("finalization envelope digest mismatch")
+    if kind == "pending":
+        job = _text(payload["job"], nonempty=True, maximum=4096)
+        if not Path(job).is_absolute() or str(Path(job)) != job or ".." in Path(job).parts:
+            raise ValueError("canonical absolute finalization job required")
+        _finalization_nonce(payload["nonce"])
+        _choice(payload["role"], ("program", "scorer"))
+        for key in ("profile_sha256", "request_sha256", "journal_sha256", "outcome_sha256"):
+            _digest(payload[key])
+        _integer(payload["guardian_pid"], minimum=1)
+        _finalization_token(payload["finalization_token"])
+        for key in ("role_deadline", "cleanup_trigger", "cleanup_deadline"):
+            _finalization_time(payload[key])
+        if not 0 <= payload["cleanup_deadline"] - payload["cleanup_trigger"] <= 12:
+            raise ValueError("original finalization cleanup budget invalid")
+    else:
+        _digest(payload["pending_sha256"])
+        _parse_terminal_ack(canonical_json_bytes(payload["terminal_ack"]) + b"\n")
+    return payload
+
+
+def _parse_terminal_ack(raw):
+    ack = _closed(_json_line(raw, maximum=4096), _ACK_FIELDS)
+    _version(ack["schema_version"])
+    if ack["format"] != "sql_pilot_finalization_ack":
+        raise ValueError("terminal finalization ACK format mismatch")
+    _digest(ack["pending_sha256"])
+    _integer(ack["guardian_pid"], minimum=1)
+    _finalization_token(ack["finalization_token"])
+    _finalization_time(ack["release_verified_at"])
+    return ack
+
+
+def _shared_names(profile):
+    parent, _ = _open_parent(profile.shared_state_dir / "entry")
+    try:
+        _owned_stat(os.fstat(parent), directory=True)
+        if os.fstat(parent).st_mode & 0o022:
+            raise ValueError("unsafe finalization shared directory")
+        with os.scandir(parent) as entries:
+            return {entry.name for entry in entries}
+    finally:
+        os.close(parent)
+
+
+def _finalization_remaining(journal, outcome):
+    _cleanup_remaining(journal)
+    if outcome.abort is None:
+        _success_remaining(journal)
+
+
+def _validate_finalization(profile, pending_raw, ack, *, job=None, guardian_pid=None,
+                           current=False, allow_active=False):
+    """One validator for current-pipe commit and historical admission.
+
+    Historical checks bind release time to original budgets, not today's clock.
+    They cannot resurrect an outcome: only _receive_terminal_ack authorizes a
+    current invocation to call _commit_finalization.
+    """
+    pending = _read_finalization_record(pending_raw, "pending")
+    ack = _parse_terminal_ack(canonical_json_bytes(ack) + b"\n")
+    if (ack["pending_sha256"] != hashlib.sha256(pending_raw).hexdigest()
+            or ack["guardian_pid"] != pending["guardian_pid"]
+            or ack["finalization_token"] != pending["finalization_token"]):
+        raise ValueError("finalization ACK/pending binding mismatch")
+    if job is not None and str(job) != pending["job"]:
+        raise ValueError("finalization current job mismatch")
+    if guardian_pid is not None and ack["guardian_pid"] != guardian_pid:
+        raise ValueError("finalization current guardian PID mismatch")
+    job = Path(pending["job"])
+    artifacts = {}
+    for name, field in (("profile.json", "profile_sha256"), ("journal.json", "journal_sha256"),
+                        ("outcome.json", "outcome_sha256")):
+        raw = _read_owned(job / name)
+        if hashlib.sha256(raw).hexdigest() != pending[field]:
+            raise ValueError("finalization artifact digest mismatch")
+        artifacts[name] = raw
+    historical_profile = execution_profile_from_bytes(artifacts["profile.json"])
+    if historical_profile.shared_state_dir != profile.shared_state_dir:
+        raise ValueError("finalization shared namespace mismatch")
+    if current and execution_profile_canonical_bytes(profile) != artifacts["profile.json"]:
+        raise ValueError("finalization current profile mismatch")
+    journal = _metadata(artifacts["journal.json"])
+    if type(journal) is not dict:
+        raise ValueError("finalization journal object required")
+    if (journal.get("state") != "CLOSED" or journal.get("nonce") != pending["nonce"]
+            or journal.get("role") != pending["role"] or journal.get("profile_sha256") != pending["profile_sha256"]
+            or journal.get("request_sha256") != pending["request_sha256"]
+            or journal.get("deadline") != pending["role_deadline"]
+            or journal.get("cleanup_trigger") != pending["cleanup_trigger"]
+            or journal.get("cleanup_deadline") != pending["cleanup_deadline"]):
+        raise ValueError("finalization journal context mismatch")
+    # Equality alone would accept True as 1. Validate original types as well.
+    for key in ("deadline", "cleanup_trigger", "cleanup_deadline"):
+        _finalization_time(journal[key])
+    guardians = journal.get("guardians")
+    if (type(guardians) is not list or not guardians or guardians[-1] != ack["guardian_pid"]
+            or any(type(pid) is not int or pid < 1 for pid in guardians)):
+        raise ValueError("finalization journal guardian mismatch")
+    controller_pid = _integer(journal.get("controller"), minimum=1)
+    if current and controller_pid != os.getpid() and guardian_pid != os.getpid():
+        raise ValueError("finalization current controller mismatch")
+    wire = decode_wire_message(_read_owned(job / "request.wire"), role=pending["role"],
+                               kind="request", request_sha256=pending["request_sha256"])
+    if request_sha256(wire.payload) != pending["request_sha256"]:
+        raise ValueError("finalization request binding mismatch")
+    outcome_data = _metadata(artifacts["outcome.json"])
+    outcome = (program_outcome_from_dict(outcome_data) if pending["role"] == "program"
+               else score_outcome_from_dict(outcome_data))
+    receipt = outcome.receipt
+    bootstrap = journal.get("bootstrap")
+    if bootstrap is not None and type(bootstrap) is not dict:
+        raise ValueError("finalization bootstrap object required")
+    if bootstrap is None:
+        if receipt is not None:
+            raise ValueError("finalization receipt without bootstrap")
+    elif (receipt is None or receipt.role != pending["role"]
+          or receipt.request_sha256 != pending["request_sha256"]
+          or receipt.journal_sha256 != pending["journal_sha256"]
+          or receipt.bootstrap_sha256 != journal.get("bootstrap_sha256")
+          or receipt.python_version != bootstrap.get("python_version")
+          or receipt.sqlite_version != bootstrap.get("sqlite_version")):
+        raise ValueError("finalization receipt binding mismatch")
+    if (outcome.abort is None) != ("failure" not in journal):
+        raise ValueError("finalization typed outcome/failure mismatch")
+    if outcome.abort is not None and (type(journal["failure"]) is not dict
+                                     or outcome.abort.reason != journal["failure"].get("reason")):
+        raise ValueError("finalization typed abort reason mismatch")
+    end = min(pending["cleanup_deadline"], pending["role_deadline"]) if outcome.abort is None else pending["cleanup_deadline"]
+    if not pending["cleanup_trigger"] <= ack["release_verified_at"] < end:
+        raise ValueError("finalization release outside original deadlines")
+    names = _shared_names(profile)
+    if "UNRESOLVED-" + pending["nonce"] + ".json" in names:
+        raise _Failure("cleanup", "finalization has unresolved block")
+    if "active.json" in names:
+        if not allow_active:
+            raise _Failure("cleanup", "finalization active reservation remains")
+        active = _closed(_metadata(_read_owned(profile.shared_state_dir / "active.json")), ("nonce", "job"))
+        if active != {"nonce": pending["nonce"], "job": str(job)}:
+            raise _Failure("cleanup", "finalization reservation conflict")
+    elif allow_active:
+        raise _Failure("cleanup", "finalization reservation disappeared before unlink")
+    if current:
+        _finalization_remaining(journal, outcome)
+        if ack["release_verified_at"] > time.monotonic():
+            raise ValueError("finalization release timestamp in future")
+    return pending, journal, outcome
+
+
+def _refsync_owned(path):
+    """Later admission reestablishes durability, never edits a marker."""
+    parent, name = _open_parent(path)
+    try:
+        fd = os.open(name, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        try:
+            _owned_stat(os.fstat(fd))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.fsync(parent)
+    finally:
+        os.close(parent)
+
+
+def _admit_finalizations(profile):
+    """Must run under the shared lock, before ANY new reservation/daemon IO."""
+    try:
+        names = _shared_names(profile)
+        if "active.json" in names:
+            raise ValueError("active reservation")
+        for name in names:
+            if name.startswith("UNRESOLVED-") and name.endswith(".json"):
+                closed = "CLOSED-" + name
+                if closed not in names:
+                    raise ValueError("unclosed block")
+                _read_owned(profile.shared_state_dir / name)
+                _read_owned(profile.shared_state_dir / closed)
+            if name.startswith(".FINALIZATION-"):
+                raise ValueError("partial finalization publication")
+            if name.startswith("FINALIZATION-") and not (
+                    name.startswith("FINALIZATION-PENDING-") or name.startswith("FINALIZATION-COMMITTED-")):
+                raise ValueError("unknown finalization marker")
+        pending_names = {n for n in names if n.startswith("FINALIZATION-PENDING-")}
+        committed_names = {n for n in names if n.startswith("FINALIZATION-COMMITTED-")}
+        for name in pending_names:
+            nonce = _finalization_nonce(name.removeprefix("FINALIZATION-PENDING-").removesuffix(".json"))
+            if name != "FINALIZATION-PENDING-" + nonce + ".json":
+                raise ValueError("malformed pending filename")
+            commit_name = "FINALIZATION-COMMITTED-" + nonce + ".json"
+            raw = _read_owned(profile.shared_state_dir / name, maximum=16384)
+            pending = _read_finalization_record(raw, "pending")
+            if pending["nonce"] != nonce:
+                raise ValueError("pending filename binding mismatch")
+            commit = _read_finalization_record(_read_owned(profile.shared_state_dir / commit_name, maximum=16384), "committed")
+            if commit["pending_sha256"] != hashlib.sha256(raw).hexdigest():
+                raise ValueError("committed pending digest mismatch")
+            _validate_finalization(profile, raw, commit["terminal_ack"])
+            _refsync_owned(profile.shared_state_dir / name)
+            _refsync_owned(profile.shared_state_dir / commit_name)
+            committed_names.discard(commit_name)
+        if committed_names:
+            raise ValueError("committed record without pending")
+    except (OSError, ValueError, TypeError, KeyError, RecursionError, _Failure) as exc:
+        raise _Failure("admission", "finalization/reservation admission blocked") from exc
+
+
+def _close_reservation(profile, journal, job, check=None):
+    if check is None:
+        raise _Failure("cleanup", "durable finalization pending required for release")
+    check()
     active = profile.shared_state_dir / "active.json"
     record = _metadata(_read_owned(active))
     if record.get("nonce") != journal["nonce"] or record.get("job") != str(job):
@@ -2117,15 +2634,191 @@ def _close_reservation(profile, journal, job):
                    "at": time.monotonic()})
     parent, name = _open_parent(active)
     try:
+        check()
         os.unlink(name, dir_fd=parent); os.fsync(parent)
     finally:
         os.close(parent)
 
 
+def _publish_finalization(profile, journal, job, journal_raw, outcome_raw, control):
+    """Guardian transaction. Return ACK data only after positive release fsync."""
+    outcome_data = _metadata(outcome_raw)
+    outcome = (program_outcome_from_dict(outcome_data) if journal["role"] == "program"
+               else score_outcome_from_dict(outcome_data))
+    def live():
+        _controller_alive(control)
+        _finalization_remaining(journal, outcome)
+    live()
+    pending = {
+        "job": str(job), "nonce": journal["nonce"], "role": journal["role"],
+        "profile_sha256": journal["profile_sha256"], "request_sha256": journal["request_sha256"],
+        "journal_sha256": hashlib.sha256(journal_raw).hexdigest(),
+        "outcome_sha256": hashlib.sha256(outcome_raw).hexdigest(), "guardian_pid": os.getpid(),
+        "finalization_token": uuid.uuid4().hex, "role_deadline": journal["deadline"],
+        "cleanup_trigger": journal["cleanup_trigger"], "cleanup_deadline": journal["cleanup_deadline"]
+    }
+    pending_raw = _finalization_record("pending", pending)
+    _read_finalization_record(pending_raw, "pending")
+    _publish_immutable(profile.shared_state_dir / ("FINALIZATION-PENDING-" + journal["nonce"] + ".json"), pending_raw)
+    live()
+    _write_owned(job / "journal.json", journal_raw)
+    _write_owned(job / "outcome.json", outcome_raw)
+    ack = {"format": "sql_pilot_finalization_ack", "schema_version": 1,
+           "pending_sha256": hashlib.sha256(pending_raw).hexdigest(), "guardian_pid": os.getpid(),
+           "finalization_token": pending["finalization_token"], "release_verified_at": time.monotonic()}
+    def check():
+        live()
+        actual = _read_owned(profile.shared_state_dir / ("FINALIZATION-PENDING-" + journal["nonce"] + ".json"))
+        if actual != pending_raw:
+            raise ValueError("finalization pending changed before release")
+        _validate_finalization(profile, actual, ack, job=job, guardian_pid=os.getpid(),
+                               current=True, allow_active=True)
+    _close_reservation(profile, journal, job, check)
+    live()  # Crucially AFTER release-directory fsync.
+    ack["release_verified_at"] = time.monotonic()
+    _validate_finalization(profile, _read_owned(profile.shared_state_dir / (
+        "FINALIZATION-PENDING-" + journal["nonce"] + ".json")), ack,
+        job=job, guardian_pid=os.getpid(), current=True)
+    live()
+    return ack
+
+
+def _send_terminal_ack(stream, ack):
+    data = canonical_json_bytes(ack) + b"\n"
+    _parse_terminal_ack(data)
+    if stream.write(data) != len(data):
+        raise _Failure("transport", "terminal finalization ACK short write")
+    stream.flush()
+
+
+def _latch_finalization_cleanup(journal, latest):
+    if type(latest) is not dict:
+        raise ValueError("finalization journal object required")
+    if "cleanup_deadline" in latest or "cleanup_trigger" in latest:
+        if "cleanup_deadline" not in latest or "cleanup_trigger" not in latest:
+            raise _Failure("cleanup", "original finalization cleanup budget incomplete")
+        for key in ("cleanup_trigger", "cleanup_deadline"):
+            _finalization_time(latest[key])
+            if key in journal and journal[key] != latest[key]:
+                raise _Failure("cleanup", "original finalization cleanup budget changed")
+        if not 0 <= latest["cleanup_deadline"] - latest["cleanup_trigger"] <= 12:
+            raise _Failure("cleanup", "original finalization cleanup budget invalid")
+        journal.setdefault("cleanup_trigger", latest["cleanup_trigger"])
+        journal.setdefault("cleanup_deadline", latest["cleanup_deadline"])
+    elif "cleanup_deadline" in journal:
+        raise _Failure("cleanup", "original finalization cleanup budget disappeared")
+
+
+def _receive_terminal_ack(process, journal, job):
+    """Bounded incremental current-pipe read. Never wait/kill on outcome files."""
+    fd = process.stdout.fileno()
+    os.set_blocking(fd, False)
+    data = bytearray()
+    while True:
+        _latch_finalization_cleanup(journal, _metadata(_read_owned(job / "journal.json")))
+        end = min(journal["deadline"] + 12, journal.get("cleanup_deadline", journal["deadline"] + 12))
+        try:
+            provisional = _metadata(_read_owned(job / "outcome.json"))
+        except FileNotFoundError:
+            provisional = None
+        if provisional is not None:
+            typed = (program_outcome_from_dict(provisional) if journal["role"] == "program"
+                     else score_outcome_from_dict(provisional))
+            if typed.abort is None:
+                end = min(end, journal["deadline"])
+        _finalization_time(end)
+        if time.monotonic() >= end:
+            raise _Failure("cleanup", "original finalization ACK deadline exhausted")
+        ready, _, _ = select.select([fd], [], [], min(0.02, max(0, end - time.monotonic())))
+        if ready:
+            try:
+                chunk = os.read(fd, 4097 - len(data))
+            except BlockingIOError:
+                continue
+            if not chunk:
+                raise _Failure("cleanup", "guardian EOF before terminal finalization ACK")
+            data.extend(chunk)
+            if len(data) > 4096:
+                raise _Failure("protocol", "terminal finalization ACK exceeds 4096 bytes")
+            if b"\n" in data:
+                _parse_terminal_ack(bytes(data))
+                try:
+                    extra = os.read(fd, 1)
+                except BlockingIOError:
+                    extra = b""
+                if extra:
+                    raise _Failure("protocol", "duplicate terminal finalization ACK/output")
+                # ACK may arrive after a RESERVED snapshot taken before select.
+                # Capture the now-durable original cleanup pair, never synthesize.
+                _latch_finalization_cleanup(journal, _metadata(_read_owned(job / "journal.json")))
+                if "cleanup_deadline" not in journal:
+                    raise _Failure("cleanup", "terminal ACK without original cleanup budget")
+                return bytes(data)
+        # poll() alone is not evidence. Drain an exited child's remaining pipe.
+        if process.poll() is not None and not ready:
+            if select.select([fd], [], [], 0)[0]:
+                continue
+            raise _Failure("cleanup", "guardian died without terminal finalization ACK")
+
+
+def _commit_finalization(profile, job, journal, guardian_pid, frame):
+    ack = _parse_terminal_ack(frame)
+    pending_path = profile.shared_state_dir / ("FINALIZATION-PENDING-" + journal["nonce"] + ".json")
+    pending_raw = _read_owned(pending_path, maximum=16384)
+    pending, latest, outcome = _validate_finalization(profile, pending_raw, ack, job=job,
+                                                     guardian_pid=guardian_pid, current=True)
+    if (pending["nonce"] != journal["nonce"] or pending["role"] != journal["role"]
+            or pending["request_sha256"] != journal["request_sha256"]
+            or pending["profile_sha256"] != journal["profile_sha256"]
+            or pending["role_deadline"] != journal["deadline"]
+            or pending["cleanup_trigger"] != journal["cleanup_trigger"]
+            or pending["cleanup_deadline"] != journal["cleanup_deadline"]):
+        raise ValueError("finalization invocation context mismatch")
+    _finalization_remaining(latest, outcome)
+    _publish_immutable(profile.shared_state_dir / ("FINALIZATION-COMMITTED-" + journal["nonce"] + ".json"),
+                       _finalization_record("committed", {"pending_sha256": ack["pending_sha256"], "terminal_ack": ack}))
+    _finalization_remaining(latest, outcome)
+    return outcome
+
+
+def _finish_finalization(process, profile, job, journal):
+    frame = _receive_terminal_ack(process, journal, job)
+    outcome = _commit_finalization(profile, job, journal, process.pid, frame)
+    # Reap hygiene is authorized ONLY after a received ACK + durable COMMITTED.
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired as exc:
+            raise _Failure("cleanup", "post-ACK guardian reap not acknowledged") from exc
+    # Also refuse output arriving after the first frame while reaping. No
+    # unbounded drain and no waiting for EOF from a pre-ACK live guardian.
+    try:
+        extra = os.read(process.stdout.fileno(), 1)
+    except BlockingIOError:
+        extra = b""
+    if extra:
+        raise _Failure("protocol", "duplicate terminal finalization ACK/output")
+    _finalization_remaining(_metadata(_read_owned(job / "journal.json")), outcome)
+    return outcome
+
+
+@dataclass(frozen=True, slots=True)
+class _FinalizationSuccess:
+    ack: dict
+    outcome: ProgramOutcome | ScoreOutcome
+
+
 def _block(profile, journal, job, detail):
     journal["state"] = "UNRESOLVED"
     journal["block_reason"] = detail
-    _save_journal(job, journal)
+    save_error = None
+    try:
+        _save_journal(job, journal)
+    except BaseException as exc:
+        save_error = exc
     # The original block is immutable and is never rewritten by reconciliation.
     path = profile.shared_state_dir / ("UNRESOLVED-" + journal["nonce"] + ".json")
     if not path.exists():
@@ -2133,6 +2826,108 @@ def _block(profile, journal, job, detail):
             "nonce": journal["nonce"], "job": str(job), "cid": journal["cid"],
             "reason": detail, "journal_sha256": hashlib.sha256(_read_owned(job / "journal.json")).hexdigest()
         }) + b"\n")
+    if save_error is not None:
+        raise save_error
+
+
+def _complete_guardian(profile, daemon, journal, job, observer, attached, failure, uncertain, result):
+    """Cleanup is reachable even when every failure-report write keeps failing."""
+    _begin_cleanup(journal)
+    if failure is not None:
+        daemon.shutdown_supervision = None
+        journal["failure"] = {"reason": failure.reason, "detail": str(failure)}
+    try:
+        _save_journal(job, journal)
+    except BaseException as exc:
+        uncertain = True
+        failure = failure or _Failure("cleanup", "journal persistence failed: " + type(exc).__name__)
+        daemon.shutdown_supervision = None
+    try:
+        if attached is not None:
+            attached.close()
+    except BaseException as exc:
+        uncertain = True
+        failure = failure or _Failure("cleanup", "attach close failed: " + type(exc).__name__)
+        daemon.shutdown_supervision = None
+    try:
+        _cleanup_owned(profile, daemon, journal, job, observer)
+        if failure is None and journal.get("shutdown_requested"):
+            _success_remaining(journal)
+    except BaseException as exc:
+        uncertain = True
+        failure = failure or (exc if isinstance(exc, _Failure) else
+                              _Failure("cleanup", type(exc).__name__))
+
+    def retain_unresolved():
+        journal["state"] = "UNRESOLVED"
+        if failure is not None:
+            journal["failure"] = {"reason": failure.reason, "detail": str(failure)}
+        try:
+            _block(profile, journal, job, str(failure))
+        except BaseException:
+            # Active OR the immutable PENDING blocks admission even if every
+            # subsequent report write fails after successful active unlink.
+            pass
+        if (journal.get("shutdown_requested") and observer is not None and not observer.retired
+                and getattr(observer, "state", None) in ("QUIESCING", "PARKED", "ABORTED")):
+            try:
+                observer.abort_scheduler(deadline=journal["cleanup_deadline"])
+            except BaseException:
+                # No absence/retirement claim. Unknown aliases remain unresolved.
+                pass
+
+    if uncertain:
+        retain_unresolved()
+        if (observer is not None and not observer.retired
+                and getattr(observer, "state", "ACTIVE") == "ACTIVE"):
+            # Preserve active-observer mitigation/lock for unknown guest liveness.
+            while True:
+                observer.stop.wait(1.0)
+        return None  # Uncertain aborts never publish a completion transaction.
+    try:
+        journal["state"] = "CLOSED"
+        journal_raw = canonical_json_bytes(journal) + b"\n"
+        receipt = None
+        if journal.get("bootstrap") is not None:
+            boot = journal["bootstrap"]
+            receipt = RuntimeReceipt(journal["role"], journal["request_sha256"], boot["python_version"],
+                                     boot["sqlite_version"], journal["bootstrap_sha256"],
+                                     hashlib.sha256(journal_raw).hexdigest())
+        if failure is not None:
+            outcome = (ProgramOutcome(None, AbortInfo("program", failure.reason), receipt)
+                       if journal["role"] == "program" else ScoreOutcome(None, AbortInfo("scorer", failure.reason), receipt))
+        elif journal["role"] == "program":
+            outcome = ProgramOutcome(result.observation, None, receipt, rejected=result.rejected)
+        else:
+            outcome = ScoreOutcome(result, None, receipt)
+        ack = _publish_finalization(profile, journal, job, journal_raw,
+                                    canonical_json_bytes(outcome) + b"\n", daemon.control)
+    except BaseException as exc:
+        failure = failure or (exc if isinstance(exc, _Failure) else _Failure("cleanup", type(exc).__name__))
+        retain_unresolved()
+        return None
+    return _FinalizationSuccess(ack, outcome)
+
+
+def _completed_outcome_ready(profile, journal, outcome):
+    """Evidence query only. Never authorizes adoption/current-pipe completion."""
+    if journal.get("state") != "CLOSED":
+        raise _Failure("cleanup", "provisional completion is not CLOSED")
+    if journal.get("nonce") is not None and (
+            profile.shared_state_dir / ("UNRESOLVED-" + journal["nonce"] + ".json")).exists():
+        raise _Failure("cleanup", "provisional completion has an unresolved block")
+    _finalization_remaining(journal, outcome)
+    name = journal["nonce"]
+    try:
+        raw = _read_owned(profile.shared_state_dir / ("FINALIZATION-PENDING-" + name + ".json"))
+        commit = _read_finalization_record(_read_owned(profile.shared_state_dir / (
+            "FINALIZATION-COMMITTED-" + name + ".json")), "committed")
+    except FileNotFoundError:
+        return False
+    if commit["pending_sha256"] != hashlib.sha256(raw).hexdigest():
+        raise ValueError("finalization committed digest mismatch")
+    _validate_finalization(profile, raw, commit["terminal_ack"], current=True)
+    return True
 
 
 def _guardian(job: Path, control: int, emergency: bool):
@@ -2211,45 +3006,18 @@ def _guardian(job: Path, control: int, emergency: bool):
     except BaseException as exc:
         _begin_cleanup(journal)
         failure = exc if isinstance(exc, _Failure) else _Failure("transport", type(exc).__name__)
-        uncertain = isinstance(exc, (_ObservationFailure, _HTTPFailure, _RPCUncertain, OSError, TimeoutError))
+        uncertain = bool(journal.get("shutdown_requested")) or isinstance(
+            exc, (_ObservationFailure, _HTTPFailure, _RPCUncertain, OSError, TimeoutError))
+        daemon.shutdown_supervision = None  # Failure cleanup must still stop OWN.
         journal["failure"] = {"reason": failure.reason, "detail": str(failure)}
-        _save_journal(job, journal)
     finally:
-        _begin_cleanup(journal)
-        _save_journal(job, journal)
-        if attached is not None:
-            attached.close()
-        try:
-            _cleanup_owned(profile, daemon, journal, job, observer)
-        except BaseException as exc:
-            uncertain = True
-            failure = _Failure("cleanup", type(exc).__name__ + ": " + str(exc))
-        if uncertain:
-            _block(profile, journal, job, str(failure))
-        else:
-            journal["state"] = "CLOSED"
-            _save_journal(job, journal)
-            _close_reservation(profile, journal, job)
-        receipt = None
-        if journal.get("bootstrap") is not None:
-            boot = journal["bootstrap"]
-            receipt = RuntimeReceipt(journal["role"], journal["request_sha256"], boot["python_version"],
-                                     boot["sqlite_version"], journal["bootstrap_sha256"],
-                                     hashlib.sha256(_read_owned(job / "journal.json")).hexdigest())
-        if failure is not None:
-            outcome = (ProgramOutcome(None, AbortInfo("program", failure.reason), receipt)
-                       if journal["role"] == "program" else
-                       ScoreOutcome(None, AbortInfo("scorer", failure.reason), receipt))
-        elif journal["role"] == "program":
-            outcome = ProgramOutcome(result.observation, None, receipt, rejected=result.rejected)
-        else:
-            outcome = ScoreOutcome(result, None, receipt)
-        _write_owned(job / "outcome.json", canonical_json_bytes(outcome) + b"\n")
-        if uncertain and observer is not None and not observer.retired:
-            # Keep mitigation alive when OWN liveness is unknown. The reservation
-            # and original block remain durable; no subsequent START is possible.
-            while True:
-                observer.stop.wait(1.0)
+        finalization = _complete_guardian(profile, daemon, journal, job, observer, attached, failure, uncertain, result)
+    if type(finalization) is not _FinalizationSuccess:
+        raise _Failure("cleanup", "guardian finalization uncommitted")
+    _controller_alive(control)
+    _finalization_remaining(journal, finalization.outcome)
+    _send_terminal_ack(sys.stdout.buffer, finalization.ack)
+    # Terminal ACK is the last completion action. No journal/event/block writes.
 
 
 def _runtime_abort(role, reason):
@@ -2280,12 +3048,7 @@ def _run_isolated(executor, role, request, db_path):
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return _runtime_abort(role, "admission")
-        if (profile.shared_state_dir / "active.json").exists():
-            return _runtime_abort(role, "admission")
-        # Unclosed original block history is never cleared by another profile/run.
-        for block in profile.shared_state_dir.glob("UNRESOLVED-*.json"):
-            if not (profile.shared_state_dir / ("CLOSED-" + block.name)).is_file():
-                return _runtime_abort(role, "admission")
+        _admit_finalizations(profile)
         nonce = uuid.uuid4().hex
         job = executor.state_dir / nonce
         _secure_directory(job)
@@ -2332,44 +3095,48 @@ def _run_isolated(executor, role, request, db_path):
         process = spawn(False)
         replaced = False
         while True:
-            if (job / "outcome.json").is_file():
-                outcome_data = _metadata(_read_owned(job / "outcome.json"))
-                # Unknown-liveness guardian deliberately survives with its lock.
-                if _metadata(_read_owned(job / "journal.json"))["state"] == "UNRESOLVED":
-                    return (program_outcome_from_dict(outcome_data) if role == "program"
-                            else score_outcome_from_dict(outcome_data))
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    # CLOSED outcome is already durable. Reaping is hygiene,
-                    # never grounds to discard the completed typed outcome.
-                    process.kill()
-                    process.wait()
-                return (program_outcome_from_dict(outcome_data) if role == "program"
-                        else score_outcome_from_dict(outcome_data))
-            if process.poll() is not None:
+            try:
+                return _finish_finalization(process, profile, job, journal)
+            except _Failure:
+                if process.poll() is None:
+                    raise
+                latest = _metadata(_read_owned(job / "journal.json"))
+                names = _shared_names(profile)
+                # Never adopt/retry/release a pending transaction, including a
+                # failed COMMITTED fsync whose destination became visible.
+                if (replaced or latest.get("state") in ("CLOSED", "UNRESOLVED")
+                        or time.monotonic() >= min(journal["deadline"] + 12,
+                            journal.get("cleanup_deadline", journal["deadline"] + 12))
+                        or any(name.startswith((
+                            "FINALIZATION-PENDING-" + latest["nonce"] + ".json",
+                            "FINALIZATION-COMMITTED-" + latest["nonce"] + ".json",
+                            ".FINALIZATION-PENDING-" + latest["nonce"] + ".json",
+                            ".FINALIZATION-COMMITTED-" + latest["nonce"] + ".json")) for name in names)
+                        or "UNRESOLVED-" + latest["nonce"] + ".json" in names
+                        or (job / "outcome.json").exists()):
+                    raise
                 process.wait()
                 _event(job, "GUARDIAN_REAPED", pid=process.pid, returncode=process.returncode)
                 process.stdout.close()
-                if replaced:
-                    raise _Failure("cleanup", "replacement guardian died")
                 replaced = True
-                latest = _metadata(_read_owned(job / "journal.json"))
                 _begin_cleanup(latest)
                 _save_journal(job, latest)
                 process = spawn(True)
-            if time.monotonic() > journal["deadline"] + 12:
-                raise _Failure("cleanup", "guardian exceeded original deadline plus cleanup")
-            select.select([], [], [], 0.02)
-    except (TypeError, ValueError, OSError) as exc:
-        if job is not None and (job / "journal.json").exists():
-            journal = _metadata(_read_owned(job / "journal.json"))
-            _block(profile, journal, job, type(exc).__name__)
+    except (TypeError, ValueError, OSError, KeyError, RecursionError) as exc:
+        if job is not None:
+            try:
+                journal = _metadata(_read_owned(job / "journal.json"))
+                _block(profile, journal, job, type(exc).__name__)
+            except (OSError, _Failure, TypeError, ValueError, KeyError, RecursionError):
+                pass  # Active or immutable PENDING remains the admission barrier.
         return _runtime_abort(role, "binding" if process is None else "transport")
     except _Failure as exc:
-        if job is not None and (job / "journal.json").exists():
-            journal = _metadata(_read_owned(job / "journal.json"))
-            _block(profile, journal, job, str(exc))
+        if job is not None:
+            try:
+                journal = _metadata(_read_owned(job / "journal.json"))
+                _block(profile, journal, job, str(exc))
+            except (OSError, _Failure, TypeError, ValueError, KeyError, RecursionError):
+                pass
         return _runtime_abort(role, exc.reason)
     finally:
         if write_control is not None:

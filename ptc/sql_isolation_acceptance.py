@@ -102,6 +102,32 @@ def local(tmp_path_factory):
         assert kinds.index("GUARDIAN_ACK") < kinds.index("CREATE_ATTEMPT")
         if journal["cid"] is not None:
             assert kinds.index("STOPPED") < kinds.index("OBSERVER_JOIN_ACK") < kinds.index("DELETE") < kinds.index("ABSENCE")
+        if journal.get("exit_grant_intent") is not None and journal.get("failure") is None:
+            assert kinds.count("EXIT_GRANT_SENT") == 1
+            ordered = ["OBSERVER_QUIESCING", "OBSERVER_PARKED", "EXIT_GRANT_INTENT",
+                       "EXIT_GRANT_SENT", "STOPPED", "OBSERVER_RETIRED",
+                       "OBSERVER_JOIN_ACK", "DELETE", "ABSENCE"]
+            assert [kinds.index(k) for k in ordered] == sorted(kinds.index(k) for k in ordered)
+            grant, stopped = kinds.index("EXIT_GRANT_SENT"), kinds.index("STOPPED")
+            assert not any(k in ("MEMORY_SAMPLE", "MEMORY_STATS_REJECTED", "MEMORY_TERMINAL_DISCARDED")
+                           for k in kinds[grant:stopped + 1])
+            intent = journal["exit_grant_intent"]
+            assert intent["cid"] == journal["cid"] and intent["config_sha256"] == journal["config_sha256"]
+            assert intent["request_sha256"] == journal["request_sha256"]
+            assert intent["deadline"] == min(intent["last_frame_finished"] + 4.0,
+                                             journal["deadline"], journal["cleanup_deadline"])
+            assert events[stopped]["stopped_at"] <= intent["deadline"]
+            completion_end = min(journal["deadline"], journal["cleanup_deadline"])
+            for event in events:
+                if event["kind"] in ("STOPPED", "OBSERVER_RETIRED", "OBSERVER_JOIN_ACK", "DELETE", "ABSENCE"):
+                    assert event["at"] < completion_end
+            history_path = profile.shared_state_dir / "history.jsonl"
+            closures = [json.loads(line) for line in history_path.read_text().splitlines()]
+            closure = [item for item in closures if item.get("kind") == "CLOSED"
+                       and item.get("nonce") == journal["nonce"] and item.get("job") == str(journal_path.parent)]
+            assert len(closure) == 1 and closure[0]["at"] < completion_end
+            assert not (profile.shared_state_dir / "active.json").exists()
+            # Event assertions supplement, not replace, scheduling/alias tests.
         assert sum(k == "KILL_ATTEMPT" for k in kinds) <= 1
         for actor in journal["guardians"] + [e["pid"] for e in events if e["kind"] == "CLI_STARTED"]:
             with pytest.raises(ProcessLookupError):

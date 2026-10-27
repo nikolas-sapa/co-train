@@ -1517,7 +1517,8 @@ def test_review_5_stalled_prestart_write_performs_zero_starts(tmp_path, monkeypa
             if fault == "controller": os.close(write); write = None
     monkeypatch.setattr(m, "_event", delayed_event)
     try:
-        m._guardian(job, read, False)
+        with pytest.raises(m._Failure, match="finalization"):
+            m._guardian(job, read, False)
         assert starts == [], f"{fault} changed during durable writes but START still executed"
     finally:
         os.close(read)
@@ -1837,10 +1838,21 @@ def test_review2_1_slow_success_is_fresh_from_finish_in_gap_and_next_sample(tmp_
             attached = types.SimpleNamespace(recv=lambda _: next(chunks), sendall=delivered.append,
                                              settimeout=lambda _: None)
             obj = _owned_fixture_object(journal)
-            obj["State"]["ExitCode"] = 0
-            daemon = types.SimpleNamespace(call=lambda *a, **k: obj)
+            journal["guardians"] = [os.getpid()]
+            journal["config_sha256"] = hashlib.sha256(m.canonical_json_bytes(journal["config"])).hexdigest()
+            observer.thread = types.SimpleNamespace(is_alive=lambda: True)  # Simulated-clock sampler only.
+            def inspect_state(*args, **kwargs):
+                obj["State"].update(Running=len(delivered) < 2, Pid=1 if len(delivered) < 2 else 0,
+                                    ExitCode=0, OOMKilled=False)
+                return obj
+            daemon = types.SimpleNamespace(call=inspect_state)
             assert m._stream_result(p, daemon, journal, job, read, observer, attached) == response
-            assert delivered == [request_wire]
+            assert delivered[0] == request_wire and len(delivered) == 2
+            grant = m.decode_wire_message(delivered[1], role="program", kind="exit_grant",
+                                          request_sha256=journal["request_sha256"])
+            assert grant.payload.result_sha256 == hashlib.sha256(
+                m.encode_wire_message("program", "result", response,
+                                      request_sha256=journal["request_sha256"])).hexdigest()
     finally:
         os.close(read); os.close(write)
     kinds = [json.loads(line)["kind"] for line in (job / "events.jsonl").read_text().splitlines()]
@@ -1873,13 +1885,11 @@ def test_review2_2_durable_outcome_survives_slow_guardian_reap(tmp_path, monkeyp
     import types
     from bench.score import ExResult
     from bench.task import SqlTask
-    m = api(); p = _review_profile(tmp_path)
+    m = api()
     shared = tmp_path / "private-dispatch"; shared.mkdir()
-    private_profile = types.SimpleNamespace(**{f.name: getattr(p, f.name) for f in dataclasses.fields(p)})
-    private_profile.shared_state_dir = shared
-    profile_wire = m.execution_profile_canonical_bytes(p)
+    monkeypatch.setattr(m, "shared_state_dir_for", lambda _: shared)
+    p = private_profile = _review_profile(tmp_path)
     monkeypatch.setattr(m, "build_execution_binding", lambda *a, **k: p.binding)
-    monkeypatch.setattr(m, "execution_profile_canonical_bytes", lambda _: profile_wire)
     monkeypatch.setattr(m, "_stage_sources", lambda *a: None)
     monkeypatch.setattr(m, "_stage_database", lambda *a: None)
     if role == "program":
@@ -1914,20 +1924,38 @@ def test_review2_2_durable_outcome_survives_slow_guardian_reap(tmp_path, monkeyp
         def kill(self):
             self.kills += 1
             return super().kill()
-    # Real owned OS process: writes durable outcome, then remains alive >2s.
-    code = (
-        "import os,sys,json,pathlib,time;"
-        "job=pathlib.Path(sys.argv[1]);fd=int(sys.argv[2]);"
-        "os.write(1,b'ACK\\n');assert os.read(fd,1)==b'G';"
-        "j=json.loads((job/'journal.json').read_bytes());j['state']=sys.argv[4];"
-        "f=open(job/'journal.json','wb');f.write(json.dumps(j).encode());f.flush();os.fsync(f.fileno());f.close();"
-        "f=open(job/'outcome.json','xb');f.write(sys.argv[3].encode());f.flush();os.fsync(f.fileno());f.close();"
-        "(pathlib.Path(sys.argv[5])/'active.json').unlink() if sys.argv[4]=='CLOSED' else None;"
-        "time.sleep(30)"
-    )
+    # Preserve node IDs, update superseded absence-only fixture to real terminal
+    # transaction. UNRESOLVED artifacts are now explicitly uncommittable.
+    code = r'''
+import os, sys, time
+from pathlib import Path
+sys.path.insert(0, sys.argv[6])
+import ptc.sql_isolation as m
+job, fd, state, shared = Path(sys.argv[1]), int(sys.argv[2]), sys.argv[4], Path(sys.argv[5])
+m.shared_state_dir_for = lambda _: shared
+os.write(1, b"ACK\n")
+assert os.read(fd, 1) == b"G"
+p = m.execution_profile_from_bytes(m._read_owned(job / "profile.json"))
+j = m._metadata(m._read_owned(job / "journal.json"))
+j.update(state=state, guardians=[os.getpid()], bootstrap={
+    "python_version":"fixture-not-guest", "sqlite_version":"fixture-not-SQLite"}, bootstrap_sha256="b"*64)
+m._begin_cleanup(j)
+jraw = m.canonical_json_bytes(j) + b"\n"
+o = m._metadata(sys.argv[3].encode())
+o["receipt"]["journal_sha256"] = m.hashlib.sha256(jraw).hexdigest()
+oraw = m.canonical_json_bytes(o) + b"\n"
+if state == "UNRESOLVED":
+    m._write_owned(job / "journal.json", jraw)
+    m._write_owned(job / "outcome.json", oraw)
+    os._exit(0)
+ack = m._publish_finalization(p, j, job, jraw, oraw, fd)
+m._send_terminal_ack(sys.stdout.buffer, ack)
+time.sleep(30)
+'''
     def spawn(command, **kwargs):
         child = OwnedProcess([sys.executable, "-I", "-B", "-c", code,
-                              command[5], command[6], outcome_wire.decode(), state, str(shared)], **kwargs)
+                              command[5], command[6], outcome_wire.decode(), state, str(shared),
+                              str(m.installed_source_root())], **kwargs)
         children.append(child)
         return child
     monkeypatch.setattr(m, "subprocess", types.SimpleNamespace(
@@ -1952,15 +1980,1344 @@ def test_review2_2_durable_outcome_survives_slow_guardian_reap(tmp_path, monkeyp
             REVIEW_PROCESS_RESULTS.append({"pid": child.pid, "proof": "owned Popen.wait",
                                            "returncode": child.returncode, "dispatch": before_cleanup})
     assert error is None, f"raw CLOSED reap exception discarded durable outcome: {type(error).__name__}"
-    assert result == expected and result.receipt == receipt
     if state == "CLOSED":
+        records = [json.loads(path.read_bytes()) for path in executor.state_dir.glob("*/journal.json")]
+        actual_receipt = dataclasses.replace(receipt, journal_sha256=hashlib.sha256(
+            m.canonical_json_bytes(records[0]) + b"\n").hexdigest())
+        assert result == dataclasses.replace(expected, receipt=actual_receipt)
         assert before_cleanup["timeouts"] == 1 and before_cleanup["waits"][0] == 2
         assert before_cleanup["kills"] == 1 and before_cleanup["returncode"] == -9
         assert len(before_cleanup["waits"]) == 2, "dispatch did not reap its exact killed Popen"
         assert not (shared / "active.json").exists()
     else:
-        assert before_cleanup == {"waits": [], "timeouts": 0, "kills": 0, "returncode": None}
+        assert result.abort is not None and result.receipt is None, "adopted uncertain abort artifact"
+        assert before_cleanup == {"waits": [], "timeouts": 0, "kills": 0, "returncode": 0}
         assert (shared / "active.json").exists()
     records = [json.loads(path.read_bytes()) for path in executor.state_dir.glob("*/journal.json")]
     assert len(records) == 1 and records[0]["state"] == state
-    assert not list(shared.glob("UNRESOLVED-*")), "hygiene reap manufactured a new admission block"
+    blocks = [path.name for path in shared.glob("UNRESOLVED-*")]
+    if state == "CLOSED":
+        assert not blocks, "post-ACK hygiene reap manufactured an admission block"
+    else:
+        assert blocks == ["UNRESOLVED-" + records[0]["nonce"] + ".json"]
+
+
+# Coordinated shutdown tests are source-first, daemon-free protocol checks.
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("fault", [None, "role", "request", "result", "version", "extra",
+                                  "missing", "duplicate", "utf8", "json", "oversize", "eof"])
+def test_shutdown_b01_real_pipe_workers_hold_until_exact_grant(tmp_path, role, fault):
+    import select
+    import subprocess
+    import sys
+    import time
+    m = api()
+    # Exercise each real worker main and shared hold over owned OS pipes.
+    # Native computation is tiny trusted fixture data, not a kernel claim.
+    code = (
+        "import sys;sys.path.insert(0,sys.argv[1]);"
+        "from ptc import sql_isolation as m;"
+        "from types import SimpleNamespace;"
+        "from " + ("ptc import sql_worker" if role == "program" else "bench import sql_score_worker") + " as w;"
+        + ("r=m.ProgramRequest('pass',1,'a'*64);"
+           if role == "program" else
+           "from bench.task import SqlTask;"
+           "t=SqlTask('fixture','q','','SELECT 1','db','/db.sqlite','simple','derived','s','s','fixture');"
+           "r=m.ScoreRequest(t,'SELECT 1',1.0,1,'set','a'*64);")
+        + "w._worker_handshake=lambda role:(r,m.request_sha256(r));"
+        + ("w._native_call=lambda *a,**k:SimpleNamespace(observation='unchanged',rejected=False);"
+           if role == "program" else
+           "from bench.score import ExResult;w._native_call=lambda *a,**k:ExResult(1.0,'match',True,'',1,1);")
+        + "w.main()"
+    )
+    child = subprocess.Popen([sys.executable, "-I", "-B", "-c", code, str(m.installed_source_root())],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        assert select.select([child.stdout], [], [], 3)[0], "worker emitted no provisional result"
+        result = child.stdout.readline()
+        assert result.endswith(b"\n") and json.loads(result)["schema_version"] == 2
+        time.sleep(0.25)
+        assert child.poll() is None, "worker exited before controller grant"
+        grant = m.encode_wire_message(role, "exit_grant",
+            m.ExitGrant(hashlib.sha256(result).hexdigest()),
+            request_sha256=json.loads(result)["request_sha256"])
+        if fault == "eof":
+            grant = b""
+        elif fault in ("utf8", "json", "oversize", "duplicate"):
+            grant = {"utf8": b"\xff\n", "json": b"{\n",
+                     "oversize": b"x" * (m.MAX_ARTIFACT_BYTES + 1) + b"\n",
+                     "duplicate": grant[:-2] + b',"role":"program"}\n'}[fault]
+        elif fault is not None:
+            bad = json.loads(grant)
+            if fault == "role": bad["role"] = "scorer" if role == "program" else "program"
+            if fault == "request": bad["request_sha256"] = "b" * 64
+            if fault == "result":
+                bad["payload"]["result_sha256"] = "b" * 64
+                bad["sha256"] = hashlib.sha256(m.canonical_json_bytes(bad["payload"])).hexdigest()
+            if fault == "version": bad["schema_version"] = 1
+            if fault == "extra": bad["payload"]["extra"] = 1
+            if fault == "missing": del bad["payload"]["result_sha256"]
+            grant = m.canonical_json_bytes(bad) + b"\n"
+        began = time.monotonic()
+        extra, errors = child.communicate(grant, timeout=1)
+        assert time.monotonic() - began < 1
+        assert not extra, "worker emitted extra stdout after provisional result"
+        assert (child.returncode == 0) is (fault is None), (child.returncode, errors[-1000:])
+    finally:
+        if child.poll() is None: child.kill()
+        child.wait(timeout=1)
+        for pipe in (child.stdin, child.stdout, child.stderr):
+            if pipe is not None: pipe.close()
+        REVIEW_PROCESS_RESULTS.append({"pid": child.pid, "proof": "owned Popen.wait",
+                                       "returncode": child.returncode})
+
+
+@pytest.mark.parametrize("age,reserve,accept", [(4.0, 201326592, True),
+    (4.001, 201326592, False), (4.0, 201326591, False)])
+def test_shutdown_b06_parked_original_frame_bounds(tmp_path, monkeypatch, age, reserve, accept):
+    import types
+    m = api(); p = _review_profile(tmp_path); job, _ = _review_job(tmp_path, p)
+    observer = m._Observer(p, types.SimpleNamespace(active=set(), workers=set()), job)
+    observer.state = "PARKED"
+    original = {"started": 99.0, "finished": 100.0, "available": reserve, "eligible": True}
+    observer.latest = original
+    monkeypatch.setattr(m, "time", types.SimpleNamespace(monotonic=lambda: 100.0 + age))
+    with pytest.raises(m._ObservationFailure):
+        observer.check()
+    if accept:
+        assert observer.shutdown_check() is original
+    else:
+        with pytest.raises(m._Failure): observer.shutdown_check()
+    assert original == {"started": 99.0, "finished": 100.0, "available": reserve, "eligible": True}
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_shutdown_b04_reserved_sample_drains_and_first_failure_latches(tmp_path, monkeypatch, failure):
+    import threading
+    import types
+    m = api(); p = _review_profile(tmp_path); job, _ = _review_job(tmp_path, p)
+    observer = m._Observer(p, types.SimpleNamespace(active=set(), workers=set()), job)
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+    first = m._ObservationFailure("first genuine fixture failure")
+    cadence, advance, checked = threading.Event(), threading.Event(), threading.Event()
+    cadence_count = [0]
+    def sample(*args):
+        calls.append(1); entered.set()
+        assert release.wait(1)
+        if failure: raise first
+        now = m.time.monotonic()
+        return {"started": now, "finished": now, "available": p.admission_bytes, "eligible": True}
+    monkeypatch.setattr(m, "_memory_sample", sample)
+    real_wait = observer.stop.wait
+    def cadence_wait(seconds):
+        if threading.current_thread() is observer.thread and seconds == 0.25:
+            cadence_count[0] += 1
+            if cadence_count[0] == 1:
+                cadence.set()
+                advance.wait(2)
+            else:
+                checked.set()
+                return real_wait(0.01)
+            return real_wait(0)
+        return real_wait(seconds)
+    monkeypatch.setattr(observer.stop, "wait", cadence_wait)
+    observer.thread.start()
+    try:
+        assert entered.wait(1)
+        observer.begin_quiesce()
+        assert observer.state == "QUIESCING" and observer.inflight is True
+        release.set()
+        if failure:
+            with pytest.raises(m._ObservationFailure):
+                observer.park(deadline=m.time.monotonic() + 1)
+            assert observer.failure is first
+            with pytest.raises(m._Failure): observer.shutdown_check()
+        else:
+            observer.park(deadline=m.time.monotonic() + 1)
+            assert observer.state == "PARKED" and observer.inflight is False
+            assert observer.shutdown_check() is observer.latest
+        assert observer.thread.is_alive(), "parking retired observer before STOPPED"
+        assert cadence.wait(1), "initial sample never reached cadence barrier"
+        advance.set()
+        assert checked.wait(1), "observer never checked the closed scheduling gate"
+        assert len(calls) == 1, "closed scheduling gate admitted a sample"
+    finally:
+        release.set(); advance.set(); observer.stop.set(); observer.thread.join(2)
+        assert not observer.thread.is_alive()
+
+
+def _shutdown_race_fixture(tmp_path, monkeypatch, role, schedule, fault=None, *, complete=False, expiry=None):
+    import os
+    import struct
+    import threading
+    import types
+    from bench.score import ExResult
+    from bench.task import SqlTask
+    m = api()
+    clock = [100.0]
+    if expiry is not None:
+        monkeypatch.setattr(m, "time", types.SimpleNamespace(monotonic=lambda: clock[0]))
+    if complete:
+        shared = tmp_path / "private-shared"; shared.mkdir()
+        monkeypatch.setattr(m, "shared_state_dir_for", lambda _: shared)
+    p = _review_profile(tmp_path)
+    job, journal = _review_job(tmp_path, p, cid="a" * 64)
+    journal.update(role=role, guardians=[os.getpid()])
+    journal["config"] = m._container_config(p, role, job, journal["nonce"])
+    journal["config_sha256"] = hashlib.sha256(m.canonical_json_bytes(journal["config"])).hexdigest()
+    if role == "program":
+        request, response = m.ProgramRequest("pass", 1, "b" * 64), m.ProgramResponse("unchanged", False)
+    else:
+        task = SqlTask("fixture", "q", "", "SELECT 1", "db", "/db.sqlite",
+                       "simple", "derived", "s", "s", "fixture")
+        request = m.ScoreRequest(task, "SELECT 1", 1.0, 1, "set", "b" * 64)
+        response = ExResult(1.0, "match", True, "", 1, 1)
+    sha = m.request_sha256(request)
+    journal.update(request_sha256=sha, db_sha256=request.db_sha256)
+    if complete:
+        profile_raw = m.execution_profile_canonical_bytes(p)
+        journal.update(profile_sha256=hashlib.sha256(profile_raw).hexdigest(), controller=os.getpid())
+        m._write_owned(job / "profile.json", profile_raw)
+    wire = m.encode_wire_message(role, "result", response, request_sha256=sha)
+    request_wire = m.encode_wire_message(role, "request", request)
+    (job / "request.wire").write_bytes(request_wire)
+    m._save_journal(job, journal)
+    if complete:
+        journal["state"] = "RESERVED"
+        m._save_journal(job, journal)
+        m._write_owned(p.shared_state_dir / "active.json",
+                       m.canonical_json_bytes({"nonce": journal["nonce"], "job": str(job)}) + b"\n")
+    def expire(phase):
+        if expiry is not None and expiry[1] == phase:
+            clock[0] = journal["deadline" if expiry[0] == "role" else "cleanup_deadline"]
+    entered, release, published = threading.Event(), threading.Event(), threading.Event()
+    running, deleted, missing = [True], [False], []
+    stats, delivered, timeline = [], [], []
+    metadata_lock = threading.Lock()
+    class Metadata:
+        def __init__(self):
+            self.active, self.workers = set(), set()
+        def call(self, method, path, **kwargs):
+            assert method == "GET"
+            if path == "/info":
+                if fault == "info": raise m._ObservationFailure("genuine info error")
+                return {"MemTotal": 1073741824}
+            if path == "/containers/json":
+                if schedule == "before-inventory":
+                    entered.set(); assert release.wait(2)
+                return [{"Id": journal["cid"], "State": "running"}]
+            assert "/stats?" in path
+            if schedule == "between-inventory-stats":
+                entered.set(); assert release.wait(2)
+            alias = object()
+            with metadata_lock: self.active.add(alias)
+            stats.append("start"); timeline.append("stats-start")
+            try:
+                if schedule == "during-stats":
+                    entered.set(); assert release.wait(2)
+                if fault == "stats": raise m._ObservationFailure("genuine stats error")
+                if fault == "validation": return {"memory_stats": {"usage": True}}
+                if fault == "missing" or not running[0]:
+                    missing.append(1)
+                    return {"memory_stats": {}}
+                return {"memory_stats": {"usage": 1048576}}
+            finally:
+                timeline.append("stats-finish"); stats.append("finish")
+                with metadata_lock:
+                    if fault != "http-unwind": self.active.remove(alias)
+    metadata = Metadata()
+    def vm(*args):
+        if fault == "vm": raise m._ObservationFailure("genuine VM error")
+        if fault == "cli-unwind": raise m._ObservationFailure("controlled CLI finalizer failure")
+        return 1073741824, 1073741824
+    monkeypatch.setattr(m, "_vm_memory", vm)
+    if fault == "pool-unwind":
+        real_pool = m.concurrent.futures.ThreadPoolExecutor
+        def pool(*args, **kwargs):
+            instance = real_pool(*args, **kwargs)
+            shutdown = instance.shutdown
+            def unwind(*args, **kwargs):
+                shutdown(*args, **kwargs)
+                raise m._ObservationFailure("controlled pool finalizer failure after real join")
+            instance.shutdown = unwind
+            return instance
+        monkeypatch.setattr(m.concurrent.futures, "ThreadPoolExecutor", pool)
+    original_event = m._event
+    parked = [False]
+    original_save, original_write = m._save_journal, m._write_owned
+    def save(path, record):
+        if parked[0] and fault in ("persistent-journal", "persistent-store"):
+            timeline.append("JOURNAL_WRITE_REFUSED")
+            raise OSError("persistent fixture ENOSPC")
+        return original_save(path, record)
+    def write_owned(path, data, **kwargs):
+        if parked[0] and fault == "persistent-store":
+            raise OSError("persistent fixture ENOSPC")
+        value = original_write(path, data, **kwargs)
+        if path.name == "outcome.json": expire("outcome")
+        return value
+    monkeypatch.setattr(m, "_save_journal", save)
+    monkeypatch.setattr(m, "_write_owned", write_owned)
+    original_append = m._append_owned
+    def append_owned(path, value):
+        result = original_append(path, value)
+        if path.name == "history.jsonl": expire("reservation")
+        return result
+    monkeypatch.setattr(m, "_append_owned", append_owned)
+    def event(path, kind, **values):
+        original_event(path, kind, **values)
+        timeline.append(kind)
+        if kind == "OBSERVER_QUIESCING":
+            assert not delivered[1:], "grant preceded scheduling gate closure"
+        if kind == "MEMORY_SAMPLE": published.set()
+        if kind == "OBSERVER_PARKED": parked[0] = True
+        if kind == "OBSERVER_RETIRED": expire("retirement")
+    monkeypatch.setattr(m, "_event", event)
+    observer = m._Observer(p, metadata, job)
+    now = m.time.monotonic()
+    seed = {"started": now, "finished": now, "available": p.admission_bytes, "eligible": True}
+    observer.latest = seed
+    real_wait, coordinator = observer.stop.wait, threading.current_thread()
+    def drain_wait(seconds):
+        # Only an actual drain wait releases reserved metadata work. Removing
+        # drain must deterministically fail, not win a scheduler timing race.
+        if (threading.current_thread() is coordinator and observer.state == "QUIESCING"
+                and seconds <= 0.01):
+            release.set()
+        return real_wait(seconds)
+    monkeypatch.setattr(observer.stop, "wait", drain_wait)
+    class ControlDaemon:
+        active = set()
+        workers = set()
+        shutdown_supervision = None
+        def call(self, method, path, **kwargs):
+            if self.shutdown_supervision is not None: self.shutdown_supervision()
+            if method == "POST":
+                assert path.endswith("/kill?signal=SIGKILL")
+                running[0] = False
+                return None
+            if method == "DELETE":
+                assert "OBSERVER_JOIN_ACK" in timeline
+                assert not observer.thread.is_alive()
+                deleted[0] = True
+                expire("delete")
+                return None
+            assert method == "GET" and path.endswith("/json")
+            if deleted[0]:
+                expire("absence")
+                raise m._HTTPFailure(404)
+            if not running[0]: expire("stopped-inspect")
+            obj = _owned_fixture_object(journal)
+            obj["State"].update(Running=running[0], Pid=1 if running[0] else 0,
+                                Status="running" if running[0] else "exited", ExitCode=0, OOMKilled=False)
+            if fault == "foreign-cid": obj["Id"] = "c" * 64
+            if fault == "changed-config": obj["HostConfig"]["Memory"] += 1
+            if fault == "early-exit" and running[0]:
+                obj["State"].update(Running=False, Pid=0, Status="exited")
+            if not running[0]:
+                if fault == "nonzero": obj["State"]["ExitCode"] = 1
+                if fault == "oom": obj["State"]["OOMKilled"] = True
+            return obj
+    daemon = ControlDaemon()
+    bootstrap = m.BootstrapPayload(dict(p.environment)["PYTHON_VERSION"], "fixture-not-guest",
+                                   getattr(p.binding, role).sources, request.db_sha256)
+    packet = lambda data: b"\x01\0\0\0" + struct.pack(">I", len(data)) + data
+    result_wire = wire
+    if fault == "bad-result":
+        bad = json.loads(wire); bad["request_sha256"] = "f" * 64
+        result_wire = m.canonical_json_bytes(bad) + b"\n"
+    frames = [packet(m.READY + m.encode_wire_message(role, "bootstrap", bootstrap)), packet(result_wire)]
+    if fault == "extra-stdout": frames.append(packet(b"unsolicited\n"))
+    if fault == "malformed-mux": frames.append(b"\x03\0\0\0\0\0\0\x01x")
+    chunks = iter(frames + [b""])
+    class Attach:
+        def recv(self, _):
+            chunk = next(chunks)
+            if not chunk:
+                assert len(delivered) == 2, "guest exited without grant"
+                expire("eof")
+            return chunk
+        def close(self):
+            timeline.append("ATTACH_CLOSED")
+        def settimeout(self, _): pass
+        def sendall(self, data):
+            delivered.append(data)
+            if len(delivered) == 1:
+                assert data == request_wire
+                return
+            assert len(delivered) == 2, "grant retried"
+            grant = m.decode_wire_message(data, role=role, kind="exit_grant", request_sha256=sha)
+            assert grant.payload.result_sha256 == hashlib.sha256(wire).hexdigest()
+            assert observer.state == "PARKED" and not observer.inflight
+            assert observer.thread.is_alive()
+            assert not metadata.active and not metadata.workers
+            assert stats == ["start", "finish"]
+            timeline.append("grant")
+            running[0] = False
+            expire("grant")
+            if fault == "uncertain-grant":
+                raise OSError("controlled partial send uncertainty")
+    read, write = os.pipe()
+    daemon.control = read
+    observer.thread.start()
+    error = None
+    attached = Attach()
+    try:
+        if schedule == "after-publication":
+            assert published.wait(2)
+            publication_end = m.time.monotonic() + 1
+            while True:
+                with observer.lock:
+                    if observer.latest is not seed: break
+                assert m.time.monotonic() < publication_end, "sample never published"
+                observer.stop.wait(0.001)
+        else:
+            assert entered.wait(2)
+        try:
+            result = m._stream_result(p, daemon, journal, job, read, observer, attached)
+            assert result == response
+            if complete:
+                m._complete_guardian(p, daemon, journal, job, observer, attached, None, False, result)
+            else:
+                m._cleanup_owned(p, daemon, journal, job, observer)
+        except (m._Failure, OSError) as exc:
+            error = exc
+            if complete:
+                failure = exc if isinstance(exc, m._Failure) else m._Failure("transport", type(exc).__name__)
+                daemon.shutdown_supervision = None
+                journal["failure"] = {"reason": failure.reason, "detail": str(failure)}
+                m._complete_guardian(p, daemon, journal, job, observer, attached, failure, True, None)
+            elif fault in ("missing", "stats", "info", "vm", "validation"):
+                daemon.shutdown_supervision = None
+                release.set()
+                try:
+                    m._cleanup_owned(p, daemon, journal, job, observer)
+                except m._Failure:
+                    assert observer.failure is not None
+                else:
+                    raise AssertionError("genuine observer failure allowed successful cleanup")
+        return error, timeline, delivered, missing, observer, journal
+    finally:
+        release.set(); observer.stop.set(); observer.thread.join(3)
+        metadata.active.clear()  # Owned synthetic alias, only after all assertions/joins.
+        os.close(read); os.close(write)
+        assert not observer.thread.is_alive()
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("schedule", ["before-inventory", "between-inventory-stats",
+                                     "during-stats", "after-publication"])
+def test_shutdown_b03_eight_result_sample_schedules(tmp_path, monkeypatch, role, schedule):
+    error, timeline, delivered, missing, observer, journal = _shutdown_race_fixture(
+        tmp_path, monkeypatch, role, schedule)
+    assert error is None, str(error)
+    assert len(delivered) == 2 and missing == []
+    assert timeline.index("stats-finish") < timeline.index("grant") < timeline.index("STOPPED")
+    assert timeline.index("OBSERVER_PARKED") < timeline.index("grant")
+    assert timeline.index("STOPPED") < timeline.index("OBSERVER_RETIRED")
+    assert timeline.index("ACTOR_ABSENCE_PROOF") < timeline.index("OBSERVER_JOIN_ACK")
+    assert timeline.index("OBSERVER_JOIN_ACK") < timeline.index("DELETE") < timeline.index("ABSENCE")
+    assert timeline.count("MEMORY_SAMPLE") == 1 and "MEMORY_TERMINAL_DISCARDED" not in timeline
+    assert journal["cleanup_deadline"] == journal["cleanup_trigger"] + 12.0
+    assert observer.state == "RETIRED"
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("fault", ["missing", "stats", "info", "vm", "validation"])
+def test_shutdown_b05_genuine_drain_errors_never_grant(tmp_path, monkeypatch, role, fault):
+    error, timeline, delivered, missing, observer, _ = _shutdown_race_fixture(
+        tmp_path, monkeypatch, role, "during-stats", fault)
+    assert error is not None and observer.failure is not None
+    assert len(delivered) <= 1
+    assert not any(k in timeline for k in ("grant", "OBSERVER_JOIN_ACK", "DELETE", "CLOSED"))
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("fault", ["foreign-cid", "changed-config", "early-exit", "nonzero", "oom",
+                                  "bad-result", "extra-stdout", "malformed-mux", "uncertain-grant"])
+def test_shutdown_b07_integrity_and_uncertain_send_never_succeed(tmp_path, monkeypatch, role, fault):
+    error, timeline, delivered, _, _, _ = _shutdown_race_fixture(
+        tmp_path, monkeypatch, role, "during-stats", fault)
+    assert error is not None
+    assert len(delivered) <= 2, "uncertain grant was retried"
+    assert not any(k in timeline for k in ("OBSERVER_JOIN_ACK", "DELETE", "CLOSED"))
+    if fault in ("foreign-cid", "changed-config", "early-exit", "bad-result"):
+        assert len(delivered) <= 1, "invalid ownership/result received a grant"
+    if fault == "uncertain-grant":
+        assert isinstance(error, api()._RPCUncertain)
+        assert timeline.count("grant") == 1 and "EXIT_GRANT_SENT" not in timeline
+
+
+@pytest.mark.parametrize("fault", ["controller", "role-deadline", "freshness", "cleanup-deadline"])
+def test_shutdown_b06_cleanup_mode_keeps_explicit_supervision(tmp_path, monkeypatch, fault):
+    import os
+    import types
+    m = api(); p = _review_profile(tmp_path); job, journal = _review_job(tmp_path, p)
+    clock = [104.001 if fault == "freshness" else 100.0]
+    monkeypatch.setattr(m, "time", types.SimpleNamespace(monotonic=lambda: clock[0]))
+    observer = m._Observer(p, types.SimpleNamespace(active=set(), workers=set()), job)
+    observer.state = "PARKED"
+    observer.latest = {"started": 99.0, "finished": 100.0, "available": p.reserve_bytes, "eligible": True}
+    observer.thread = types.SimpleNamespace(is_alive=lambda: True)
+    journal.update(deadline=100.0 if fault == "role-deadline" else 120.0,
+                   cleanup_deadline=100.0 if fault == "cleanup-deadline" else 112.0)
+    read, write = os.pipe()
+    if fault == "controller":
+        os.close(write); write = None
+    daemon = m._Daemon(p)
+    daemon.cleanup_deadline = journal["cleanup_deadline"]
+    daemon.operation_deadline = journal["deadline"]
+    daemon.shutdown_supervision = lambda: m._shutdown_check(read, observer, journal)
+    try:
+        with pytest.raises(m._Failure):
+            daemon._supervise(130.0)  # Operation still live; independent shutdown bounds must win.
+    finally:
+        os.close(read)
+        if write is not None: os.close(write)
+
+
+def test_shutdown_b07_unknown_actor_absence_refuses_ack(tmp_path, monkeypatch):
+    import types
+    m = api(); p = _review_profile(tmp_path); job, journal = _review_job(tmp_path, p)
+    journal["actors_initialized"] = False
+    m._save_journal(job, journal)
+    observer = m._Observer(p, types.SimpleNamespace(active=set(), workers=set()), job)
+    # No native work or daemon calls. This is a real owned observer thread.
+    observer.state = "QUIESCING"
+    now = m.time.monotonic()
+    observer.latest = {"started": now, "finished": now, "available": p.reserve_bytes, "eligible": True}
+    observer.thread.start()
+    try:
+        observer.park(deadline=m.time.monotonic() + 1)
+        with pytest.raises(m._Failure):
+            observer.retire(deadline=m.time.monotonic() + 1)
+        kinds = [json.loads(line)["kind"] for line in (job / "events.jsonl").read_text().splitlines()]
+        assert not any(k in kinds for k in ("OBSERVER_JOIN_ACK", "DELETE", "CLOSED"))
+    finally:
+        observer.stop.set(); observer.thread.join(2)
+        assert not observer.thread.is_alive()
+
+
+@pytest.mark.parametrize("guard", ["hold", "scheduling", "drain", "latch", "binding",
+                                  "freshness", "deadline", "absence"])
+def test_shutdown_b08_sensitivity_controls(tmp_path, monkeypatch, guard):
+    """Each bypass must fail an ordinary protocol assertion, never import/collection."""
+    import subprocess
+    import textwrap
+    m = api()
+    def replace_method(cls, name, old, new):
+        source = textwrap.dedent(inspect.getsource(getattr(cls, name)))
+        assert source.count(old) == 1, "mutation anchor changed"
+        namespace = {}
+        exec(source.replace(old, new), vars(m), namespace)
+        monkeypatch.setattr(cls, name, namespace[name])
+    baseline = tmp_path / "baseline"; baseline.mkdir()
+    mutant = tmp_path / "mutant"; mutant.mkdir()
+    def run(check, directory, *args):
+        # Baseline fixture hooks/clock must not contaminate the mutant.
+        with monkeypatch.context() as local:
+            return check(directory, local, *args)
+    if guard in ("hold", "binding"):
+        fault = None if guard == "hold" else "result"
+        test_shutdown_b01_real_pipe_workers_hold_until_exact_grant(baseline, "program", fault)
+        real_popen = subprocess.Popen
+        def spawn(command, **kwargs):
+            command = list(command)
+            if guard == "hold":
+                injection = "w._worker_wait_for_exit_grant=lambda *a,**k:None;w.main()"
+            else:
+                injection = (
+                    "import inspect,textwrap;"
+                    "s=textwrap.dedent(inspect.getsource(m._worker_wait_for_exit_grant));"
+                    "s=s.replace('if grant.payload.result_sha256 != hashlib.sha256(result).hexdigest():','if False:');"
+                    "exec(s,m.__dict__);w._worker_wait_for_exit_grant=m._worker_wait_for_exit_grant;w.main()")
+            assert command[4].count("w.main()") == 1
+            command[4] = command[4].replace("w.main()", injection)
+            return real_popen(command, **kwargs)
+        monkeypatch.setattr(subprocess, "Popen", spawn)
+        with pytest.raises(AssertionError):
+            test_shutdown_b01_real_pipe_workers_hold_until_exact_grant(mutant, "program", fault)
+    elif guard == "scheduling":
+        run(test_shutdown_b04_reserved_sample_drains_and_first_failure_latches, baseline, False)
+        replace_method(m._Observer, "_run", 'self.state == "ACTIVE"', 'self.state != "RETIRED"')
+        with pytest.raises(AssertionError, match="closed scheduling gate"):
+            run(test_shutdown_b04_reserved_sample_drains_and_first_failure_latches, mutant, False)
+    elif guard == "drain":
+        run(test_shutdown_b03_eight_result_sample_schedules, baseline, "program", "during-stats")
+        replace_method(m._Observer, "park", "if not self.inflight:", "if True:")
+        with pytest.raises(AssertionError):
+            run(test_shutdown_b03_eight_result_sample_schedules, mutant, "program", "during-stats")
+    elif guard == "latch":
+        run(test_shutdown_b05_genuine_drain_errors_never_grant, baseline, "program", "missing")
+        replace_method(m._Observer, "_run", "elif self.failure is None:", "elif False:")
+        with pytest.raises(AssertionError):
+            run(test_shutdown_b05_genuine_drain_errors_never_grant, mutant, "program", "missing")
+    elif guard == "freshness":
+        run(test_shutdown_b06_parked_original_frame_bounds, baseline, 4.001, 201326592, False)
+        replace_method(m._Observer, "shutdown_check", "if not 0 <= age <= 4.0:", "if False:")
+        with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+            run(test_shutdown_b06_parked_original_frame_bounds, mutant, 4.001, 201326592, False)
+    elif guard == "deadline":
+        run(test_shutdown_b06_cleanup_mode_keeps_explicit_supervision, baseline, "controller")
+        replace_method(m._Daemon, "_supervise", "if shutdown is not None:", "if False:")
+        with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+            run(test_shutdown_b06_cleanup_mode_keeps_explicit_supervision, mutant, "controller")
+    else:
+        run(test_shutdown_b07_unknown_actor_absence_refuses_ack, baseline)
+        monkeypatch.setattr(m, "_prove_actor_absence", lambda *args: None)
+        with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+            run(test_shutdown_b07_unknown_actor_absence_refuses_ack, mutant)
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+def test_shutdown_b02_wire_version_policy_and_exact_lf_binding(tmp_path, monkeypatch, role):
+    from bench.score import ExResult
+    m = api(); profile = fixture_profile(tmp_path)
+    response = m.ProgramResponse("unchanged", False) if role == "program" else ExResult(1.0, "match", True, "", 1, 1)
+    result = m.encode_wire_message(role, "result", response, request_sha256="a" * 64)
+    grant = m.encode_wire_message(role, "exit_grant", m.ExitGrant(hashlib.sha256(result).hexdigest()),
+                                  request_sha256="a" * 64)
+    assert json.loads(result)["schema_version"] == json.loads(grant)["schema_version"] == 2
+    assert profile.schema_version == profile.binding.schema_version == 1
+    decoded = m.decode_wire_message(grant, role=role, kind="exit_grant", request_sha256="a" * 64)
+    assert decoded.payload.result_sha256 != hashlib.sha256(result[:-1]).hexdigest()
+    old = json.loads(result); old["schema_version"] = 1
+    with pytest.raises(ValueError):
+        m.decode_wire_message(m.canonical_json_bytes(old) + b"\n",
+                              role=role, kind="result", request_sha256="a" * 64)
+    maximum = m.limits_for(role).input_bytes
+    exact_request = b"x" * (maximum - len(grant))
+    assert len(m.bounded_bytes(exact_request + grant, maximum=maximum)) == maximum
+    with pytest.raises(ValueError):
+        m.bounded_bytes(exact_request + b"x" + grant, maximum=maximum)
+    current_policy = m.execution_policy_sha256(profile)
+    monkeypatch.setattr(m, "WIRE_SCHEMA_VERSION", 1)
+    assert m.execution_policy_sha256(profile) != current_policy
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("overflow", [0, 1])
+def test_shutdown_b02_guest_counts_request_plus_grant(tmp_path, monkeypatch, role, overflow):
+    import io
+    import types
+    from bench.task import SqlTask
+    m = api()
+    if role == "program":
+        request = m.ProgramRequest("pass", 1, "a" * 64)
+    else:
+        task = SqlTask("fixture", "q", "", "SELECT 1", "db", "/db.sqlite",
+                       "simple", "derived", "s", "s", "fixture")
+        request = m.ScoreRequest(task, "SELECT 1", 1.0, 1, "set", "a" * 64)
+    sha, result = m.request_sha256(request), b"exact original result frame\n"
+    request_wire = m.encode_wire_message(role, "request", request)
+    grant = m.encode_wire_message(role, "exit_grant", m.ExitGrant(hashlib.sha256(result).hexdigest()),
+                                  request_sha256=sha)
+    cap = len(request_wire) + len(grant) - overflow
+    original = m.limits_for
+    monkeypatch.setattr(m, "limits_for", lambda role: dataclasses.replace(original(role), input_bytes=cap))
+    monkeypatch.setattr(m, "sys", types.SimpleNamespace(stdin=types.SimpleNamespace(buffer=io.BytesIO(grant))))
+    if overflow:
+        with pytest.raises(ValueError, match="byte cap exceeded"):
+            m._worker_wait_for_exit_grant(role, sha, result, request)
+    else:
+        m._worker_wait_for_exit_grant(role, sha, result, request)
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("fault", ["persistent-journal", "persistent-store", "uncertain-grant"])
+def test_shutdown_b11_b12_guardian_failure_orchestration(tmp_path, monkeypatch, role, fault):
+    error, timeline, delivered, _, observer, journal = _shutdown_race_fixture(
+        tmp_path, monkeypatch, role, "during-stats", fault, complete=True)
+    assert error is not None
+    assert "ATTACH_CLOSED" in timeline
+    assert (tmp_path / "private-shared/active.json").is_file()
+    assert not (tmp_path / "job/outcome.json").exists()
+    assert journal["state"] == "UNRESOLVED"
+    assert not observer.thread.is_alive()
+    if fault.startswith("persistent"):
+        assert len(delivered) == 1
+        assert timeline.count("JOURNAL_WRITE_REFUSED") >= 2, "failure was only one-shot"
+        assert observer.state == "ABORTED" and not observer.retired
+        assert not any(k in timeline for k in ("KILL_ATTEMPT", "STOPPED", "OBSERVER_RETIRED",
+                                               "OBSERVER_JOIN_ACK", "DELETE", "CLOSED"))
+    else:
+        assert len(delivered) == 2 and timeline.count("grant") == 1
+        assert "EXIT_GRANT_SENT" not in timeline
+        assert (tmp_path / "private-shared/UNRESOLVED-review-owned.json").is_file()
+        assert "ABSENCE" in timeline or journal["state"] == "UNRESOLVED"
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("budget", ["role", "cleanup"])
+@pytest.mark.parametrize("phase", ["grant", "eof", "stopped-inspect", "retirement", "delete", "absence",
+                                  "outcome", "reservation"])
+def test_shutdown_b13_original_deadlines_through_completion(tmp_path, monkeypatch, role, budget, phase):
+    _, timeline, delivered, _, _, journal = _shutdown_race_fixture(
+        tmp_path, monkeypatch, role, "during-stats", complete=True, expiry=(budget, phase))
+    assert len(delivered) == 2
+    assert journal["cleanup_deadline"] == journal["cleanup_trigger"] + 12.0
+    assert journal["state"] == "UNRESOLVED"
+    assert (tmp_path / "private-shared/active.json").is_file(), "overdue result released reservation"
+    if phase not in ("outcome", "reservation"):
+        assert not (tmp_path / "job/outcome.json").exists()
+    else:
+        assert (tmp_path / "job/outcome.json").exists(), "provisional evidence was lost"
+        m = api()
+        with pytest.raises(m._Failure):
+            m._completed_outcome_ready(None, journal, type("Completed", (), {"abort": None})())
+    if budget == "role" and phase in ("retirement", "delete", "absence"):
+        assert "ABSENCE" in timeline, "role expiry blocked otherwise-authorized failure cleanup"
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("fault", ["cli-unwind", "http-unwind", "pool-unwind"])
+def test_shutdown_b14_drain_unwind_failure_blocks_park_and_grant(tmp_path, monkeypatch, role, fault):
+    error, timeline, delivered, _, observer, _ = _shutdown_race_fixture(
+        tmp_path, monkeypatch, role, "during-stats", fault)
+    assert error is not None and observer.failure is not None
+    assert len(delivered) <= 1
+    assert not any(k in timeline for k in ("OBSERVER_PARKED", "EXIT_GRANT_INTENT",
+                                           "OBSERVER_JOIN_ACK", "DELETE", "CLOSED"))
+
+
+@pytest.mark.parametrize("role", ["program", "scorer"])
+@pytest.mark.parametrize("state", ["pending", "closed", "unresolved", "blocked", "role-expired", "cleanup-expired"])
+def test_shutdown_b15_controller_completion_interlock(tmp_path, monkeypatch, role, state):
+    import types
+    from bench.score import ExResult
+    m = api()
+    profile = types.SimpleNamespace(shared_state_dir=tmp_path)
+    monkeypatch.setattr(m, "time", types.SimpleNamespace(monotonic=lambda: 100.0))
+    receipt = m.RuntimeReceipt(role, "a" * 64, "fixture", "fixture", "b" * 64, "c" * 64)
+    outcome = (m.ProgramOutcome("provisional", None, receipt) if role == "program" else
+               m.ScoreOutcome(ExResult(1.0, "match", True, "", 1, 1), None, receipt))
+    journal = {"shutdown_requested": True, "state": "CLOSED", "deadline": 110.0,
+               "cleanup_deadline": 112.0, "nonce": "fixture"}
+    if state == "pending": (tmp_path / "active.json").write_text("durable reservation remains")
+    if state == "unresolved": journal["state"] = "UNRESOLVED"
+    if state == "blocked": (tmp_path / "UNRESOLVED-fixture.json").write_text("retained block")
+    if state == "role-expired": journal["deadline"] = 100.0
+    if state == "cleanup-expired": journal["cleanup_deadline"] = 100.0
+    if state in ("pending", "closed"):
+        assert m._completed_outcome_ready(profile, journal, outcome) is False, "provisional artifact without ACK/COMMITTED"
+    else:
+        with pytest.raises(m._Failure):
+            m._completed_outcome_ready(profile, journal, outcome)
+
+
+def _finalization_fixture(tmp_path, monkeypatch, *, abort=False, guardian_pid=None):
+    """Real owned files and lock namespace; no Docker/CLI/HTTP mocks involved."""
+    import os
+    m = api()
+    shared = tmp_path / "finalization-shared"; shared.mkdir()
+    monkeypatch.setattr(m, "shared_state_dir_for", lambda _: shared)
+    profile = _review_profile(tmp_path)
+    job, journal = _review_job(tmp_path, profile)
+    request = m.ProgramRequest("pass", 1, "b" * 64)
+    raw_profile = m.execution_profile_canonical_bytes(profile)
+    now = m.time.monotonic()
+    journal.update(state="CLOSED", guardians=[guardian_pid or os.getpid()], controller=os.getpid(),
+                   profile_sha256=hashlib.sha256(raw_profile).hexdigest(),
+                   request_sha256=m.request_sha256(request), cleanup_trigger=now,
+                   cleanup_deadline=now + 12, deadline=now - 1 if abort else now + 10,
+                   bootstrap={"python_version": "fixture", "sqlite_version": "fixture"},
+                   bootstrap_sha256="d" * 64)
+    if abort: journal["failure"] = {"reason": "deadline", "detail": "fixture typed abort"}
+    raw_journal = m.canonical_json_bytes(journal) + b"\n"
+    receipt = m.RuntimeReceipt("program", journal["request_sha256"], "fixture", "fixture",
+                               "d" * 64, hashlib.sha256(raw_journal).hexdigest())
+    outcome = (m.ProgramOutcome(None, m.AbortInfo("program", "deadline"), receipt) if abort else
+               m.ProgramOutcome("completed", None, receipt))
+    raw_outcome = m.canonical_json_bytes(outcome) + b"\n"
+    m._write_owned(job / "profile.json", raw_profile)
+    m._write_owned(job / "request.wire", m.encode_wire_message("program", "request", request))
+    m._write_owned(job / "journal.json", raw_journal)
+    m._write_owned(job / "prepared-outcome", raw_outcome)
+    m._write_owned(shared / "active.json",
+                   m.canonical_json_bytes({"nonce": journal["nonce"], "job": str(job)}) + b"\n")
+    read, write = os.pipe()
+    return m, profile, job, journal, raw_journal, raw_outcome, outcome, read, write
+
+
+@pytest.fixture
+def finalization_files(tmp_path, monkeypatch):
+    import os
+    values = _finalization_fixture(tmp_path, monkeypatch)
+    try:
+        yield values
+    finally:
+        os.close(values[-2]); os.close(values[-1])
+
+
+def _finalization_attempt(values):
+    m, profile, job, journal, raw_journal, raw_outcome, _, read, _ = values
+    return m._publish_finalization(profile, journal, job, raw_journal, raw_outcome, read)
+
+
+def _assert_finalization_blocked(values):
+    m, profile, *_ = values
+    with pytest.raises(m._Failure, match="finalization|reservation"):
+        m._admit_finalizations(profile)
+
+
+def test_finalization_f01_real_unlink_persistent_fsync_failure(finalization_files, monkeypatch):
+    import os
+    import stat
+    values = finalization_files
+    m, profile, job, journal, *rest = values
+    original_fsync, original_write = os.fsync, os.write
+    failed = [False]
+    def fsync(fd):
+        if (not (profile.shared_state_dir / "active.json").exists()
+                and stat.S_ISDIR(os.fstat(fd).st_mode)):
+            failed[0] = True
+        if failed[0]: raise OSError("persistent release fsync outage")
+        return original_fsync(fd)
+    def write(fd, data):
+        if failed[0]: raise OSError("all subsequent writes refused")
+        return original_write(fd, data)
+    monkeypatch.setattr(m.os, "fsync", fsync)
+    monkeypatch.setattr(m.os, "write", write)
+    with pytest.raises(OSError): _finalization_attempt(values)
+    assert failed[0] and not (profile.shared_state_dir / "active.json").exists(), "real unlink not exercised"
+    pending = profile.shared_state_dir / ("FINALIZATION-PENDING-" + journal["nonce"] + ".json")
+    assert pending.is_file() and (job / "outcome.json").is_file()
+    assert json.loads((job / "journal.json").read_bytes())["state"] == "CLOSED"
+    assert not list(profile.shared_state_dir.glob("FINALIZATION-COMMITTED-*"))
+    _assert_finalization_blocked(values)  # Before any reservation/CREATE/START.
+    assert not m._completed_outcome_ready(profile, journal, values[6]), "absence gate accepted failed fsync"
+    reached = []
+    def forbidden(*args):
+        reached.append("stage/create/start")
+        raise AssertionError("pending admission allowed new job work")
+    monkeypatch.setattr(m, "_stage_sources", forbidden)
+    executor = m.PilotExecutor(profile, state_dir=job.parent)
+    refused = m._run_isolated(executor, "program", m.ProgramRequest("pass", 1, "b" * 64),
+                              job / "never-open.sqlite")
+    assert refused.abort.reason == "admission" and reached == [], "fresh controller crossed durable pending"
+
+
+@pytest.mark.parametrize("operation", [
+    "pending-write", "pending-filefsync", "pending-publish", "pending-dirfsync",
+    "journal", "outcome", "history", "unlink", "releasefsync", "ack",
+    "commit-write", "commit-filefsync", "commit-publish", "commit-dirfsync"])
+def test_finalization_f04_real_operation_faults(finalization_files, monkeypatch, operation):
+    import io
+    import os
+    import stat
+    values = finalization_files
+    m, profile, job, journal, *_ = values
+    phase, pending_durable, unlinks = [None], [False], []
+    publish, write, fsync, link, unlink = m._publish_immutable, os.write, os.fsync, os.link, os.unlink
+    owned_write, append = m._write_owned, m._append_owned
+    def publication(path, data):
+        phase[0] = "pending" if path.name.startswith("FINALIZATION-PENDING") else "commit"
+        try:
+            result = publish(path, data)
+            if phase[0] == "pending": pending_durable[0] = True
+            return result
+        finally:
+            phase[0] = None
+    def fail(label):
+        if operation == label: raise OSError("controlled " + label)
+    def writing(fd, data):
+        fail(str(phase[0]) + "-write")
+        return write(fd, data)
+    def syncing(fd):
+        directory = stat.S_ISDIR(os.fstat(fd).st_mode)
+        if phase[0]: fail(phase[0] + ("-dirfsync" if directory else "-filefsync"))
+        elif directory and not (profile.shared_state_dir / "active.json").exists(): fail("releasefsync")
+        return fsync(fd)
+    def linking(*args, **kwargs):
+        fail(str(phase[0]) + "-publish")
+        return link(*args, **kwargs)
+    def unlinking(path, **kwargs):
+        if str(path) == "active.json":
+            assert pending_durable[0], "active unlink before durable pending"
+            unlinks.append(path); fail("unlink")
+        return unlink(path, **kwargs)
+    def writing_owned(path, data, **kwargs):
+        if path.name == "journal.json": fail("journal")
+        if path.name == "outcome.json": fail("outcome")
+        return owned_write(path, data, **kwargs)
+    def appending(path, data):
+        if path.name == "history.jsonl": fail("history")
+        return append(path, data)
+    class AckStream(io.BytesIO):
+        def write(self, data):
+            fail("ack")
+            return super().write(data)
+    monkeypatch.setattr(m, "_publish_immutable", publication)
+    monkeypatch.setattr(m.os, "write", writing); monkeypatch.setattr(m.os, "fsync", syncing)
+    monkeypatch.setattr(m.os, "link", linking); monkeypatch.setattr(m.os, "unlink", unlinking)
+    monkeypatch.setattr(m, "_write_owned", writing_owned); monkeypatch.setattr(m, "_append_owned", appending)
+    completed = []
+    with pytest.raises((OSError, m._Failure)):
+        ack = _finalization_attempt(values)
+        stream = AckStream()
+        m._send_terminal_ack(stream, ack)
+        completed.append(m._commit_finalization(profile, job, journal, os.getpid(), stream.getvalue()))
+    assert not completed
+    if operation.startswith("pending"): assert not unlinks
+    if operation != "commit-dirfsync": _assert_finalization_blocked(values)
+    else:
+        # Visible COMMITTED is not current-call success. Later admission may
+        # validate and reestablish its durability, never return this outcome.
+        assert list(profile.shared_state_dir.glob("FINALIZATION-COMMITTED-*"))
+        m._admit_finalizations(profile)
+
+
+@pytest.mark.parametrize("field", ["job", "nonce", "role", "profile_sha256", "request_sha256",
+    "journal_sha256", "outcome_sha256", "guardian_pid", "finalization_token",
+    "role_deadline", "cleanup_trigger", "cleanup_deadline"])
+def test_finalization_f06_pending_field_binding(finalization_files, field):
+    import os
+    m, profile, job, journal, *_ = finalization_files
+    ack = _finalization_attempt(finalization_files)
+    path = profile.shared_state_dir / ("FINALIZATION-PENDING-" + journal["nonce"] + ".json")
+    record = json.loads(path.read_bytes())
+    value = record["payload"][field]
+    record["payload"][field] = (value + 1 if type(value) in (int, float) else
+                               ("scorer" if field == "role" else
+                                ("f" * 64 if field.endswith("sha256") else value + "-other")))
+    raw = m._finalization_record("pending", record["payload"])
+    path.write_bytes(raw)  # Deliberate trusted-fixture corruption, not publisher.
+    ack["pending_sha256"] = hashlib.sha256(raw).hexdigest()
+    with pytest.raises((ValueError, TypeError, OSError, m._Failure)):
+        m._commit_finalization(profile, job, journal, os.getpid(), m.canonical_json_bytes(ack) + b"\n")
+    assert not list(profile.shared_state_dir.glob("FINALIZATION-COMMITTED-*"))
+
+
+@pytest.mark.parametrize("fault", ["format", "schema_version", "pending_sha256", "guardian_pid",
+    "finalization_token", "release_verified_at", "bool-time", "nan-time", "extra", "missing",
+    "duplicate-key", "partial", "duplicate-frame", "oversize", "eof"])
+def test_finalization_f06_closed_ack(finalization_files, fault):
+    import os
+    m, profile, job, journal, *_ = finalization_files
+    ack = _finalization_attempt(finalization_files)
+    if fault in ("format", "finalization_token"): ack[fault] += "-wrong"
+    if fault == "schema_version": ack[fault] = True
+    if fault == "pending_sha256": ack[fault] = "f" * 64
+    if fault == "guardian_pid": ack[fault] += 1
+    if fault == "release_verified_at": ack[fault] = journal["cleanup_deadline"]
+    if fault == "bool-time": ack["release_verified_at"] = True
+    if fault == "nan-time": ack["release_verified_at"] = float("nan")
+    if fault == "extra": ack["extra"] = 1
+    if fault == "missing": del ack["finalization_token"]
+    raw = json.dumps(ack, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+    if fault == "duplicate-key": raw = raw[:-2] + b',"guardian_pid":1}\n'
+    if fault == "partial": raw = raw[:-1]
+    if fault == "duplicate-frame": raw += raw
+    if fault == "oversize": raw = b" " * 4096 + raw
+    if fault == "eof": raw = b""
+    with pytest.raises((ValueError, TypeError, m._Failure)):
+        m._commit_finalization(profile, job, journal, os.getpid(), raw)
+    _assert_finalization_blocked(finalization_files)
+
+
+@pytest.mark.parametrize("fault", ["no-commit", "partial-pending", "duplicate-pending",
+    "extra-pending", "envelope-digest", "pending-symlink", "missing-profile", "missing-journal",
+    "missing-outcome", "missing-request", "outcome-bytes", "commit-partial", "commit-symlink",
+    "commit-binding", "commit-pending-sha", "request-binding", "pending-unreadable",
+    "commit-unreadable", "iteration-error"])
+def test_finalization_f08_historical_admission(finalization_files, monkeypatch, fault):
+    import os
+    m, profile, job, journal, *_ = finalization_files
+    ack = _finalization_attempt(finalization_files)
+    if fault != "no-commit":
+        m._commit_finalization(profile, job, journal, os.getpid(), m.canonical_json_bytes(ack) + b"\n")
+    pending = profile.shared_state_dir / ("FINALIZATION-PENDING-" + journal["nonce"] + ".json")
+    committed = profile.shared_state_dir / ("FINALIZATION-COMMITTED-" + journal["nonce"] + ".json")
+    if fault == "partial-pending": pending.write_bytes(b'{"format":')
+    if fault == "duplicate-pending": pending.write_bytes(pending.read_bytes()[:-2] + b',"sha256":"f"}\n')
+    if fault == "extra-pending":
+        record = json.loads(pending.read_bytes()); record["extra"] = 1
+        pending.write_bytes(m.canonical_json_bytes(record) + b"\n")
+    if fault == "envelope-digest":
+        record = json.loads(pending.read_bytes()); record["sha256"] = "f" * 64
+        pending.write_bytes(m.canonical_json_bytes(record) + b"\n")
+    if fault in ("pending-symlink", "commit-symlink"):
+        path = pending if fault == "pending-symlink" else committed
+        target = job / "marker-copy"; target.write_bytes(path.read_bytes())
+        path.unlink(); path.symlink_to(target)
+    if fault.startswith("missing-"): (job / (fault[8:] + (".wire" if fault == "missing-request" else ".json"))).unlink()
+    if fault == "outcome-bytes": (job / "outcome.json").write_bytes((job / "outcome.json").read_bytes() + b"\n")
+    if fault == "commit-partial": committed.write_bytes(b"{")
+    if fault == "commit-binding":
+        record = json.loads(committed.read_bytes())
+        record["payload"]["terminal_ack"]["finalization_token"] = "f" * 32
+        committed.write_bytes(m._finalization_record("committed", record["payload"]))
+    if fault == "commit-pending-sha":
+        record = json.loads(committed.read_bytes())
+        record["payload"]["pending_sha256"] = "f" * 64
+        committed.write_bytes(m._finalization_record("committed", record["payload"]))
+    if fault == "request-binding":
+        (job / "request.wire").write_bytes(m.encode_wire_message(
+            "program", "request", m.ProgramRequest("changed", 1, "b" * 64)))
+    if fault.endswith("-unreadable"):
+        target = pending if fault == "pending-unreadable" else committed
+        read_owned = m._read_owned
+        def unreadable(path, *args, **kwargs):
+            if path == target: raise PermissionError("controlled marker read denied, even under root")
+            return read_owned(path, *args, **kwargs)
+        monkeypatch.setattr(m, "_read_owned", unreadable)
+    if fault == "iteration-error":
+        def denied(*args): raise PermissionError("controlled owned-directory iteration failure")
+        monkeypatch.setattr(m.os, "scandir", denied)
+    _assert_finalization_blocked(finalization_files)
+
+
+@pytest.mark.parametrize("abort", [False, True])
+def test_finalization_f07_original_bounds_and_immutable_commit(tmp_path, monkeypatch, abort):
+    import os
+    import types
+    values = _finalization_fixture(tmp_path, monkeypatch, abort=abort)
+    m, profile, job, journal, *_ = values
+    try:
+        ack = _finalization_attempt(values)
+        raw = m.canonical_json_bytes(ack) + b"\n"
+        outcome = m._commit_finalization(profile, job, journal, os.getpid(), raw)
+        assert (outcome.abort is not None) is abort
+        m._admit_finalizations(profile)
+        marker = profile.shared_state_dir / ("FINALIZATION-COMMITTED-" + journal["nonce"] + ".json")
+        original = marker.read_bytes()
+        with pytest.raises(FileExistsError): m._publish_immutable(marker, b"must not replace\n")
+        assert marker.read_bytes() == original
+        clock = journal["cleanup_deadline"] if abort else journal["deadline"]
+        monkeypatch.setattr(m, "time", types.SimpleNamespace(monotonic=lambda: clock))
+        with pytest.raises(m._Failure):
+            m._commit_finalization(profile, job, journal, os.getpid(), raw)
+    finally:
+        os.close(values[-2]); os.close(values[-1])
+
+
+@pytest.mark.parametrize("point", ["hold", "exit-zero", "after-ack-stall", "before-pending",
+                                  "after-pending", "after-unlink", "after-release-fsync", "fragmented"])
+def test_finalization_f02_f03_f05_f09_owned_guardian_process(tmp_path, monkeypatch, point):
+    """Actual isolated Python + pipe + production transaction/receive/commit."""
+    import os
+    import subprocess
+    import sys
+    import time
+    m = api()
+    # Child waits for G before opening fixture artifacts or invoking product code.
+    code = r'''
+import os, stat, sys, time
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import ptc.sql_isolation as m
+job, shared, point = Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4]
+if os.read(sys.stdin.fileno(), 1) != b"G": os._exit(2)
+m.shared_state_dir_for = lambda _: shared
+p = m.execution_profile_from_bytes(m._read_owned(job / "profile.json"))
+jraw, oraw = m._read_owned(job / "journal.json"), m._read_owned(job / "prepared-outcome")
+j = m._metadata(jraw)
+write, publish, unlink, fsync = m._write_owned, m._publish_immutable, os.unlink, os.fsync
+def writing(path, data, **kwargs):
+    return write(path, data, **kwargs)
+def publishing(path, data):
+    result = publish(path, data)
+    if point == "after-pending" and path.name.startswith("FINALIZATION-PENDING"): os._exit(0)
+    return result
+def unlinking(path, **kwargs):
+    result = unlink(path, **kwargs)
+    if str(path) == "active.json":
+        # Deliberately expose the old false-success state for >2s: CLOSED +
+        # outcome + no active, but no positive release fsync / terminal ACK.
+        if point in ("hold", "exit-zero"):
+            time.sleep(2.25)
+            if point == "exit-zero": os._exit(0)
+        if point == "after-unlink": os._exit(0)
+    return result
+def syncing(fd):
+    result = fsync(fd)
+    if point == "after-release-fsync" and stat.S_ISDIR(os.fstat(fd).st_mode) and not (shared / "active.json").exists():
+        os._exit(0)
+    return result
+m._write_owned, m._publish_immutable, os.unlink, os.fsync = writing, publishing, unlinking, syncing
+if point == "before-pending": os._exit(0)
+ack = m._publish_finalization(p, j, job, jraw, oraw, sys.stdin.fileno())
+if point == "fragmented":
+    for byte in m.canonical_json_bytes(ack) + b"\n":
+        os.write(sys.stdout.fileno(), bytes([byte]))
+else:
+    m._send_terminal_ack(sys.stdout.buffer, ack)
+if point == "after-ack-stall": time.sleep(10)
+'''
+    process = subprocess.Popen([sys.executable, "-I", "-B", "-c", code, str(m.installed_source_root()),
+                                str(tmp_path / "job"), str(tmp_path / "finalization-shared"), point],
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    values = None
+    try:
+        values = _finalization_fixture(tmp_path, monkeypatch, guardian_pid=process.pid)
+        _, profile, job, journal, *_ = values
+        process.stdin.write(b"G"); process.stdin.flush()
+        started = time.monotonic()
+        if point in ("hold", "fragmented", "after-ack-stall"):
+            outcome = m._finish_finalization(process, profile, job, journal)
+            assert outcome.observation == "completed"
+            if point == "hold":
+                assert time.monotonic() - started >= 2.25, "pre-ACK outcome accepted or guardian killed"
+                assert process.returncode == 0, "pre-ACK hygiene killed provisional guardian"
+            if point == "after-ack-stall":
+                assert process.returncode == -9 and time.monotonic() - started >= 2
+            assert len(list(profile.shared_state_dir.glob("FINALIZATION-COMMITTED-*"))) == 1
+            m._admit_finalizations(profile)
+        else:
+            with pytest.raises((m._Failure, ValueError, OSError)):
+                m._finish_finalization(process, profile, job, journal)
+            if point == "exit-zero":
+                process.wait(timeout=2)
+                assert process.returncode == 0, "exit-zero boundary not exercised"
+            assert not list(profile.shared_state_dir.glob("FINALIZATION-COMMITTED-*"))
+            _assert_finalization_blocked(values)
+    finally:
+        if process.poll() is None: process.kill()
+        process.wait(timeout=2)
+        process.stdin.close(); process.stdout.close(); process.stderr.close()
+        REVIEW_PROCESS_RESULTS.append({"pid": process.pid, "proof": "owned Popen.wait",
+                                       "returncode": process.returncode})
+        if values is not None:
+            os.close(values[-2]); os.close(values[-1])
+
+
+@pytest.mark.parametrize("guard", ["pending-admission", "ack-required", "digest-binding"])
+def test_finalization_f09_intended_red_controls(finalization_files, monkeypatch, guard):
+    import os
+    import types
+    values = finalization_files
+    m, profile, job, journal, *_ = values
+    ack = _finalization_attempt(values)
+    if guard == "pending-admission":
+        _assert_finalization_blocked(values)
+        monkeypatch.setattr(m, "_admit_finalizations", lambda _: None)
+        with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+            _assert_finalization_blocked(values)
+    elif guard == "ack-required":
+        # Actual EOF pipe: baseline cannot commit even with all provisional files.
+        read, write = os.pipe(); os.close(write)
+        stream = os.fdopen(read, "rb", buffering=0)
+        process = types.SimpleNamespace(pid=os.getpid(), stdout=stream, poll=lambda: 0,
+                                        wait=lambda **kw: 0)
+        try:
+            def no_ack_no_commit():
+                try: m._finish_finalization(process, profile, job, journal)
+                except m._Failure: pass
+                assert not list(profile.shared_state_dir.glob("FINALIZATION-COMMITTED-*")), "ACK bypass accepted completion"
+            no_ack_no_commit()
+            monkeypatch.setattr(m, "_receive_terminal_ack", lambda *args: m.canonical_json_bytes(ack) + b"\n")
+            with pytest.raises(AssertionError, match="ACK bypass accepted completion"):
+                no_ack_no_commit()
+        finally:
+            stream.close()
+    else:
+        outcome = json.loads((job / "outcome.json").read_bytes()); outcome["observation"] = "tampered"
+        (job / "outcome.json").write_bytes(m.canonical_json_bytes(outcome) + b"\n")
+        frame = m.canonical_json_bytes(ack) + b"\n"
+        def digest_must_reject():
+            with pytest.raises((m._Failure, ValueError), match="digest|artifact"):
+                m._commit_finalization(profile, job, journal, os.getpid(), frame)
+        digest_must_reject()
+        source = inspect.getsource(m._validate_finalization)
+        target = 'if hashlib.sha256(raw).hexdigest() != pending[field]:'
+        assert source.count(target) == 1
+        namespace = {}
+        exec(source.replace(target, 'if field != "outcome_sha256" and hashlib.sha256(raw).hexdigest() != pending[field]:'), vars(m), namespace)
+        monkeypatch.setattr(m, "_validate_finalization", namespace["_validate_finalization"])
+        with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+            digest_must_reject()
+
+
+@pytest.mark.parametrize("kind", ["pending", "committed"])
+@pytest.mark.parametrize("field", ["format", "schema_version", "bool-schema", "extra", "missing",
+                                  "duplicate", "payload-extra", "payload-missing", "sha256", "payload-type"])
+def test_finalization_f06_closed_marker_envelopes(finalization_files, kind, field):
+    import os
+    m, profile, job, journal, *_ = finalization_files
+    ack = _finalization_attempt(finalization_files)
+    m._commit_finalization(profile, job, journal, os.getpid(), m.canonical_json_bytes(ack) + b"\n")
+    path = profile.shared_state_dir / ("FINALIZATION-" + kind.upper() + "-" + journal["nonce"] + ".json")
+    record = json.loads(path.read_bytes())
+    if field == "format": record[field] = "other"
+    if field == "schema_version": record[field] = 2
+    if field == "bool-schema": record["schema_version"] = True
+    if field == "extra": record["extra"] = 1
+    if field == "missing": del record["format"]
+    if field == "payload-extra": record["payload"]["extra"] = 1
+    if field == "payload-missing": record["payload"].pop(next(iter(record["payload"])))
+    if field == "payload-type": record["payload"] = []
+    if field.startswith("payload-"):
+        record["sha256"] = hashlib.sha256(m.canonical_json_bytes(record["payload"])).hexdigest()
+    if field == "sha256": record[field] = "f" * 64
+    raw = m.canonical_json_bytes(record) + b"\n"
+    if field == "duplicate": raw = raw[:-2] + b',"schema_version":1}\n'
+    path.write_bytes(raw)
+    _assert_finalization_blocked(finalization_files)
+
+
+@pytest.mark.parametrize("budget", ["role", "cleanup"])
+def test_finalization_f07_partial_live_pipe_original_deadlines(finalization_files, monkeypatch, budget):
+    import os
+    import types
+    m, profile, job, journal, *_ = finalization_files
+    _finalization_attempt(finalization_files)
+    read, write = os.pipe()
+    os.write(write, b"{")  # Writable peer stays live; readline() would block.
+    stream = os.fdopen(read, "rb", buffering=0)
+    calls = []
+    start = journal["deadline" if budget == "role" else "cleanup_deadline"]
+    def clock():
+        calls.append(1)
+        return start + len(calls) - 1
+    monkeypatch.setattr(m, "time", types.SimpleNamespace(monotonic=clock))
+    process = types.SimpleNamespace(pid=os.getpid(), stdout=stream, poll=lambda: None)
+    try:
+        with pytest.raises(m._Failure, match="original.*deadline"):
+            m._receive_terminal_ack(process, journal, job)
+        assert len(calls) == 1, "partial live ACK bypassed original deadline"
+        assert not list(profile.shared_state_dir.glob("FINALIZATION-COMMITTED-*"))
+    finally:
+        stream.close(); os.close(write)
+
+
+def test_finalization_f08_cross_profile_fresh_controller_barrier(finalization_files, monkeypatch, tmp_path):
+    m, profile, job, journal, *_ = finalization_files
+    _finalization_attempt(finalization_files)
+    other_root = tmp_path / "other-profile"; other_root.mkdir()
+    other = _review_profile(other_root)  # Different observer/profile, same shared lock namespace.
+    assert m.execution_profile_sha256(other) != m.execution_profile_sha256(profile)
+    state = tmp_path / "other-run"; state.mkdir()
+    reached = []
+    def forbidden(*args):
+        reached.append("new job work")
+        raise AssertionError("uncommitted cross-profile transaction admitted")
+    monkeypatch.setattr(m, "_stage_sources", forbidden)
+    outcome = m._run_isolated(m.PilotExecutor(other, state_dir=state), "program",
+                              m.ProgramRequest("pass", 1, "b" * 64), job / "never-open.sqlite")
+    assert outcome.abort.reason == "admission" and not reached
+    assert list(state.iterdir()) == []
+
+
+@pytest.mark.parametrize("fault", ["duplicate", "oversize", "partial-eof"])
+def test_finalization_f06_real_terminal_pipe_bounds(finalization_files, fault):
+    import os
+    import types
+    m, profile, job, journal, *_ = finalization_files
+    ack = _finalization_attempt(finalization_files)
+    raw = m.canonical_json_bytes(ack) + b"\n"
+    data = raw + raw if fault == "duplicate" else (b"x" * 4097 if fault == "oversize" else raw[:-1])
+    read, write = os.pipe()
+    stream = os.fdopen(read, "rb", buffering=0)
+    try:
+        assert os.write(write, data) == len(data)
+        os.close(write); write = None
+        process = types.SimpleNamespace(pid=os.getpid(), stdout=stream, poll=lambda: 0)
+        with pytest.raises((ValueError, m._Failure)):
+            m._finish_finalization(process, profile, job, journal)
+        assert not list(profile.shared_state_dir.glob("FINALIZATION-COMMITTED-*"))
+    finally:
+        stream.close()
+        if write is not None: os.close(write)
+
+
+@pytest.mark.parametrize("field", ["role", "request_sha256", "python_version", "sqlite_version",
+                                  "bootstrap_sha256", "journal_sha256"])
+def test_finalization_f06_receipt_binding(finalization_files, field):
+    import os
+    m, profile, job, journal, *_ = finalization_files
+    ack = _finalization_attempt(finalization_files)
+    path = profile.shared_state_dir / ("FINALIZATION-PENDING-" + journal["nonce"] + ".json")
+    pending = json.loads(path.read_bytes())["payload"]
+    outcome = json.loads((job / "outcome.json").read_bytes())
+    outcome["receipt"][field] = ("scorer" if field == "role" else
+                                 ("f" * 64 if field.endswith("sha256") else "other"))
+    raw_outcome = m.canonical_json_bytes(outcome) + b"\n"
+    (job / "outcome.json").write_bytes(raw_outcome)
+    pending["outcome_sha256"] = hashlib.sha256(raw_outcome).hexdigest()
+    raw_pending = m._finalization_record("pending", pending)
+    path.write_bytes(raw_pending)
+    ack["pending_sha256"] = hashlib.sha256(raw_pending).hexdigest()
+    with pytest.raises((TypeError, ValueError, m._Failure)):
+        m._commit_finalization(profile, job, journal, os.getpid(), m.canonical_json_bytes(ack) + b"\n")
+    assert not list(profile.shared_state_dir.glob("FINALIZATION-COMMITTED-*"))
+
+
+@pytest.mark.parametrize("field", ["cleanup_trigger", "cleanup_deadline"])
+def test_finalization_f07_controller_latches_original_cleanup(finalization_files, field):
+    import os
+    import types
+    m, profile, job, journal, *_ = finalization_files
+    ack = _finalization_attempt(finalization_files)
+    changed = dict(journal); changed[field] += 0.5
+    (job / "journal.json").write_bytes(m.canonical_json_bytes(changed) + b"\n")
+    read, write = os.pipe()
+    stream = os.fdopen(read, "rb", buffering=0)
+    try:
+        raw = m.canonical_json_bytes(ack) + b"\n"
+        assert os.write(write, raw) == len(raw)
+        process = types.SimpleNamespace(pid=os.getpid(), stdout=stream, poll=lambda: None)
+        with pytest.raises(m._Failure, match="original.*cleanup"):
+            m._receive_terminal_ack(process, journal, job)
+        assert not list(profile.shared_state_dir.glob("FINALIZATION-COMMITTED-*"))
+    finally:
+        stream.close(); os.close(write)
+
+
+def test_finalization_f07_ack_arrives_after_reserved_snapshot(finalization_files, monkeypatch):
+    import os
+    import types
+    m, profile, job, journal, *_ = finalization_files
+    ack = _finalization_attempt(finalization_files)
+    original = {key: value for key, value in journal.items()
+                if key not in ("cleanup_trigger", "cleanup_deadline")}
+    original["state"] = "RESERVED"
+    old_raw = m.canonical_json_bytes(original) + b"\n"
+    read_owned, reads = m._read_owned, []
+    def snapshot(path, *args, **kwargs):
+        if path == job / "journal.json":
+            reads.append(1)
+            if len(reads) == 1: return old_raw
+        return read_owned(path, *args, **kwargs)
+    monkeypatch.setattr(m, "_read_owned", snapshot)
+    read, write = os.pipe()
+    stream = os.fdopen(read, "rb", buffering=0)
+    try:
+        raw = m.canonical_json_bytes(ack) + b"\n"
+        assert os.write(write, raw) == len(raw)
+        process = types.SimpleNamespace(pid=os.getpid(), stdout=stream, poll=lambda: None)
+        frame = m._receive_terminal_ack(process, original, job)
+        assert len(reads) >= 2, "ACK used pre-publication journal snapshot"
+        assert original["cleanup_trigger"] == journal["cleanup_trigger"]
+        assert original["cleanup_deadline"] == journal["cleanup_deadline"]
+        assert m._commit_finalization(profile, job, original, os.getpid(), frame).observation == "completed"
+    finally:
+        stream.close(); os.close(write)
+
+
+def test_finalization_f08_nonregular_owned_marker_cannot_block_open(finalization_files):
+    import os
+    import threading
+    m, profile, job, journal, *_ = finalization_files
+    _finalization_attempt(finalization_files)
+    path = profile.shared_state_dir / ("FINALIZATION-PENDING-" + journal["nonce"] + ".json")
+    path.unlink(); os.mkfifo(path, 0o600)  # Controlled malformed owned fixture.
+    done, failures = threading.Event(), []
+    def admission():
+        try: m._admit_finalizations(profile)
+        except m._Failure as exc: failures.append(exc.reason)
+        finally: done.set()
+    thread = threading.Thread(target=admission)
+    thread.start()
+    writer = None
+    try:
+        finished = done.wait(1)
+    finally:
+        if not done.is_set():
+            # Unblock a broken blocking read before asserting RED. Never leave
+            # an owned test thread parked in FIFO open.
+            writer = os.open(path, os.O_RDWR | os.O_NONBLOCK)
+        thread.join(2)
+        if writer is not None: os.close(writer)
+    assert not thread.is_alive()
+    assert finished and failures == ["admission"], "nonregular pending blocked in open"

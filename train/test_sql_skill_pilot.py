@@ -13,10 +13,6 @@ def api():
         pytest.fail("sql_skill_pilot implementation missing", pytrace=False)
 
 
-def pytest_addoption(parser):
-    parser.addoption("--controller-mutant", default=None, help="TEST_ONLY intended controller guard bypass")
-
-
 @pytest.fixture(autouse=True)
 def intended_controller_mutant(request, monkeypatch):
     mutation = request.config.getoption("--controller-mutant", default=None)

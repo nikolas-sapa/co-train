@@ -874,3 +874,195 @@ The newly authorized trial and exact late cleanup are consumed. No retry or
 further trial is authorized. Production record reuse, full kernel acceptance
 and model-generated benefit remain unproven; live inference remains financially
 blocked, with zero provider/model requests.
+
+### 8.6 Coordinated shutdown: approved offline-only test-first amendment
+
+This additive amendment governs the next source revision, not historical
+receipts. The pre-STOPPED missing-usage response remains a genuine failure.
+No new trial, model call, recovery, financial permission or acceptance follows.
+
+Test plan, frozen before implementation:
+
+| Check | Required numeric result |
+|---|---|
+| B01 worker hold | Both real owned pipe workers remain alive for 0.25s after result; matching grant permits exit 0 within 1s. Invalid UTF-8/JSON/duplicates/fields/version/role/request/result digest/oversize/EOF refuse. |
+| B02 exact protocol | Wire schema 2 only, independent record/profile versions unchanged. Grant binds role, request SHA and SHA256 of exact result frame including LF. Request plus grant <=8,388,608 bytes, no uncertain-send retry. |
+| B03 deterministic race | Both roles times four schedules (result before inventory, between inventory/stats, during stats, after publication): eight cases, all samples complete before grant, exactly one grant, zero overlapping stats/discards. Fixture returns absent usage if stopped during stats. |
+| B04 scheduling | Sample reservation and ACTIVE->QUIESCING share one lock; drain all reserved work including validation/pool/CLI/HTTP cleanup; PARKED has zero aliases, live observer thread, zero new reservations. |
+| B05 errors | First genuine error survives drain/cleanup: zero grants/success/CLOSED for missing usage, other stats, VM/info, validation, CLI/HTTP/pool errors. |
+| B06 bounds | Original last-frame age 4.000s accepts, 4.001s refuses; reserve 201,326,592 accepts, 201,326,591 refuses. Original role and 12s cleanup deadlines persist across drain/grant/EOF/inspect/retirement/delete. |
+| B07 integrity/order | Extra stdout, malformed mux, nonzero/OOM, early exit, foreign config/CID/token, failed durable writes, controller loss, uncertain grant and unknown actors fail closed. STOPPED precedes retirement/joins/absence/JOIN_ACK/nonforce DELETE/positive absence/release. |
+| B08 sensitivity | Separate hold/scheduling/drain/latch/binding/freshness/deadline/absence bypasses each cause >=1 intended test-body assertion failure, never import/collection failure. Preserve all 428 historical runtime node IDs. |
+
+Implementation: shared strict grant codec/worker hold, schema/policy binding,
+locked observer lifecycle, explicit shutdown supervision independent of cleanup
+mode, then guardian grant and existing positive cleanup chain. Valid result
+remains provisional until successful owned STOPPED. Establish and fsync the
+original cleanup trigger before drain. No stats RPC between grant and STOPPED.
+Never invent a sample, timestamp, charge or headroom. Historical strict terminal
+discard remains unchanged and cannot repair pre-STOPPED missing usage.
+
+Non-goals: live execution, infrastructure/dependency/resource-limit changes,
+extra guest processes/threads, retries, zero/cap/substitute accounting, schema-1
+live fallback, protected budget/scorer changes, model/financial work. Main owns
+all execution, review and commit. Unimplemented/unexecuted tests are outstanding,
+not acceptance evidence.
+
+Source delivery status (unexecuted): 84 additive runtime parameter cases are
+authored, expecting 512 nodes together with the unchanged 428 historical IDs.
+Main must collect/compare IDs, execute the reviewed offline harness and perform
+Python/security review; these counts are expectations, not fresh results.
+The eight sensitivity controls each run their own baseline before an isolated
+in-memory bypass; successful test collection is not proof that their intended
+assertions fired.
+
+Outstanding at initial delivery, before §8.6.1: phase-by-phase original
+role/cleanup-deadline exhaustion during grant/EOF/inspect/retirement/delete,
+grant-specific durable-write/crash/observer-token corruption controls, and
+CLI/HTTP/pool unwind failures specifically through the new drain path.
+Existing historical fault tests remain, but are not silently relabeled as
+those new cases. Future acceptance event barriers are strengthened only;
+no real acceptance was executed or authorized by this amendment.
+
+#### 8.6.1 Review remediation, tests before implementation
+
+Parent's owned-UNIX-only offline run collected 512 nodes, preserving all 428
+historical IDs: 510 passed, two sensitivity controls failed. Blanket UNIX
+denial was an earlier harness misconfiguration, not a source regression.
+No passing receipt for the following revision exists.
+
+| Check | Required result |
+|---|---|
+| B09 scheduling control | Baseline completes initial sample, parks, then reaches an explicit cadence barrier. Scheduling bypass makes a second reservation visible at that barrier and fails exactly the closed-gate assertion, never an initial fixture wait. |
+| B10 callback wiring | Controller-loss callback bypass fails its intended assertion while independent role/cleanup RPC deadlines remain enabled. |
+| B11 persistent persistence failure | Both roles, persistent journal failure after PARKED: zero grant sends/outcomes/releases; attach closes, failure cleanup is attempted, active reservation remains, and no non-daemon parked scheduler remains live. No undurable KILL, synthetic STOPPED/retirement/JOIN_ACK/DELETE. |
+| B12 orchestration uncertainty | Both roles, partial grant delivery and failed grant-intent persistence reach actual guardian completion orchestration: <=1 send, no successful outcome/release, retained block/reservation, owned cleanup or explicit UNRESOLVED. |
+| B13 strict success boundary | Controlled original role/cleanup deadlines expire inside grant, EOF, STOPPED inspect, retirement, DELETE and absence: zero successful outcomes/releases; original cleanup deadline unchanged. Post-STOPPED role expiry must not prevent authorized failure cleanup. |
+| B14 drain unwind | CLI/HTTP/pool unwind failure cannot yield PARKED/grant while a reserved sample or alias remains. Genuine failure stays latched. |
+
+Exceptional failure-only scheduler teardown is distinct from successful token
+retirement. Only an already closed shutdown gate may become ABORTED; invalidate
+tokens and drain/join its existing thread without emitting retirement/absence/
+JOIN_ACK evidence. Keep original active reservation and any original block.
+Unknown owned-container state remains UNRESOLVED, never authorize undurable KILL
+or DELETE to make a persistence outage appear cleaned. No new process/thread,
+resource changes, live execution or financial permission.
+
+Success commit interlock: outcome persistence precedes reservation release.
+The controller must not accept a completed outcome while the matching active
+reservation exists, on UNRESOLVED, or after either original deadline. A
+provisional outcome may remain as evidence if a later commit check fails; it
+does not authorize success. Add controlled-clock expiry during outcome
+persistence and CLOSED-history append, with reservation retained and no accepted
+result. Terminal UNRESOLVED after guardian exit must not launch a replacement
+that retrospectively releases the failed reservation.
+
+Current source delivery (unexecuted): 56 additional parameter cases beyond
+the parent's 512-node selection, expecting 568 runtime nodes, retaining every
+prior node ID. Scheduling mutation functions now use the real module globals
+so test fixtures and controlled clocks are not frozen out by copied namespaces.
+The callback mutant targets controller liveness, preserving independent RPC
+deadline checks. New tests cover persistent journal/all-owned-write refusal,
+terminal guardian completion orchestration, 32 role/cleanup phase expiries
+(including provisional outcome publication and history append), six controlled
+CLI/HTTP/pool unwind failures, and twelve controller-interlock states.
+
+Still outstanding: all execution/review on these new source bytes; grant-token
+corruption and actual guardian-crash/restart at each grant boundary; actual
+owned CLI and UNIX-HTTP failure/unwind execution specifically through the new
+drain path (new controls inject CLI failure/HTTP aliases and join a real local
+ThreadPoolExecutor). The orchestration cases call the actual guardian terminal
+routine, not a separately spawned guardian process. No live/kernel acceptance
+or hard disk-outage/guest-absence guarantee follows. Persistent inability to
+write durable kill intent intentionally leaves owned-container liveness
+unproven and the original reservation blocked, not fictitious cleanup success.
+
+#### 8.6.2 Immutable finalization transaction, governing amendment
+
+Parent's v2 full run: 3,506 passed, 37 failed, one skipped, two deselected.
+All 37 failures were traced to sandbox `ps` PermissionError; this amendment
+does not change product code to accommodate that validation environment.
+Review identified a separate real P1: active unlink followed by failed directory
+fsync/persistent writes could leave provisional CLOSED/outcome with no barrier.
+The previous absence-based completion rule is superseded, not acceptance proof.
+
+Test plan before implementation, preserving all 568 existing runtime IDs:
+
+| Check | Required result |
+|---|---|
+| F01 unlink/fsync | Real owned active unlink succeeds, release-directory fsync fails, all subsequent writes fail: zero ACK/accepted completion/new CREATE/START; immutable durable PENDING remains. Old absence-only gate must fail an intended assertion. |
+| F02/F03 provisional hold | Hold guardian 2.25s after provisional outcome AND real active unlink, before release-directory fsync: zero pre-ACK kills/returns even with no active file; exactly one valid ACK permits completion. Exit 0 or failure without ACK never completes. |
+| F04 operation faults | Pending write/file-fsync/publish/dir-fsync, CLOSED/outcome/history, unlink/release-fsync, ACK write, COMMITTED write/file-fsync/publish/dir-fsync failures cannot return completion. No unlink before PENDING durability. |
+| F05 crash boundaries | Before/after PENDING/unlink/release-fsync/ACK: no received ACK means no completion commit. Pending transactions are never adopted/released by automatic replacement. |
+| F06 closed binding | Every pending/ACK/commit field, digest, duplicate/extra/partial/duplicate-frame/oversize ACK and missing commit rejects. Current guardian pipe PID/token and exact artifact LF bytes bind. |
+| F07 bounds | Incremental select/nonblocking terminal reads <=4096 bytes; EOF/original role/cleanup deadlines cannot reset. Typed abort uses original cleanup bound; completed outcomes also use original role bound. |
+| F08 admission | Across profiles/run directories, every PENDING requires strict matching COMMITTED/ACK/artifacts. Partial/unreadable/symlinked/malformed/missing artifacts or iteration errors block. Reestablish valid committed file/directory fsync under lock. |
+| F09 hygiene/sensitivity | Only after ACK and durable controller COMMITTED may 2s reap hygiene kill a stalled guardian. Independent pending-admission/ACK/digest bypasses each trigger >=1 intended assertion failure. |
+
+Chosen transaction: immutable `FINALIZATION-PENDING-<nonce>.json` precedes active
+unlink. Guardian emits one terminal ACK only after successful release-directory
+fsync and final controller/deadline checks, then makes no completion mutations.
+Controller authors immutable `FINALIZATION-COMMITTED-<nonce>.json` only after
+receiving and validating that ACK on the current guardian pipe. File absence,
+exit status, provisional outcomes and best-effort UNRESOLVED are not authority.
+Use this transaction for every clean release, including typed aborts; uncertain
+aborts do not commit. Hold the existing shared lock throughout.
+
+Both markers use closed `{format,schema_version:1,payload,sha256}` envelopes.
+PENDING format `sql_pilot_finalization_pending`, exact payload:
+`job,nonce,role,profile_sha256,request_sha256,journal_sha256,outcome_sha256,
+guardian_pid,finalization_token,role_deadline,cleanup_trigger,cleanup_deadline`.
+COMMITTED format `sql_pilot_finalization_committed`, exact payload:
+`pending_sha256,terminal_ack`. Digests bind exact artifact bytes including LF.
+Terminal JSON+LF <=4096 bytes is exactly
+`{format:'sql_pilot_finalization_ack',schema_version:1,pending_sha256,
+guardian_pid,finalization_token,release_verified_at}`. Strict finite times,
+no bool-as-number, fresh attempt token, exact PID/context/hash binding.
+
+Publication uses owned same-directory staging, complete write, file fsync,
+atomic NOOVERWRITE publish, directory fsync. Never replace/delete markers.
+If a COMMITTED publication became visible before directory-fsync failure,
+the current call still fails; later admission may trust it only after strict
+validation and reestablishing file/directory durability under lock. This never
+resurrects the failed call's outcome or extends its deadlines.
+
+No profile/outcome/receipt schema, resource/accounting, STOPPED/retirement/join/
+delete/absence safeguards or protected files change. No execution, live calls,
+models, installs, git or new financial permission. Missing coverage must be
+reported explicitly; no passing result is claimed for this revision.
+
+F08 nonregular owned-file control additionally requires that a FIFO masquerading
+as PENDING reject without blocking in open. Owned reads/refsync open nonblocking
+before the existing mandatory regular-file check; regular-file semantics stay
+unchanged. The fixture has an owned writer-unblock teardown, not a leaked thread.
+
+Source delivery status, unexecuted: 110 additional runtime parameter cases,
+expecting 678 nodes (568 previous IDs retained by name/decorators). Breakdown:
+F01 one; F04 fourteen; F06 fifty-six (pending/ACK/envelope/receipt bindings and
+real bounded pipe input); F07 seven (typed abort/completion bounds, live partial
+frame deadlines, cleanup-budget reset refusal and RESERVED/ACK snapshot race);
+F08 twenty-one (historical, nonregular and cross-profile fresh-controller
+admission); eight actual owned Python guardian
+process cases across F02/F03/F05/F09; three intended-RED sensitivity controls.
+Existing slow-reap fixture now publishes a real transaction/terminal ACK;
+its UNRESOLVED branches explicitly reject artifact adoption. Prestart failure
+fixtures expect guardian finalization failure rather than ignored None/exit 0.
+No existing test function/parameter ID was intentionally removed.
+
+Implementation factors immutable publication, strict record/artifact/receipt
+validation, guardian release, bounded terminal receive, controller commit and
+shared-lock admission into private helpers. Controller latches the earliest
+observed durable cleanup budget; no later journal may reset it. Provisional
+outcome reads can tighten the applicable deadline only, never authorize reap
+or completion. Current completion is exclusively live pipe ACK -> durable
+COMMITTED -> bounded post-ACK reap -> original deadline recheck.
+
+Limitations: no collection, syntax check, tests or sensitivity controls executed
+by this agent. Process cases run the production finalization/receive/commit
+helpers in owned isolated Python processes, not a live SQL/Docker guest.
+Filesystem fault cases use real owned files/unlink/link/fsync with controlled
+operation errors; the ACK-write error is a controlled stream error, complemented
+by actual pipe EOF/partial/duplicate/oversize cases. These are not power-loss,
+daemon/kernel acceptance or exhaustive syscall/crash-schedule proofs. Earlier
+grant-token corruption and real CLI/UNIX-HTTP drain-unwind gaps remain. Parent
+must collect/review/rerun in its corrected validation environment.

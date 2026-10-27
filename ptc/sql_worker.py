@@ -6,7 +6,8 @@ import sys
 if __name__ == "__main__":
     sys.path.insert(0, "/bundle")
 
-from ptc.sql_isolation import ProgramResponse, _native_call, _worker_handshake, encode_wire_message
+from ptc.sql_isolation import (ProgramResponse, _native_call, _worker_handshake,
+                               _worker_wait_for_exit_grant, encode_wire_message)
 
 
 def _response_for(native):
@@ -19,6 +20,7 @@ def main():
     native = _native_call(run_ptc_program, request.program, "/db.sqlite", max_rows=request.max_rows)
     result = encode_wire_message("program", "result", _response_for(native), request_sha256=sha)
     sys.stdout.buffer.write(result); sys.stdout.buffer.flush()
+    _worker_wait_for_exit_grant("program", sha, result, request)
 
 
 if __name__ == "__main__":

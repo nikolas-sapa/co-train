@@ -3,15 +3,15 @@
 Co-train tests whether training a small model around a tool interface improves
 task performance, and whether any improvement survives a harness swap.
 
-## Current orientation, 2026-10-27
+## Current orientation, 2026-10-28
 
 Three workstreams have different evidence and blockers:
 
 | Workstream | Latest recorded boundary | Next step |
 |---|---|---|
 | Historical untrained comparison | Retired `ledger` taskset; small-sample result, not a training result. | Read [the report](docs/results-untrained.md) with its provenance limitations. |
-| SQL skill pilot, 2026-10-25 | Caller-authored qualification/reuse mechanics pass offline. Native pair passed, but real record lifecycle failed before reuse. Zero live pilot model calls; financial gate closed. | Bounded offline diagnosis of the pre-STOPPED missing-usage gap, following [the handoff](spec/sql-skill-pilot-handoff.md). |
-| Separate local MLX training, 2026-10-25 | Real sampling and weight updates recorded in another worktree. Improvement unproven; three-seed trial stopped, no holdout evaluation ran. | CPU-only RSS-probe diagnosis under that track's own handoff. |
+| SQL skill pilot, 2026-10-25 | Coordinated exit/finalization passes offline. Native pair passed, but real record lifecycle failed before reuse. Zero live pilot model calls; financial gate closed. | Review [offline maintenance](docs/2026-10-27-maintenance.md) before any newly authorized native lifecycle acceptance. |
+| Separate local MLX training, 2026-10-25 | Real sampling and weight updates recorded in another worktree. Improvement unproven; three-seed trial stopped, no holdout evaluation ran. | Review [CPU-only RSS diagnosis](docs/2026-10-27-maintenance.md#separate-rss-diagnosis); historical timeout remains unexplained. |
 
 Start with the [project map](docs/project-map.md) for reading order and directory
 ownership, then the [evidence index](docs/evidence-index.md) for results,

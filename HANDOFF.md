@@ -6,6 +6,22 @@ The original body remains under [History](#history).
 
 ---
 
+## Current state, 2026-10-28, offline maintenance
+
+Read the [maintenance receipt](docs/2026-10-27-maintenance.md) for executed
+checks, failed validation attempts and remaining acceptance gaps.
+
+- Coordinated SQL result/exit and durable pending/ACK/commit finalization pass
+  678 offline runtime cases, retaining all original cases.
+- Live wire schema is now 2. Old source/profile bindings must not silently
+  authorize the changed protocol. Record/profile schema versions are unchanged.
+- No new native lifecycle acceptance ran. The financial gate remains closed;
+  prior one-shot permissions remain consumed. No model call or push occurred.
+- CPU-only RSS instrumentation and controls passed in fresh scratch copies.
+  The historical MLX timeout and training benefit remain unproven.
+
+---
+
 ## Current state, 2026-10-25, SQL pilot session closed
 
 **Read [SQL pilot next-session handoff](spec/sql-skill-pilot-handoff.md) first.**

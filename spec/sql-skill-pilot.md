@@ -303,3 +303,92 @@ The attempted nondefault native-pair check failed during fixture setup because
 the approved Docker socket was absent. No container was created; this is neither
 a successful runtime check nor an intended sensitivity failure. No VM restoration,
 daemon switch or additional privileged command is authorized.
+
+## Additive coordinated-shutdown protocol amendment
+
+Approved source work is offline only. Historical receipts above remain bound
+to their original bytes. The test-first matrix is plan §8.6; no new acceptance
+or financial authorization is implied.
+
+Wire schema is now 2, separately from unchanged record/profile schemas.
+Order: READY, bootstrap, request, provisional result, exit_grant, EOF/exit 0.
+All envelopes retain the closed canonical JSON+LF fields and payload digest.
+exit_grant payload is exactly `{result_sha256}`: SHA256 of the exact received
+result frame including its LF. Envelope role/request hash must match the
+dispatched request. Reject duplicate/extra/missing fields, invalid UTF-8/JSON,
+wrong versions/context/digests and over-budget input. Request plus grant share
+the existing 8 MiB input cap. Both guest workers flush their unchanged result,
+then wait for this matching grant without another thread/process/dependency.
+Allocation exceptions still exit 70; native result semantics remain unchanged.
+No live wire-schema-1 fallback.
+
+Observer states: ACTIVE -> QUIESCING -> PARKED -> RETIRED. Reserving a sample
+and closing the scheduling gate use the same lock. Drain every reserved sample
+through validation and pool/CLI/HTTP cleanup, never cancel/suppress a genuine
+failure; first failure is latched. PARKED means no in-flight aliases, but the
+observer thread remains alive until positive owned STOPPED. Ordinary admission/
+check rejects PARKED. Narrow shutdown checks reuse the unchanged original last
+valid frame's finished timestamp, charge and reserve, never a synthetic sample.
+
+On valid provisional result, durably establish the original 12s cleanup trigger
+before closing/draining the sampling gate. Require healthy PARKED, frame age
+<=4s and reserve >=201326592, live controller and original role deadline.
+Verify exact owned running configuration; durably bind grant intent to CID,
+configuration digest, observer token, request and exact result hash. Send once
+via attach; partial/uncertain delivery aborts without retry. Supervise EOF and
+fresh owned STOPPED exit 0/no OOM before the minimum of last-frame.finished+4s,
+original role deadline and original cleanup deadline. Explicit shutdown checks
+remain active even when daemon cleanup_deadline is set. Reject extra stdout
+and mux errors. Zero stats RPCs between grant and STOPPED.
+
+Only then retire/join/prove actor absence/JOIN_ACK, nonforce DELETE, positively
+prove absence and release reservation under the same original cleanup budget.
+Unknown ownership/actors, unexpected exit, timeout and genuine observer errors
+retain failure/UNRESOLVED. Existing strict conditional terminal discard is not
+relaxed. Both 256 MiB caps, no additional swap, pids=1, nofile=64, PROGRAM 10s,
+SCORER 30s, complete sample <=4s and cleanup <=12s are unchanged.
+
+Review amendment: successful outcomes additionally require the original role
+and cleanup deadlines through retirement, DELETE, absence and reservation
+commit. Post-STOPPED checks no longer require a live PARKED observer. Overdue
+results cannot close/release successfully; authorized failure cleanup remains
+permitted within the original cleanup deadline.
+
+Failure-report persistence is never a prerequisite for attempting failure
+cleanup. Persistent failure still forbids undurable KILL/DELETE intent. If owned
+cleanup cannot be established, retain the original reservation/UNRESOLVED, close
+attach, and tear down only the already-quiesced scheduler as ABORTED. This
+exception emits no STOPPED, retirement, absence or JOIN_ACK success evidence.
+It does not prove guest exit or authorize another launch.
+
+Outcome publication alone is provisional: the controller accepts completion
+only after matching reservation absence, CLOSED state and fresh original
+role/cleanup deadlines. Persist outcome before releasing reservation. A late
+commit failure retains provisional evidence and blocks admission, never returns
+that artifact as a completed result or retries a terminal unresolved guardian.
+
+### Governing finalization transaction amendment
+
+Plan §8.6.2 supersedes the preceding absence-based interlock. Every clean
+release, including a typed abort, requires immutable durable shared PENDING
+before active unlink, a guardian terminal ACK after successful release-directory
+fsync and original applicable deadline/controller checks, then controller-authored
+durable COMMITTED after receipt/strict validation of that ACK on the current
+guardian pipe. Uncertain aborts never commit. Preserve the shared lock.
+
+Markers `FINALIZATION-PENDING-<nonce>.json` and
+`FINALIZATION-COMMITTED-<nonce>.json` are never overwritten/deleted. Their closed
+version-1 envelopes, exact payloads, byte hashes and <=4096-byte terminal frame
+are frozen in §8.6.2. Publication is complete-write/file-fsync/nooverwrite atomic
+publish/directory-fsync, not replacement. Guardian emits one terminal ACK and
+performs no later completion mutation. Before ACK, outcome visibility never
+authorizes hygiene kill, completion or adoption.
+
+Before any new reservation, enumerate all pending transactions across profiles/
+run directories. Require matching COMMITTED with valid ACK and exact referenced
+owned artifacts. Missing, malformed, conflicting, unreadable or symlinked records,
+iteration failures and missing historical artifacts block admission. Reestablish
+valid committed file/directory fsync durability under lock. No current invocation
+may treat a failed publication as success, even if a later admission can validate
+the visible controller-authored COMMITTED record. Original deadlines never reset.
+No resource/profile/outcome/receipt schema or financial authorization changes.
