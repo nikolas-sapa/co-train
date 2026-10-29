@@ -6,6 +6,34 @@ The original body remains under [History](#history).
 
 ---
 
+## Current state, 2026-10-29, caller-owned SQL skill SDK
+
+Read the [SDK verification receipt](docs/2026-10-29-sql-skill-workflow.md).
+The earlier same-date demo receipt below remains unchanged.
+
+- Typed file SDK adds candidate creation, qualification and separately approved
+  reuse around existing APIs. Canonical artifacts use exclusive new directories
+  outside checkout. Qualification receipts are UNAPPROVED; callers supply trusted
+  assets, external pins and exact approval IDs. Execution defaults to disabled;
+  caller-selected executor passes through unchanged.
+- Independent complete default offline suite: 3,717 passed, one optional
+  missing-Torch skip, two existing tokenizer deselections, exit 0 in 754.08s.
+  All previous 3,683 selected IDs retained, plus 35 SDK cases. Focused checks:
+  35/35 workflow and 719/719 combined; counts overlap, never add them.
+- Two real SQLite test families: 8/8 qualifications and 4/4 reuses EX=1.
+  Separate-process reuse: 2/2 EX=1 with five old DB paths unavailable.
+  Wrong approval dispatches zero programs/scorers; second-qualification failure
+  retains scores [1,0] after two submissions, with no promotion.
+  Two mutation baselines pass; both mutants fail intended assertions.
+- Python/security/general reviews found no actionable issues. Production
+  evaluator/defaults/runtime and four protected budget/scorer files unchanged.
+  No offline product failure reproduced. Native/container/guardian acceptance
+  and model benefit remain unproved; SDK qualification is not trusted approval.
+- Financial gate remains closed, prior one-shot permissions consumed. Existing
+  native-trial, paid/model-call and push/deployment gates remain in force.
+
+---
+
 ## Current state, 2026-10-29, portable offline SQL reuse
 
 Read the [demo and verification receipt](docs/2026-10-29-sql-reuse-demo.md)

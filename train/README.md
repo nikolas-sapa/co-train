@@ -155,6 +155,30 @@ need not remain available. Payload self-digests differ from whole-envelope
 pins; neither hashes nor caller IDs authenticate approval or prove independent
 sampling/semantic diversity. The trusted host owns approval, evaluator and assets.
 
+### Caller-owned file workflow
+
+`train.sql_skill_workflow` wraps these same APIs with typed caller-owned tasks,
+cases, IDs and absolute artifact paths. See the [file-workflow contract](../spec/sql-skill-workflow.md)
+for signatures and storage rules. `create_candidate_file` writes a canonical
+candidate into a new directory. `qualify_candidate_files` accepts candidate and
+source-capture files, an **external source pin**, source case, exactly four
+qualification cases and approval IDs. It persists returned captures and, only on
+qualification success, an **UNAPPROVED** `promotion.json`.
+`reuse_approved_files` separately requires the caller's externally retained
+whole-promotion-envelope pin and exact approval IDs. Never take either as
+authority from the same envelope. It writes the new capture without reopening
+source/qualification databases.
+
+Execution defaults to disabled; supply literal `allow_execution=True` and the
+caller-selected executor (including `None` for the existing in-process path,
+not an OS sandbox). No runtime selection, source-failure manufacture, automatic
+approval or chained reuse. All writes require an exclusive new directory
+outside checkout. Existing bounded safe-file helpers reject symlinks and
+oversized input. Failed qualifications retain returned captures without a
+promotion; typed exception-carried captures are retained before re-raising.
+Exceptions without evidence never generate a fabricated capture. Storage
+failures propagate and may leave partial evidence, not a completed receipt.
+
 Programs are limited to 65,536 UTF-8 bytes; separate canonical frozen artifacts
 are limited to 8 MiB. No registry or automatic writes. The existing budget
 counts eight PTC submissions, not internal SQL calls. Five-second tracing and
