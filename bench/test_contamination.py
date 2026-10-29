@@ -549,14 +549,13 @@ def test_promote_positive_control_does_not_rescue_two_failing_controls():
     assert C.promote_positive_control(short, long_) is short
 
 
-def test_long_positive_control_is_longer_and_still_canonical():
+@pytest.mark.tokenizer_integration
+def test_long_positive_control_is_longer_and_still_canonical(contamination_tokenizer):
     """The whole reason the long positive exists. Its mean length must exceed the short
     set's by a wide margin or the length confound is not addressed; it must still be
     distinct from the short set. **Mutation: point it at the short set** and the mean
     assertion goes red."""
-    from transformers import AutoTokenizer
-
-    tok = AutoTokenizer.from_pretrained("unsloth/Qwen3-0.6B")
+    tok = contamination_tokenizer
     short = sum(len(tok(s, add_special_tokens=False).input_ids) for s in C.POSITIVE_SQL) \
         / len(C.POSITIVE_SQL)
     long_ = sum(len(tok(s, add_special_tokens=False).input_ids)
@@ -582,7 +581,8 @@ def test_v2_control_is_well_formed_and_matches_v1_shape():
         assert isinstance(p["tokens"], int) and p["tokens"] > 0
 
 
-def test_v2_control_is_length_matched_to_bird():
+@pytest.mark.tokenizer_integration
+def test_v2_control_is_length_matched_to_bird(contamination_tokenizer):
     """**The claim this lane exists to make, and it is measured.** The committed token
     count per pair is re-measured with the tokenizer and must equal the file's own
     numbers; the mean must sit within one token of BIRD's 54.05; the median must be at
@@ -595,9 +595,7 @@ def test_v2_control_is_length_matched_to_bird():
     check is the load-bearing one for small edits; a mean tolerance alone would pass the
     mutant.
     """
-    from transformers import AutoTokenizer
-
-    tok = AutoTokenizer.from_pretrained("unsloth/Qwen3-0.6B")
+    tok = contamination_tokenizer
     pairs = C.load_fresh(C.FRESH_V2_PATH)
     measured = [len(tok(p["sql"], add_special_tokens=False).input_ids) for p in pairs]
     assert measured == [p["tokens"] for p in pairs], "the file's token counts are stale"

@@ -15,6 +15,9 @@ same output. Broken and working become indistinguishable. So the pipeline lands
 as code whose guards are tested and whose precondition check fails loudly, and
 nothing here launches a training run.
 
+The separate opt-in SQL capture and caller-authored skills APIs below do not
+open either training gate.
+
 ## Files
 
 | file | what |
@@ -25,6 +28,152 @@ nothing here launches a training run.
 | `grpo_ptc.py` | the gated pipeline: config, environment, `preflight()` |
 | `test_train.py` | 111 offline tests. No GPU, no network, no model download |
 | `mutate.py` | 52 mutants that break each guard, and the record that each one dies |
+| `sql_capture.py` | opt-in incremental trusted SQL/PTC execution, immutable evidence, final-only scoring |
+| `test_sql_capture.py` | 276 offline acceptance cases, including bounded extraction; independent guard controls verified |
+| `sql_skills.py` | caller-authored candidates and promotion receipts, frozen data-only codecs |
+| `sql_skill_eval.py` | explicit provisional evaluation, four-case qualification and approved reuse |
+| `test_sql_skills.py`, `test_sql_skill_eval.py` | 218 offline executable-workflow cases; no model generation |
+
+## Incremental SQL/PTC capture
+
+`start_capture(task, ids=..., allow_execution=True)` creates a trusted host
+session with the unchanged canonical SQL/PTC prompt and a fresh eight-submission
+budget. The opt-in must be literal `True`. Each `step` returns the actual existing
+environment observation, allowing the next program to depend on it.
+
+`finish(final_answer)` scores only final/gold SQL, without replaying actions.
+`abort()` seals without a final or score. Both reject subsequent use.
+Unexpected executor/scorer errors and binding/size failures invalidate the
+session rather than returning partial success. Evidence separates dispatched
+`steps` from budget `refusals`; a dispatched rejected program is still a step.
+Final SQL is not an action. Invalid gold preserves `ExResult.valid=False`, not
+a usable zero.
+
+Example for an existing compatible interpreter, using only the committed fixture:
+
+```python
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from bench.fixture import materialize
+from bench.loader import load_bird
+from train.sql_capture import (
+    start_capture, encode_capture, decode_capture, rescore_capture,
+)
+from train.sql_episodes import EpisodeIds
+
+with TemporaryDirectory(prefix="cotrain-capture-example-") as directory:
+    task = load_bird(materialize(Path(directory) / "corpus"))[0]
+    ids = EpisodeIds(
+        corpus_id="committed-bird-fixture", split_id="engineering-only",
+        run_id="local-example", episode_id=task.name,
+        policy_id="trusted-host-example", policy_revision="fixture-v1",
+    )
+    session = start_capture(task, ids=ids, allow_execution=True)  # explicit consent
+    prompt = session.prompt  # canonical model-visible prompt, no gold or capture metadata
+    observation = session.step(
+        "print(execute_sql(query='SELECT COUNT(*) AS n FROM school')[0]['n'])"
+    )
+    count = int(observation.strip())
+    session.step(
+        f"print(execute_sql(query='SELECT name FROM school LIMIT {count}'))"
+    )
+    # Known fixture answer supplied by the host, not a generated model answer.
+    capture = session.finish("SELECT name FROM school WHERE charter = 1")
+    restored = decode_capture(encode_capture(capture))  # data only
+    assert rescore_capture(restored, task, ids=ids) == capture.result
+```
+
+Strict JSON evidence uses a distinct `sql_execution_capture` v1 envelope and an
+8 MiB bound. Decode executes nothing; rescore executes protected final/gold SQL
+only. Each later step/scoring rechecks caller IDs, task metadata, stable DB
+bytes/no sidecars, canonical prompt, runtime/settings and selected source bytes,
+including capture/environment/budget owners. Source edits can intentionally make
+old captures unrescorable. Caller IDs/hashes are not authentication, source
+bindings are not in-memory attestation, and stable snapshots do not prevent
+malicious concurrent ABA writes. The restricted PTC runtime is not an OS sandbox.
+
+Capture adds a conservative extraction-work admission limit before every call
+to the unchanged shared SQL extractor: UTF-8 byte length plus the sum of raw
+semicolon byte-prefix lengths must be at most 64 MiB per invocation.
+Counting includes quotes/comments, discarded prose/fences and text after an
+early complete statement, so some cheap-to-extract answers can reject.
+Rejection is `ValueError`; failed finish invalidates its session. This limit is
+separate from the 8 MiB format cap, not an overall CPU/memory deadline, and does
+not alter global scoring/extraction semantics for admitted answers.
+
+This API is not exported through native tool discovery. Existing scripted v1
+recording remains unchanged. Capture alone supplies no provider traces, exact
+tokens, model-authorship evidence, learning or training. See the
+[capture contract](../spec/sql-execution-capture.md).
+
+## Opt-in executable SQL skills
+
+The [executable-skills contract](../spec/sql-executable-skills.md) adds
+caller-authored code, not automatic AI skill generation. `create_candidate`
+requires the matching host-only `source_task`: capture fingerprints cannot
+recover `source`, `shape` or `coarse_shape`. Creation checks exact task/ID
+consistency and a declared valid-zero source result without executing or
+rescoring anything. Those three scope fields are routing declarations only.
+
+Host-side fragment, with caller-owned tasks, IDs and trusted program supplied:
+
+```python
+from train.sql_skills import create_candidate
+from train.sql_skill_eval import SkillCase, evaluate_candidate
+
+candidate = create_candidate(
+    failed_capture, source_task=source_task, source_ids=source_ids,
+    skill_id="count-v1", program=trusted_program,
+)
+provisional = evaluate_candidate(
+    candidate, SkillCase("qualification", qualification_task, qualification_ids),
+    allow_execution=True,
+)
+```
+
+`source_ids` must equal the capture IDs. Case IDs must share its
+corpus/policy/revision, and the case must match the exact routing scope.
+Evaluation is provisional, never promotion authority. Each execution API
+requires literal `allow_execution is True`, submits the program once through
+existing capture, and requires observation byte zero to start `FINAL_SQL:`
+with a nonempty SQL suffix. Only that suffix reaches `finish`; malformed output
+or a runtime rejection aborts unscored. Well-framed wrong SQL can score zero.
+
+`promote_candidate` independently rescores the externally pinned whole source
+capture to valid EX=0, then admits exactly four external qualification cases.
+Their scoped IDs, task fingerprints and DB digests must be distinct from one
+another and source; qualification splits must differ from the source split.
+The same program actually runs once per case, no retries, at most four
+submissions. Only four valid EX=1 outcomes produce a receipt. Actual captures
+return separately, not as embedded gold/transcripts.
+
+`reuse_promoted` requires an externally approved whole-promotion-envelope SHA,
+candidate SHA, exact approval IDs, matching scope/source and current runtime
+plus both workflow-module bindings before execution. Origin/qualification DBs
+need not remain available. Payload self-digests differ from whole-envelope
+pins; neither hashes nor caller IDs authenticate approval or prove independent
+sampling/semantic diversity. The trusted host owns approval, evaluator and assets.
+
+Programs are limited to 65,536 UTF-8 bytes; separate canonical frozen artifacts
+are limited to 8 MiB. No registry or automatic writes. The existing budget
+counts eight PTC submissions, not internal SQL calls. Five-second tracing and
+output bounds are not OS confinement, a hard-memory limit or a hard deadline.
+Native discovery still exposes exactly one `run_program`; defaults, graders
+and training gates are unchanged. No provider, learned policy, GPU workflow,
+adaptive context/delegation or T3 runtime is implemented here.
+
+Targeted validation: **813 passed** (218 skills, unchanged 276 capture and 319
+exact legacy), with five independently failing guard controls. Fresh-process
+reuse after deletion of origin/qualification DBs verifies mechanics, not model
+generation or scientific generalization. **Bounded offline acceptance,
+2026-10-24:** the complete configured default suite passed **2,446 tests,
+1 skipped, 2 deselected in 251.42s**, exit 0. Torch was unavailable; the two
+tokenizer-integration deselections were already configured, not new exclusions.
+Independent Python/general/security static reviews found no issues; runtime
+validation was separate. The historical 2,222-pass, one-failure run remains
+history, not a reconstructed root cause. See [current handoff](../HANDOFF.md)
+for the raw full-suite receipt, audit scope and remaining research gates.
 
 ## Run order
 

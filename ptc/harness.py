@@ -398,15 +398,20 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                     break
                 for call in calls:
                     args = call.get("function", {}).get("arguments") or "{}"
-                    try:
-                        code = json.loads(args).get("code", "")
-                    except json.JSONDecodeError:
-                        code = ""
                     # A rejection is DATA, not an error: the model sees why and may retry.
                     # That is what makes the restriction part of the interface rather
                     # than a crash, and it is the signal a trained model learns from.
                     printed.clear()
                     try:
+                        try:
+                            arguments = json.loads(args)
+                        except json.JSONDecodeError:
+                            arguments = {}
+                        if not isinstance(arguments, dict):
+                            raise ProgramRejected("tool arguments must be a JSON object")
+                        code = arguments.get("code", "")
+                        if not isinstance(code, str):
+                            raise ProgramRejected("code must be a string")
                         # Off the event loop: the program is synchronous and its tool
                         # calls bridge back to this loop, so running it here would
                         # deadlock the moment a program called a tool.

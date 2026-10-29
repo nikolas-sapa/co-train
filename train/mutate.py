@@ -33,9 +33,13 @@ import sys
 import tempfile
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+from process_watchdog import run_bounded
 _VENV = REPO / ".venv-ptc" / "bin" / "python"
 PY = str(_VENV) if _VENV.exists() else sys.executable
 ENV = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+SUITE_TIMEOUT = 300.0
 COPY_DIRS = ("train", "ptc", "step2", "bench")
 """Every package the target's tests import, not just the one under mutation.
 
@@ -46,7 +50,7 @@ nothing. This is the defect `ptc/mutate.py` had on 2026-10-01 in the same shape:
 a sandbox that copies only its own package turns every mutant green-dead. The
 list is asserted against the import graph in `test_train.py` rather than
 maintained by memory."""
-COPY_FILES = ("docs/pre-registration.md",)
+COPY_FILES = ("docs/pre-registration.md", "process_watchdog.py")
 
 # name, file under train/ or elsewhere in the copy, unique anchor, replacement.
 MUTATIONS: list[tuple[str, str, str, str]] = [
@@ -107,9 +111,18 @@ MUTATIONS: list[tuple[str, str, str, str]] = [
      "    missing = [k for k in MANIFEST_REQUIRED if k not in manifest]\n    if missing:",
      "    missing = [k for k in MANIFEST_REQUIRED if k not in manifest]\n    if False:"),
     ("gate: preflight skips the gate", "train/grpo_ptc.py",
-     "    require_frontier_taskset(root)", "    pass"),
+     "    require_frontier_taskset(root)\n    require_stack(versions)",
+     "    pass\n    require_stack(versions)"),
+    ("gate: native SQL preflight skips the gate", "train/grpo_ptc.py",
+     "    require_frontier_taskset(root)\n    require_native_runtime()",
+     "    pass\n    require_native_runtime()"),
     ("gate: preflight skips the stack", "train/grpo_ptc.py",
      "    require_stack(versions)", "    pass"),
+    ("model: local content digest ignored", "train/native_model.py",
+     '                    _require(digest == item.sha256, "local model content digest mismatch")',
+     '                    _require(True, "local model content digest mismatch")'),
+    ("model: verified directory replaced with repo ID", "train/native_training.py",
+     "        model_name=source.path,", "        model_name=dead_group_probe.MODEL,"),
     # ---- criterion A
     ("A: any-step ceiling dead", "train/verdict.py",
      "        if value > ZERO_STD_CEILING:", "        if False:"),
@@ -125,13 +138,13 @@ MUTATIONS: list[tuple[str, str, str, str]] = [
      "    if steps and not any(_finite(v) for _, v in values):", "    if False:"),
     # ---- criterion B
     ("B: monotonic-rise arm dead", "train/verdict.py",
-     "        if all(b > a for a, b in zip(window, window[1:])):", "        if False:"),
+     "and all(b > a for a, b in zip(window, window[1:]))", "and False"),
     ("B: ratio arm dead", "train/verdict.py",
      "        if worst > LOGP_RATIO_MULTIPLE * baseline:", "        if False:"),
     ("B: non-positive baseline not declared", "train/verdict.py",
      "    if baseline <= 0:", "    if False:"),
     ("B: absent metric fails open", "train/verdict.py",
-     "        (reasons if required else notes).append(message)", "        notes.append(message)"),
+     "telemetry_reasons = reasons if required else notes", "telemetry_reasons = notes"),
     ("B: short run reported as evaluable", "train/verdict.py",
      "    if len(values) < SUSTAINED_WINDOW:", "    if False:"),
     # ---- the step marker shared with step2
@@ -166,8 +179,8 @@ MUTATIONS: list[tuple[str, str, str, str]] = [
     ("step0: floor artifact not flagged", "train/grpo_ptc.py",
      "    if tool_calls >= minimum and tool_failures == 0:", "    if False:"),
     ("step0: program execution stubbed to look fine", "train/grpo_ptc.py",
-     '        raise NotImplementedError(\n            "program execution is wired',
-     '        return "42"\n        raise NotImplementedError(\n            "program execution is wired'),
+     '            raise NotImplementedError(\n                "program execution has no task-bound executor',
+     '            return "42"\n            raise NotImplementedError(\n                "program execution has no task-bound executor'),
 ]
 
 
@@ -182,21 +195,29 @@ def fresh() -> pathlib.Path:
 
 
 def run(d: pathlib.Path) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [PY, "-m", "pytest", "train", "-q", "--no-header", "-p", "no:cacheprovider"],
-        cwd=d, capture_output=True, text=True, env={**ENV, "PYTHONPATH": str(d)},
-    )
+    argv = [PY, "-m", "pytest", "train", "-q", "--no-header", "-p", "no:cacheprovider"]
+    try:
+        return run_bounded(
+            argv, cwd=d, timeout=SUITE_TIMEOUT, env={**ENV, "PYTHONPATH": str(d)},
+        )
+    except subprocess.TimeoutExpired as exc:
+        notes = "".join(f"\nWATCHDOG: {note}\n" for note in getattr(exc, "__notes__", ()))
+        return subprocess.CompletedProcess(
+            argv, 124, (exc.stdout or "") + f"\nHUNG: suite exceeded {SUITE_TIMEOUT}s\n",
+            (exc.stderr or "") + notes,
+        )
 
 
 def main() -> int:
     base = run(fresh())
     if base.returncode:
-        print("FRESH BASELINE NOT GREEN:\n" + base.stdout[-2000:])
+        print("FRESH BASELINE NOT GREEN:\n" + (base.stdout + base.stderr)[-2000:])
         return 2
     print("baseline:", base.stdout.strip().splitlines()[-1], "\n")
     print(f"{'mutation':46} | verdict")
     print("-" * 96)
     survivors: list[str] = []
+    invalid: list[str] = []
     for name, target, old, new in MUTATIONS:
         d = fresh()
         path = d / target
@@ -207,18 +228,27 @@ def main() -> int:
             continue
         path.write_text(source.replace(old, new, 1))
         result = run(d)
+        if result.returncode == 0:
+            survivors.append(name)
+            verdict = "*** SURVIVED ***"
+        elif result.returncode == 1:
+            verdict = "died"
+        else:
+            invalid.append(name)
+            print(f"{name:46} | INVALID pytest exit {result.returncode}")
+            print((result.stdout + result.stderr)[-2000:])
+            continue
         killed = [
             line.split("::")[-1].split()[0]
             for line in result.stdout.splitlines()
             if line.startswith("FAILED")
         ]
-        if result.returncode == 0:
-            survivors.append(name)
-        print(f"{name:46} | {'died' if result.returncode else '*** SURVIVED ***':16} "
+        print(f"{name:46} | {verdict:16} "
               f"{killed[0] if killed else ''}{f' (+{len(killed) - 1})' if len(killed) > 1 else ''}")
     print("-" * 96)
     print(f"{len(MUTATIONS)} mutants, survivors:", survivors if survivors else "none")
-    return 1 if survivors else 0
+    print("invalid:", invalid if invalid else "none")
+    return 2 if invalid else (1 if survivors else 0)
 
 
 if __name__ == "__main__":

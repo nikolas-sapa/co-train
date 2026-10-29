@@ -1,0 +1,461 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-23",
+  "baseline_head": "ea6d2f6a185bf3c234c04505ca570dd1f090433f",
+  "scope": "Offline sweep cancellation and explicit contamination-tokenizer integration only",
+  "failure_first": {
+    "sweep_parent": {
+      "failed": 7,
+      "passed": 13,
+      "seconds": 13.84,
+      "behavior": "Executing worker/descendant survived .10s timeout; late marker"
+    },
+    "tokenizer_parent": {
+      "behavioral_failed": 4,
+      "passed": 1,
+      "missing_api_errors": 9,
+      "seconds": 4.5,
+      "boundary": "Behavioral failures accepted separately from absent helper errors"
+    },
+    "fresh_marker": {
+      "failed": 1,
+      "behavior": "Real fresh-copy collection includes both integration controls before config copy"
+    }
+  },
+  "targeted": {
+    "tokenizer_parent": {
+      "passed": 40,
+      "seconds": 2.3
+    },
+    "sweep_parent_unsandboxed": {
+      "passed": 51,
+      "seconds": 13.29
+    },
+    "sweep_and_watchdog_parent_os_network_denied": {
+      "passed": 130,
+      "seconds": 21.76
+    },
+    "real_tokenizer_parent_os_network_denied": {
+      "passed": 2,
+      "skipped": 0,
+      "deselected": 47,
+      "seconds": 1.43
+    },
+    "local_mcp_and_fresh_marker_final_policy": {
+      "passed": 43,
+      "seconds": 13.67
+    },
+    "count_note": "Targeted scopes overlap; do not sum them"
+  },
+  "full_default": {
+    "passed": 1947,
+    "skipped": 1,
+    "deselected": 2,
+    "seconds": 204.38,
+    "audit": {
+      "cache_file_accesses": 0,
+      "loopback_events": 5,
+      "network_attempts": 0,
+      "tokenizer_loads": 0
+    },
+    "skip": "Optional Torch-dependent contamination check; no installation attempted",
+    "deselections": "Exactly the two explicitly marked original tokenizer controls",
+    "cache_boundary": "Fresh isolated HF/Transformers/Datasets/modules/XDG caches, not cold OS page/loader caches",
+    "audit_scope": "Python external-network/cache audit: pytest process only. Tokenizer profile: installing main thread only. Child sensitivity tests intentionally attempt denied connections.",
+    "network_boundary": "OS external IPv4/IPv6 denial inherited by descendants. Loopback MCP fixtures and Unix IPC allowed; not strict no-IP/local-proxy isolation.",
+    "command": "PATH=<scratch>/observer-native:$PATH /usr/bin/sandbox-exec -f <scratch>/ip-network-deny.sb <python> -B <scratch>/run_offline_suite.py -q -ra -x --tb=short -o faulthandler_timeout=60"
+  },
+  "negative_controls": {
+    "digest_source_mutant": {
+      "expected_failures": 2,
+      "deselected": 38
+    },
+    "local_only_source_mutant": {
+      "expected_failures": 1,
+      "deselected": 39
+    },
+    "termination_disabled": "Real worker/descendant live at return, late marker; liveness guard rejects",
+    "actual_sigint": "Propagates, kills owned work, reaps leader; diagnostic directory retained",
+    "audit_sensitivity": "Network/open/stat/list/tokenizer probes each exit1 with exactly one matching count",
+    "observer_error": "Injected libproc EPERM classified UNKNOWN/executing and liveness guard rejects",
+    "scientific_input_mutations": {
+      "boundary": "Worker-only in-memory inputs with real admitted tokenizer; production inputs unchanged",
+      "shortened_positive": "Original length assertion rejects",
+      "bin_replacement": "Original bin assertion rejects [0,2,3,2,51]",
+      "note": "Replacement is actually 15 tokens, not historical docstring's 16"
+    }
+  },
+  "tokenizer_identity": {
+    "manifest": "bench/tokenizer_artifact.json",
+    "files": 8,
+    "snapshot": "db4e90b8359f816f09bf5c944797ce116f26da3c",
+    "scope": "Observed immutable contamination-test baseline, not upstream authentication or native model/template approval",
+    "limits": [
+      "Symlinks accepted after hashing",
+      "No cache immutability or TOCTOU guarantee"
+    ]
+  },
+  "observer": {
+    "reason": "Darwin sandbox rejects setuid /bin/ps",
+    "api": "SDK libproc.proc_pidinfo(PROC_PIDTBSDINFO), sizeof(proc_bsdinfo)=136",
+    "semantics": "ESRCH includes zombies and absent PIDs; both nonexecuting, verified with waitid WNOWAIT and system ps",
+    "normal_observations": 242,
+    "errors": 0,
+    "state_counts": {
+      "0": 232,
+      "2": 10
+    },
+    "native_binary_sha256": "e6c9e8b3c9e8550ce1085597a8ac934dd2afb21700fe8559bc953ab0b274f4a3",
+    "compilation": "/usr/bin/cc -Wall -Wextra -Werror -std=c11 <scratch>/process_observer.c -o <scratch>/observer-native/ps",
+    "error_control_compilation": "Same command with -DFORCE_OBSERVER_ERROR, separate observer-error/ps output",
+    "startup_limit": "First-execution/validation observer startup failures retained; observer warmed before successful probes. Fixture deadlines unchanged."
+  },
+  "reviews": {
+    "python": {
+      "task": "16373a12-0d89-4d82-9422-26b90c394964",
+      "result": "No high-confidence findings; exact tokenizer diff and fresh config-copy follow-up reviewed"
+    },
+    "security": {
+      "task": "2d18282e-5fb9-4467-9061-7c77a71c14d8",
+      "result": "No actionable source or validation-observer findings; audit/profile scope limits recorded"
+    },
+    "boundary": "Static reviews, runtime verification by parent/workers, no reviewer test execution"
+  },
+  "preserved_prior_research": {
+    "validated_artifact_hashes": 16,
+    "verification_sha256": "0f8063f449852c0665ab7985c5ee70e42808169f1dccc94a51f00004e154c112",
+    "boundary": "Original research receipt/history not rewritten"
+  },
+  "source_sha256": {
+    "bench/sql_parity_sweep.py": "642e62cf3bcfa4a5f33e82aa17979ec33dec4166c09cca1f9a5f71edc749be95",
+    "bench/test_sql_parity_sweep.py": "89853d6c1c2da3793334d89c9e9dcc887e250b0056dd7dfbe1d3061729c5af48",
+    "bench/fixtures/sweep_owned_worker.py": "ffa1dd81c65a3e62f608578af25701dd40409769a573103d40faffcc0458fba9",
+    "bench/tokenizer_artifact.py": "fdb27cccf1d1f5f7e27e13e7b887f12041d0f8a407d600fac0ad772b22852d29",
+    "bench/tokenizer_artifact.json": "8c91db3eb82c984d024a9b41e67b28f636f65d29e11ac92d76a3d141d3c772bc",
+    "bench/conftest.py": "0ec602aaaeb3618443847e24306bc2268561d4d5a80aad89a067e136a40f2447",
+    "bench/test_tokenizer_artifact.py": "29cab712c9f47e52a068c7c2170f98e20d04500ce8ab3383f8f42c1238de164d",
+    "bench/test_contamination.py": "c8d6e0eca4cfca186026c32eadbe968ae5e6a3204f5436897a68f82a4647ed26",
+    "pytest.ini": "fdf63ade30c60d5311f7d06a5d6ad22d98df9a1aff92b2b1edd3d2311b0770d3",
+    "ptc/mutate.py": "30aa57435fe8580febcc54d8e3a2e26b314e766939eab8f447310e9b7a2d1b7c",
+    "tests/test_mutation_harness.py": "f2df32803d183cb4283a0039d9919f989cc589591cbaa11808c2948771f9b108",
+    "README.md": "a1052eae6b4f111ad53d282ae19d5a86ab5f528420e5e62b9d919dc35fcd8a68",
+    "HANDOFF.md": "edbcc3be76fc45534998bc75a01e2556487f4b67672f1ef3609578c2fe279f0e",
+    "docs/harness-parity.md": "9b8a837dad33945303c3263154b613810576b2631d04dbf190098d625ba4cdc1",
+    "spec/offline-harness-reliability.md": "0541e87388bcf7515b2ca7db4252d674632f715caf2a658870526441e3096952",
+    ".gitleaks.toml": "b368b213e464a13b21b1f5fcd1eb0540ad6f936788a1299d2bef6f9480de2113"
+  },
+  "logs": [
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/tokenizer-green-parent.log",
+      "bytes": 99,
+      "sha256": "a9d1bef43ba9966c410e31a7bde92e3f1c1161386776057f9d73c109fc0c28ba",
+      "observed_exit_code": 0
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/tokenizer-real-green-parent-final.log",
+      "bytes": 113,
+      "sha256": "01ebd5f1028c037ce48e32f77426a642228d73e110e73f4b0e58f5ea45da4316",
+      "observed_exit_code": 0
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/sweep-green-parent-unsandboxed.log",
+      "bytes": 100,
+      "sha256": "80bdcf4f885821dc46b8a94f1bf4f69deffc8e0b5dc991cadf2473e92e52daf6",
+      "observed_exit_code": 0
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/owned-process-native-sandbox-green-parent.log",
+      "bytes": 181,
+      "sha256": "0bcfd05bdfc80836a73db30e2508df8aa6b32783ec92484a8ec0f34cbd576c68",
+      "observed_exit_code": 0
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/os-external-network-denial-final.log",
+      "bytes": 130,
+      "sha256": "866a74c1756aba275bbd6477628316b1503c37abd31392f3034f0d702f3655b5",
+      "observed_exit_code": 0
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/external-denial-loopback-positive-final.log",
+      "bytes": 63,
+      "sha256": "e33792c7bdbf738c07ef64ff509de7aeb4a3de92a5b18f9ff6e5e377292708bb",
+      "observed_exit_code": 0
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/offline-bridge-marker-green-final-02.log",
+      "bytes": 208,
+      "sha256": "2c2514fb72612b2bcc502cc2b338cb07e11435e5822d9b292a9d5f9272a60692",
+      "observed_exit_code": 0
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/observer-native-comparison-final.log",
+      "bytes": 396,
+      "sha256": "068ce8222b6290bcf57ba51f2283e48fbe24545017147b93cb14cf61f1b7c0cf",
+      "observed_exit_code": 0
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/observer-native-sandbox-final.log",
+      "bytes": 360,
+      "sha256": "c2796edff0d790948327a5ad5dfd7b9669b44ed4d8b381be732dd1c60d6506b2",
+      "observed_exit_code": 0
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/observer-error-control.log",
+      "bytes": 60,
+      "sha256": "5f9768c1b67b288096c7701243d520dedeea52495930b29b13d16fddab3eb387",
+      "observed_exit_code": 0
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/launcher-positive-final.log",
+      "bytes": 266,
+      "sha256": "e81724630d33a0928e42c4368e04c75012cc579cd4d91494e1b58f2d49e8e2ab",
+      "observed_exit_code": 0
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/cold-default-collection.log",
+      "bytes": 199038,
+      "sha256": "3d1680fed7adfb17760b6e08fd7297223f9cfc7d45f19633a79fd57c41b3f2ee",
+      "observed_exit_code": 0
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/cold-default-full-final.log",
+      "bytes": 2581,
+      "sha256": "b6c2b85f4134d33d38599ac409cdb4c4e0bb8b7fd5c86587eef46356ea48d765",
+      "observed_exit_code": 0
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/sweep-controls.log",
+      "bytes": 2796,
+      "sha256": "e465d2e188c8babbd82b1884352e2167492495da841c0b09211051eb9177260e",
+      "observed_exit_code": 0
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/sweep-liveness-repeat.log",
+      "bytes": 441,
+      "sha256": "71d7b437a2fb925d476ef2a91164a1203d19cac35d81f60a045090187dde3299",
+      "observed_exit_code": 0
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/sweep-red-parent.log",
+      "bytes": 11944,
+      "sha256": "33c1a410325b045753a46458a9521d822ff34327bbdc87b926db122496a86b54",
+      "observed_exit_code": 1
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/tokenizer-red-parent.log",
+      "bytes": 24324,
+      "sha256": "2c722b30f6159f0d23c4b3fb88393e5f220dcd68adb087155db0ab50f0bd7c18",
+      "observed_exit_code": 1
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/preflight-parent.log",
+      "bytes": 1238,
+      "sha256": "1d1f8c384e5f87129726c35fa81a365ff16fddb28b512baa4fe56c02ea0246ff",
+      "observed_exit_code": 1
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/tokenizer-mutant-digest-parent.log",
+      "bytes": 2549,
+      "sha256": "544a6ff6d5a19bec500919c2299b0b5c16da2ed33c987d7e45ff53f409491f24",
+      "observed_exit_code": 1
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/tokenizer-mutant-local-only-parent.log",
+      "bytes": 1824,
+      "sha256": "a680996f9c3a7b62d453af2c179803b797f535b7710741ecfb83b789f5f7239a",
+      "observed_exit_code": 1
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/fresh-marker-red-parent.log",
+      "bytes": 8217,
+      "sha256": "df96dc709903a24bfaba7f4d5f4b4a5b05aaab91fa85ee5d26dfe7adbb7cebd1",
+      "observed_exit_code": 1
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/launcher-network-final-02.log",
+      "bytes": 149,
+      "sha256": "0ddcaf3e59d00b6e1e3018c1f19dfa5bbf10f11523be5a21b4ffba0c913d7cd0",
+      "observed_exit_code": 1
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/launcher-cache-final-02.log",
+      "bytes": 151,
+      "sha256": "aa6566652631a2f7015a2eb043654b5a7e6dde9b86117f901d5c0b31f267932a",
+      "observed_exit_code": 1
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/launcher-cache-stat-final-02.log",
+      "bytes": 155,
+      "sha256": "1f52cbc923c0c95ead091b9286e811b0dc1d2adbce70584c138127b7c418bcbd",
+      "observed_exit_code": 1
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/launcher-cache-list-final-02.log",
+      "bytes": 151,
+      "sha256": "aa6566652631a2f7015a2eb043654b5a7e6dde9b86117f901d5c0b31f267932a",
+      "observed_exit_code": 1
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/launcher-tokenizer-final-02.log",
+      "bytes": 145,
+      "sha256": "6f0051b67196dd8932485867092de15f75bbc53f05ff6afcf48fd644706ed8a9",
+      "observed_exit_code": 1
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/scanner-baseline-red.log",
+      "bytes": 31,
+      "sha256": "9bc00b31fb065688a2b5f973a6b189eb9571f491f9c224dd50cf12ffcb49047a",
+      "observed_exit_code": 0
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/scanner-exceptions-green.log",
+      "bytes": 295,
+      "sha256": "a2ee6e10f8114e11829a931cc558d9637fd2cd5b23ac838e7f434b9ab4074567",
+      "observed_exit_code": 0
+    },
+    {
+      "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/scanner-broad-mutant-red.log",
+      "bytes": 493,
+      "sha256": "0a04773cd3068996ba178b6c08d8b596477c31f72ede6d3a30b00bffd3b91fe8",
+      "observed_exit_code": 1
+    }
+  ],
+  "infrastructure_failures_retained": [
+    {
+      "log": {
+        "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/cold-default-full-parent.log",
+        "bytes": 342,
+        "sha256": "c7aaf23d69e16ea49639403fbb5c4a1e0b7b8961adbe7295d07e9544c97c59f5",
+        "observed_exit_code": null
+      },
+      "signal": "TIMEOUT",
+      "seconds": 900,
+      "cause": "Initial strict no-IP policy stalls pre-existing local MCP server fixtures; incomplete run is not success"
+    },
+    {
+      "log": {
+        "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/sweep-green-parent.log",
+        "bytes": 17498,
+        "sha256": "ddfda3275824f5fe8c473c83ba2764628af4a61df490125d932964a6f757281b",
+        "observed_exit_code": 1
+      },
+      "cause": "5 failures: sandbox prevents spawning setuid ps, not production cleanup failures"
+    },
+    {
+      "log": {
+        "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/sweep-green-parent-sandboxed.log",
+        "bytes": 3985,
+        "sha256": "c2c83f63babc5f51cd50701b120f571b263e5bd169d1eefdede61f79af4be6d6",
+        "observed_exit_code": 1
+      },
+      "cause": "Python observer startup exceeded unchanged .20s observation deadline"
+    },
+    {
+      "log": {
+        "path": "/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/owned-process-sandbox-green-parent.log",
+        "bytes": 4066,
+        "sha256": "aa964cea8d2a6680dbeb953d98acf4325cb08e3953a152dabba4293ff724df7e",
+        "observed_exit_code": 1
+      },
+      "cause": "No-site Python observer still exceeded initial observation deadline"
+    }
+  ],
+  "verification_harness_sources": {
+    "run_offline_suite.py": {
+      "sha256": "f9aff304128b1e0c66c1a1a09ed6990f67b8e785663c5fb6771bcfa4ed8d595a",
+      "source": "\"\"\"Pytest-process audit counters; launch under sandbox-exec for OS network denial.\"\"\"\nfrom pathlib import Path\nimport json\nimport ipaddress\nimport os\nimport socket\nimport sys\nimport tempfile\n\nROOT = Path(\"/Users/nikolassapalidis/Developer/co-train\")\nsys.path.insert(0, str(ROOT))\nos.chdir(ROOT)\n\n\ndef main():\n    args = sys.argv[1:]\n    probe = args.pop(0) if args and args[0].startswith(\"--probe-\") else None\n    counts = {\"network_attempts\": 0, \"cache_file_accesses\": 0, \"tokenizer_loads\": 0,\n              \"loopback_events\": 0}\n    with tempfile.TemporaryDirectory(prefix=\"co-train-cold-cache-\") as directory:\n        cache = Path(directory)\n        paths = {\n            \"HF_HOME\": cache / \"hf\",\n            \"HF_HUB_CACHE\": cache / \"hf\" / \"hub\",\n            \"HUGGINGFACE_HUB_CACHE\": cache / \"hf\" / \"hub\",\n            \"HF_DATASETS_CACHE\": cache / \"hf\" / \"datasets\",\n            \"HF_MODULES_CACHE\": cache / \"hf\" / \"modules\",\n            \"TRANSFORMERS_CACHE\": cache / \"transformers\",\n            \"XDG_CACHE_HOME\": cache / \"xdg\",\n        }\n        for name, path in paths.items():\n            os.environ[name] = str(path)\n        os.environ.update({\n            \"HF_HUB_OFFLINE\": \"1\",\n            \"TRANSFORMERS_OFFLINE\": \"1\",\n            \"HF_DATASETS_OFFLINE\": \"1\",\n            \"PYTHONDONTWRITEBYTECODE\": \"1\",\n        })\n        os.environ.pop(\"PYTEST_ADDOPTS\", None)\n\n        guard_active = True\n\n        def loopback(value):\n            if isinstance(value, tuple):\n                value = value[0]\n            if value == \"localhost\" or value == b\"localhost\":\n                return True\n            try:\n                return ipaddress.ip_address(os.fsdecode(value)).is_loopback\n            except (ValueError, TypeError):\n                return False\n\n        def audit(event, arguments):\n            if not guard_active:\n                return\n            if event in {\"socket.connect\", \"socket.getaddrinfo\", \"socket.gethostbyname\",\n                         \"socket.gethostbyaddr\", \"socket.sendto\"}:\n                address = arguments[1] if event in {\"socket.connect\", \"socket.sendto\"} else arguments[0]\n                if loopback(address):\n                    counts[\"loopback_events\"] += 1\n                    return\n                counts[\"network_attempts\"] += 1\n                raise PermissionError(\"OFFLINE_NETWORK_ATTEMPT\")\n            if event in {\"open\", \"os.listdir\", \"os.scandir\"} and arguments and isinstance(\n                    arguments[0], (str, bytes, os.PathLike)):\n                path = Path(os.fsdecode(arguments[0])).absolute()\n                if path.is_relative_to(cache):\n                    counts[\"cache_file_accesses\"] += 1\n                    raise PermissionError(\"OFFLINE_CACHE_FILE_ACCESS\")\n\n        original_stat = os.stat\n\n        def guarded_stat(path, *args, **kwargs):\n            if guard_active and isinstance(path, (str, bytes, os.PathLike)):\n                candidate = Path(os.fsdecode(path)).absolute()\n                if candidate.is_relative_to(cache):\n                    counts[\"cache_file_accesses\"] += 1\n                    raise PermissionError(\"OFFLINE_CACHE_METADATA_ACCESS\")\n            return original_stat(path, *args, **kwargs)\n\n        def profile(frame, event, argument):\n            if (event == \"call\" and frame.f_code.co_name == \"from_pretrained\"\n                    and \"tokenization\" in frame.f_globals.get(\"__name__\", \"\")\n                    and frame.f_globals.get(\"__name__\", \"\").startswith(\"transformers\")):\n                counts[\"tokenizer_loads\"] += 1\n                raise RuntimeError(\"OFFLINE_TOKENIZER_LOAD\")\n\n        sys.addaudithook(audit)\n        os.stat = guarded_stat\n        sys.setprofile(profile)\n        code = 0\n        try:\n            if probe == \"--probe-network\":\n                with socket.socket() as connection:\n                    connection.connect((\"192.0.2.1\", 9))\n            elif probe == \"--probe-cache\":\n                (cache / \"missing-tokenizer.json\").read_bytes()\n            elif probe == \"--probe-cache-stat\":\n                (cache / \"missing-tokenizer.json\").exists()\n            elif probe == \"--probe-cache-list\":\n                os.listdir(cache)\n            elif probe == \"--probe-tokenizer\":\n                namespace = {\"__name__\": \"transformers.tokenization_fixture\"}\n                exec(\"def from_pretrained():\\n    return 'unreachable'\\n\", namespace)\n                namespace[\"from_pretrained\"]()\n            elif probe is not None:\n                raise ValueError(\"Unknown probe\")\n            else:\n                import pytest\n                code = int(pytest.main([\"-p\", \"no:cacheprovider\", *args]))\n        except (PermissionError, RuntimeError) as error:\n            print(type(error).__name__ + \": \" + str(error), flush=True)\n            code = 1\n        finally:\n            sys.setprofile(None)\n            os.stat = original_stat\n            print(\"OFFLINE_AUDIT \" + json.dumps(counts, sort_keys=True), flush=True)\n            guard_active = False\n        return code or int(any(value for key, value in counts.items() if key != \"loopback_events\"))\n\n\nif __name__ == \"__main__\":\n    raise SystemExit(main())\n"
+    },
+    "verify_os_network_deny.py": {
+      "sha256": "1f3cc59d0a42af5fffa1c5c5e07842f0fd5032a3195594767b8396991024e1a3",
+      "source": "\"\"\"Both this process and an inherited child must get EPERM before connecting.\"\"\"\nimport asyncio\nimport json\nimport socket\nimport subprocess\nimport sys\n\n\ndef denied():\n    for family, address in (\n            (socket.AF_INET, (\"192.0.2.1\", 9)), (socket.AF_INET6, (\"2001:db8::1\", 9))):\n        with socket.socket(family) as connection:\n            connection.settimeout(0.1)\n            try:\n                connection.connect(address)\n            except PermissionError:\n                continue\n        raise RuntimeError(\"OS IP network denial not demonstrated\")\n    assert asyncio.run(asyncio.to_thread(lambda: \"thread-wakeup\")) == \"thread-wakeup\"\n    return True\n\n\nif __name__ == \"__main__\":\n    if \"--child\" in sys.argv:\n        assert denied()\n        print(\"CHILD_OS_NETWORK_DENIAL_CONFIRMED\")\n    else:\n        assert denied()\n        result = subprocess.run(\n            [sys.executable, \"-B\", __file__, \"--child\"], text=True,\n            capture_output=True, check=True, timeout=2.0,\n        )\n        assert result.stdout.strip() == \"CHILD_OS_NETWORK_DENIAL_CONFIRMED\"\n        print(json.dumps({\"direct_process_denied\": True, \"inherited_child_denied\": True,\n                          \"external_ipv4_ipv6_denied\": True, \"unix_thread_ipc_works\": True}))\n"
+    },
+    "process_observer.c": {
+      "sha256": "c8e612bbe1b29ba403fce5903bbe443c7c9e3404e10f9eb6fe315518f3dd5b32",
+      "source": "/* Real SDK libproc observer for the two test-fixture ps argument forms. */\n#include <errno.h>\n#include <limits.h>\n#include <libproc.h>\n#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n\nint main(int argc, char **argv) {\n    const char *text = NULL;\n    if (argc == 5 && !strcmp(argv[1], \"-p\") &&\n            !strcmp(argv[3], \"-o\") && !strcmp(argv[4], \"stat=\")) {\n        text = argv[2];\n    } else if (argc == 5 && !strcmp(argv[1], \"-o\") &&\n            !strcmp(argv[2], \"stat=\") && !strcmp(argv[3], \"-p\")) {\n        text = argv[4];\n    }\n    char *end = NULL;\n    long pid = text ? strtol(text, &end, 10) : 0;\n    int invalid = !text || !end || *end || pid <= 0 || pid > INT_MAX;\n    struct proc_bsdinfo info = {0};\n    errno = 0;\n    int count = invalid ? 0 : proc_pidinfo((int)pid, PROC_PIDTBSDINFO, 0,\n                                          &info, sizeof(info));\n    int error = errno;\n#ifdef FORCE_OBSERVER_ERROR\n    count = 0;\n    error = EPERM;\n#endif\n    int absent = !invalid && count == 0 && error == ESRCH;\n    int valid = !invalid && count == sizeof(info) &&\n        info.pbi_pid == pid && info.pbi_status >= 1 && info.pbi_status <= 5;\n    int unknown = !absent && !valid;\n    FILE *log = fopen(\n        \"/Users/nikolassapalidis/scratch/co-train-offline-reliability-2026-10-23/\"\n#ifdef FORCE_OBSERVER_ERROR\n        \"observer-error-observations.jsonl\", \"a\");\n#else\n        \"observer-native-observations.jsonl\", \"a\");\n#endif\n    if (!log) {\n        puts(\"UNKNOWN\");\n        return 0;\n    }\n    fprintf(log, \"{\\\"pid\\\":%ld,\\\"bytes\\\":%d,\\\"errno\\\":%d,\\\"state\\\":%u,\"\n                 \"\\\"observer_error\\\":%s}\\n\",\n            pid, count, error, info.pbi_status, unknown ? \"true\" : \"false\");\n    if (fclose(log)) unknown = 1;\n    if (unknown) {\n        puts(\"UNKNOWN\"); /* Conservative: both fixtures treat this as executing. */\n        return 0;\n    }\n    if (absent) return 1; /* Darwin excludes both zombies and absent PIDs. */\n    const char states[] = \"?IRSTZ\";\n    printf(\"%c\\n\", states[info.pbi_status]);\n    return 0;\n}\n"
+    },
+    "probe_process_status.py": {
+      "sha256": "a2d386acfbbc77282ee91c9f634276bd390f952e1059fd152a28563e7bdbdf33",
+      "source": "\"\"\"Real Darwin process-state probe, SDK-confirmed 136-byte proc_bsdinfo.\"\"\"\nimport ctypes\nimport errno\nimport json\nimport os\nimport select\nimport subprocess\nimport sys\n\nLIB = ctypes.CDLL(\"/usr/lib/libproc.dylib\", use_errno=True)\nLIB.proc_pidinfo.argtypes = [\n    ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int,\n]\nLIB.proc_pidinfo.restype = ctypes.c_int\nSTATES = {1: \"I\", 2: \"R\", 3: \"S\", 4: \"T\", 5: \"Z\"}\n\n\ndef status(pid):\n    data = (ctypes.c_uint32 * 34)()\n    ctypes.set_errno(0)\n    count = LIB.proc_pidinfo(pid, 3, 0, data, ctypes.sizeof(data))\n    code = ctypes.get_errno()\n    result = {\"pid\": pid, \"bytes\": count, \"errno\": code}\n    if count == 0 and code == errno.ESRCH:\n        return {**result, \"state\": None}\n    if count != 136 or data[3] != pid or data[1] not in STATES:\n        raise RuntimeError(f\"unverified process state: {result}\")\n    return {**result, \"state\": STATES[data[1]]}\n\n\ndef check_native(pid, executing):\n    if \"--native\" not in sys.argv:\n        return {}\n    executable = sys.argv[sys.argv.index(\"--native\") + 1]\n    completed = subprocess.run(\n        [executable, \"-o\", \"stat=\", \"-p\", str(pid)], text=True,\n        capture_output=True, timeout=.2,\n    )\n    observed = completed.returncode == 0 and bool(completed.stdout.strip()) and not (\n        completed.stdout.strip().startswith(\"Z\"))\n    assert observed is executing, (completed.returncode, completed.stdout, completed.stderr)\n    return {\"native_returncode\": completed.returncode, \"native_output\": completed.stdout.strip()}\n\n\ndef main():\n    process = subprocess.Popen(\n        [sys.executable, \"-B\", \"-c\",\n         \"import time; print('ready', flush=True); time.sleep(.15)\"],\n        stdout=subprocess.PIPE, text=True,\n    )\n    reports = []\n    try:\n        assert select.select([process.stdout], [], [], 1.0)[0]\n        assert process.stdout.readline() == \"ready\\n\"\n        reports.append({\"phase\": \"live\", **status(process.pid)})\n        assert reports[-1][\"state\"] in {\"I\", \"R\", \"S\", \"T\"}\n        reports[-1].update(check_native(process.pid, True))\n        if \"--compare-ps\" in sys.argv:\n            reports[-1][\"system_ps\"] = subprocess.run(\n                [\"/bin/ps\", \"-p\", str(process.pid), \"-o\", \"stat=\"],\n                check=True, capture_output=True, text=True, timeout=.2,\n            ).stdout.strip()\n            assert not reports[-1][\"system_ps\"].startswith(\"Z\")\n        assert select.select([process.stdout], [], [], 1.0)[0]\n        assert process.stdout.read(1) == \"\"\n        # Darwin exposes waitid in libc but not Python's os module. WNOWAIT\n        # synchronizes kernel exit without reaping or an arbitrary sleep.\n        libc = ctypes.CDLL(None, use_errno=True)\n        libc.waitid.argtypes = [ctypes.c_int, ctypes.c_uint, ctypes.c_void_p, ctypes.c_int]\n        libc.waitid.restype = ctypes.c_int\n        info = ctypes.create_string_buffer(512)\n        assert libc.waitid(os.P_PID, process.pid, info, os.WEXITED | os.WNOWAIT) == 0\n        reports.append({\"phase\": \"unreaped\", **status(process.pid)})\n        assert reports[-1][\"state\"] in {\"Z\", None}, reports\n        reports[-1].update(check_native(process.pid, False))\n        if \"--compare-ps\" in sys.argv:\n            reports[-1][\"system_ps\"] = subprocess.run(\n                [\"/bin/ps\", \"-p\", str(process.pid), \"-o\", \"stat=\"],\n                check=True, capture_output=True, text=True, timeout=.2,\n            ).stdout.strip()\n            assert reports[-1][\"system_ps\"].startswith(\"Z\")\n        process.wait(timeout=.2)\n        reports.append({\"phase\": \"reaped\", **status(process.pid)})\n        assert reports[-1][\"state\"] is None\n        reports[-1].update(check_native(process.pid, False))\n    finally:\n        if process.poll() is None:\n            process.kill()\n        process.wait(timeout=.2)\n        process.stdout.close()\n    print(json.dumps(reports), flush=True)\n\n\nif __name__ == \"__main__\":\n    main()\n"
+    },
+    "observer_error_control.py": {
+      "sha256": "8af06dd4eba810326f6fd335c35eda0a200a44e79cbf7260462cf1d641a2a942",
+      "source": "\"\"\"Injected libproc EPERM must be executing/unknown, never silently dead.\"\"\"\nimport os\nfrom pathlib import Path\nimport subprocess\nimport sys\n\nBASE = Path(__file__).resolve().parent\nsys.path.insert(0, \"/Users/nikolassapalidis/Developer/co-train\")\nfrom bench.test_sql_parity_sweep import _assert_owned_stopped, _executing\n\nbinary = BASE / \"observer-error/ps\"\ncompleted = subprocess.run(\n    [str(binary), \"-p\", str(os.getpid()), \"-o\", \"stat=\"],\n    capture_output=True, text=True, timeout=2.0,\n)\nassert completed.returncode == 0 and completed.stdout.strip() == \"UNKNOWN\", completed\nos.environ[\"PATH\"] = str(binary.parent) + os.pathsep + os.environ[\"PATH\"]\nassert _executing(os.getpid()), \"observer API denial was misclassified as dead\"\ntry:\n    _assert_owned_stopped({\"pids\": [os.getpid(), os.getpid()], \"live_at_return\": [os.getpid()]})\nexcept AssertionError as error:\n    assert \"owned work still executing\" in str(error)\nelse:\n    raise AssertionError(\"liveness guard accepted unknown/error state\")\nprint(\"INJECTED_EPERM_REMAINS_EXECUTING_AND_LIVENESS_GUARD_REJECTS\")\n"
+    },
+    "run_tokenizer_mutation.py": {
+      "sha256": "36cdc074b5d3565c3a827e9c8ebc4605fbf34e1654cea11325e971744db4f25f",
+      "source": "\"\"\"Mutate trusted helper source in memory; never rewrite production files.\"\"\"\nfrom pathlib import Path\nimport sys\nimport types\n\nROOT = Path(\"/Users/nikolassapalidis/Developer/co-train\")\nsys.path.insert(0, str(ROOT))\nfilename = ROOT / \"bench/tokenizer_artifact.py\"\nsource = filename.read_text()\nmode = sys.argv[1]\nif mode == \"digest\":\n    before, after = \"if digest.hexdigest() != expected:\", \"if False:\"\n    selection = \"one_byte_corruption_refuses_before_loader\"\nelif mode == \"local-only\":\n    before, after = \"local_files_only=True\", \"local_files_only=False\"\n    selection = \"admitted_loader_is_local_only_without_remote_code\"\nelse:\n    raise ValueError(mode)\nassert source.count(before) == 1\nmodule = types.ModuleType(\"bench.tokenizer_artifact\")\nmodule.__file__ = str(filename)\nexec(compile(source.replace(before, after), str(filename), \"exec\"), module.__dict__)\nsys.modules[module.__name__] = module\nimport bench\nbench.tokenizer_artifact = module\nimport pytest\nprint(\"IN_MEMORY_MUTATION=\" + mode, flush=True)\nraise SystemExit(pytest.main([\n    \"-p\", \"no:cacheprovider\", str(ROOT / \"bench/test_tokenizer_artifact.py\"),\n    \"-q\", \"-k\", selection,\n]))\n"
+    },
+    "ip-network-deny.sb": {
+      "sha256": "e0106ce7a8cd06e565d0e7013162b9228a7e3ed7c6c5c526d74abf5f66375c9a",
+      "source": "(version 1)\n(allow default)\n(deny network*)\n(allow network-outbound (remote ip \"localhost:*\"))\n(allow network-inbound (local ip \"localhost:*\"))\n(allow network-bind (local ip \"localhost:*\"))\n(allow network-outbound (remote unix-socket))\n(allow network-inbound (local unix-socket))\n(allow network-bind (local unix-socket))\n"
+    },
+    "probe_network_profile.py": {
+      "sha256": "39d56ea3aeb418336b92bca71506d97b2533464b1f22fb081ff1ba85f87e2fdc",
+      "source": "\"\"\"Prove live loopback TCP and actual denied external IPv4/IPv6 connects.\"\"\"\nimport json\nimport socket\n\ndenied = []\nfor family, address in (\n        (socket.AF_INET, (\"192.0.2.1\", 9)), (socket.AF_INET6, (\"2001:db8::1\", 9))):\n    with socket.socket(family) as connection:\n        connection.settimeout(.2)\n        try:\n            connection.connect(address)\n        except PermissionError:\n            denied.append(family.name)\n        else:\n            raise RuntimeError(\"External network not denied\")\nwith socket.socket() as server:\n    server.settimeout(.2)\n    server.bind((\"127.0.0.1\", 0))\n    server.listen(1)\n    with socket.socket() as client:\n        client.settimeout(.2)\n        client.connect(server.getsockname())\n        accepted, _ = server.accept()\n        with accepted:\n            client.sendall(b\"local\")\n            assert accepted.recv(5) == b\"local\"\nprint(json.dumps({\"denied\": denied, \"real_loopback_tcp\": True}))\n"
+    },
+    "verify_digest_exceptions.py": {
+      "sha256": "29cca4fa89fae3860e397d1aa633410f32c985fcc918112c99017d62fb93e825",
+      "source": "\"\"\"Offline synthetic scanner controls; these values are public test fingerprints.\"\"\"\nimport hashlib\nimport json\nfrom pathlib import Path\nimport subprocess\nimport sys\nimport tempfile\n\nROOT = Path(\"/Users/nikolassapalidis/Developer/co-train\")\nBASE = Path(__file__).resolve().parent\nAPPROVED = (\n    \"c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680\",\n    \"b5acd1507cb3a3539e63369cb4a2b675a599cf13afe62282d371518288967797\",\n    \"aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4\",\n    \"4ef57575bc83af4d673452f3df9a22f4efb75f8d73f2090998f5ee679ccb7fab\",\n    \"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\n    \"fdb27cccf1d1f5f7e27e13e7b887f12041d0f8a407d600fac0ad772b22852d29\",\n    \"8c91db3eb82c984d024a9b41e67b28f636f65d29e11ac92d76a3d141d3c772bc\",\n    \"29cab712c9f47e52a068c7c2170f98e20d04500ce8ab3383f8f42c1238de164d\",\n)\n\n\ndef scan(config, target, report):\n    completed = subprocess.run(\n        [\"gitleaks\", \"dir\", \"--config\", str(config), \"--redact\", \"--no-banner\",\n         \"--no-color\", \"--report-format\", \"json\", \"--report-path\", str(report),\n         str(target)],\n        cwd=ROOT, capture_output=True, text=True, timeout=10, check=False,\n    )\n    assert completed.returncode in (0, 1), completed.stderr\n    findings = json.loads(report.read_text())\n    return completed.returncode, findings\n\n\ndef main():\n    with tempfile.TemporaryDirectory(prefix=\"scanner-controls-\", dir=BASE) as directory:\n        root = Path(directory)\n        default = root / \"default.toml\"\n        default.write_text(\"[extend]\\nuseDefault = true\\n\")\n        allowed = root / \"approved.json\"\n        allowed.write_text(json.dumps({f\"api_key_{i}\": value\n                                       for i, value in enumerate(APPROVED)}, indent=2))\n        code, findings = scan(default, allowed, root / \"default-report.json\")\n        assert code == 1 and len(findings) == 8, (code, len(findings))\n        assert {row[\"RuleID\"] for row in findings} == {\"generic-api-key\"}\n        summary = {\"default_false_positives\": len(findings)}\n        if \"--baseline-only\" in sys.argv:\n            print(json.dumps(summary))\n            return\n        config = ROOT / \".gitleaks.toml\"\n        if \"--broad-mutant\" in sys.argv:\n            mutant = root / \"broad.toml\"\n            source = config.read_text()\n            old = \"^\" + APPROVED[0] + \"$\"\n            assert source.count(old) == 1\n            mutant.write_text(source.replace(old, \"^.*$\"))\n            config = mutant\n        code, findings = scan(config, allowed, root / \"admitted-report.json\")\n        assert code == 0 and findings == [], (code, len(findings))\n        unrelated = hashlib.sha256(b\"SYNTHETIC_NONCREDENTIAL_NEGATIVE_CONTROL\").hexdigest()\n        cases = {\n            \"unrelated_hex\": {\"api_key\": unrelated},\n            \"uppercase\": {\"api_key\": APPROVED[0].upper()},\n            \"embedded\": {\"api_key\": \"X\" + APPROVED[0] + \"Y\"},\n            \"provider\": {\"github_token\": \"ghp_\" + hashlib.sha256(b\"SYNTHETIC_PROVIDER_TOKEN\").hexdigest()[:36]},\n        }\n        summary[\"negative_controls\"] = {}\n        for name, data in cases.items():\n            path = root / (name + \".json\")\n            path.write_text(json.dumps(data))\n            code, findings = scan(config, path, root / (name + \"-report.json\"))\n            assert code == 1 and findings, f\"{name}: scanner failed to detect synthetic key\"\n            summary[\"negative_controls\"][name] = {\n                \"exit_code\": code, \"rules\": sorted({row[\"RuleID\"] for row in findings})}\n        print(json.dumps(summary, sort_keys=True))\n\n\nif __name__ == \"__main__\":\n    main()\n"
+    }
+  },
+  "limits": [
+    "POSIX original process group, not escaped-session/Windows containment",
+    "Output volume remains unbounded",
+    "Unexpected cleanup/interruption preserves diagnostic directories",
+    "Already-running pool tasks remain independently bounded; queued tasks cancel",
+    "No full 800/1534-query corpus rerun; historical divergences not repaired",
+    "No learning/runtime compatibility proof; original frozen/native dependency conflict and template rejection remain"
+  ],
+  "actions_not_taken": [
+    "dependency/model install or download",
+    "paid/API/GPU/training job",
+    "scientific contract/threshold/manifest/model-revision/channel/G/corpus/evaluation changes",
+    "native-template shim",
+    "push",
+    "deployment",
+    "reference checkout writes"
+  ],
+  "commit_scanner": {
+    "owner_explicitly_approved": true,
+    "configuration": ".gitleaks.toml",
+    "defaults_retained": true,
+    "rule": "generic-api-key",
+    "regex_target": "secret",
+    "exceptions": 8,
+    "boundary": "Anchored case-sensitive exact public SHA256 values only; no path, line or provider-rule exclusions; no hook bypass",
+    "positive_and_negative_results": {
+      "default_false_positives": 8,
+      "negative_controls": {
+        "embedded": {
+          "exit_code": 1,
+          "rules": [
+            "generic-api-key"
+          ]
+        },
+        "provider": {
+          "exit_code": 1,
+          "rules": [
+            "github-pat"
+          ]
+        },
+        "unrelated_hex": {
+          "exit_code": 1,
+          "rules": [
+            "generic-api-key"
+          ]
+        },
+        "uppercase": {
+          "exit_code": 1,
+          "rules": [
+            "generic-api-key"
+          ]
+        }
+      }
+    },
+    "overbroad_mutation": {
+      "driver_exit_code": 1,
+      "assertion": "unrelated_hex: scanner failed to detect synthetic key"
+    },
+    "synthetic_inputs_only": true
+  }
+}

@@ -20,6 +20,7 @@ taskset whose tasks sit near a 0.6B model's frontier, declared in
 | `preflight` and everything in `train/guards.py` | implemented, tested offline, fails red |
 | `training_config` | implemented, tested offline |
 | `PTCEnvironment` turn budget and refusal | implemented, tested offline |
+| `sql_environment` | task-bound execution seam only; no TRL integration |
 | `step_zero_tool_success` | implemented, tested offline |
 | `model_spec` / `training_config` call shapes | **read from library source, never run** |
 | the taskset, its catalog, the dataset loader | not built; the frontier taskset's deliverable |
@@ -34,7 +35,7 @@ from __future__ import annotations
 import json
 import pathlib
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 if __package__ in (None, ""):  # invoked as `python train/<file>.py`, not `-m`
     import pathlib as _pathlib
@@ -66,6 +67,7 @@ from train.guards import (
     require_stack,
     resolved_versions,
 )
+from train.native_runtime import require_native_runtime
 
 # -------------------------------------------------------- the one tool, again
 
@@ -96,11 +98,10 @@ into offering different tools."""
 class PTCEnvironment:
     """Per-rollout state handed out by the `environment_factory`.
 
-    This exists because trl's `_tool_call_loop` is `while idxs_with_tool:` whose
-    only exit is "all overlong", and `tool_call_count` is a logging counter, not
-    a limit (measured). The turn budget has to live here, per rollout -- which is
-    why the pipeline needs trl 1.13.0 and not 0.26 -- and running out has to
-    return a refusal the model reads rather than a hang.
+    Native TRL can bound tool-calling iterations. The evaluation budget must
+    also count program submissions independently, including several calls in
+    one round. Keep that budget here, per rollout; exhaustion returns a refusal
+    the model can read without dispatching another program.
 
     `turns_used` is recorded per rollout and reported separately from H4 on
     purpose: mode 3's signature lives in turn counts, and H4's own response to it
@@ -110,6 +111,7 @@ class PTCEnvironment:
     max_turns: int
     tools: tuple[dict, ...] = (THE_TOOL_SCHEMA,)
     budget: TurnBudget = field(init=False)
+    _executor: Callable[[str], str] | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         self.budget = TurnBudget(max_turns=self.max_turns)
@@ -123,22 +125,20 @@ class PTCEnvironment:
         return self.budget.exhausted_message()
 
     def step(self, code: str) -> str:
-        """Spend a turn and run one program. UNVERIFIED wiring below the budget.
+        """Spend a turn before dispatching to an explicitly task-bound executor.
 
-        The budget half is real and tested. The execution half needs
-        `ptc.runtime.run` against a `Catalog` built from the task's catalog
-        functions, which is the part that depends on the frontier taskset's
-        shape; it raises rather than returning a plausible string, because a
-        stub that returned output would make a flipped or empty pipeline look
-        like a working one.
+        Unbound environments still raise rather than returning plausible output.
+        This seam does not wire TRL rollouts, model calls or training.
         """
         refusal = self.budget.consume()
         if refusal is not None:
             return refusal
-        raise NotImplementedError(
-            "program execution is wired to the frontier taskset's catalog, which "
-            "does not exist yet (spec §344). See preflight()."
-        )
+        if self._executor is None:
+            raise NotImplementedError(
+                "program execution has no task-bound executor (spec §344). "
+                "See preflight()."
+            )
+        return self._executor(code)
 
 
 def environment_factory(root: pathlib.Path = REPO_ROOT):
@@ -154,6 +154,26 @@ def environment_factory(root: pathlib.Path = REPO_ROOT):
         return PTCEnvironment(max_turns=max_turns)
 
     return factory
+
+
+def sql_environment(
+    task: Any, root: pathlib.Path = REPO_ROOT,
+) -> tuple[str, PTCEnvironment]:
+    """Bind one SqlTask to a fresh environment and its existing PTC-arm prompt.
+
+    Only the arm's prompt and the existing single program-tool schema are exposed;
+    the gold query is not a model input. Imports stay local so the unbound factory
+    and preflight need neither SQL-arm execution nor any training framework.
+    """
+    from ptc.sql_arms import Budget, build_sql_arms
+
+    max_turns = eval_max_turns(root)
+    pair = build_sql_arms(task, budget=Budget(max_turns=max_turns))
+
+    def execute(code: str) -> str:
+        return pair.run("ptc", code)
+
+    return pair.prompt("ptc"), PTCEnvironment(max_turns=max_turns, _executor=execute)
 
 
 # ------------------------------------------------------------------- config
@@ -178,6 +198,8 @@ def training_config(
     `"server"` at 0.24.0, and server mode brings a two-device requirement. Same
     source, different topology, no error (§88).
     """
+    if isinstance(steps, bool) or not isinstance(steps, int) or steps <= 0:
+        raise ValueError("steps must be a positive integer")
     cap = completion_cap(arms)
     assert_cap(cap, arms)
     return {
@@ -246,6 +268,8 @@ def preflight(
     arms: Sequence[str] = TRAINED_ARMS_DEFAULT,
     root: pathlib.Path = REPO_ROOT,
     versions: dict[str, str | None] | None = None,
+    *,
+    steps: int = 200,
 ) -> dict[str, Any]:
     """Every guard, in the order that fails cheapest first. Raises; returns the config.
 
@@ -257,8 +281,27 @@ def preflight(
     """
     require_frontier_taskset(root)
     require_stack(versions)
+    return _preflight_invariants(arms, root, steps)
 
-    config = training_config(arms)
+
+def native_sql_preflight(
+    *, root: pathlib.Path = REPO_ROOT, steps: int = 200,
+) -> dict[str, Any]:
+    """Fixed native SQL lane, with the same frontier and scientific invariants.
+
+    Installed metadata is read afresh by the native policy. Its unresolved
+    verification requirements still refuse activation, even at the exact pins.
+    """
+    require_frontier_taskset(root)
+    require_native_runtime()
+    return _preflight_invariants(TRAINED_ARMS_DEFAULT, root, steps)
+
+
+def _preflight_invariants(
+    arms: Sequence[str], root: pathlib.Path, steps: int,
+) -> dict[str, Any]:
+    """Shared scientific invariants, after the lane's frontier and stack gates."""
+    config = training_config(arms, steps=steps)
     environment = environment_factory(root)()
     assert_one_tool(environment.tools)
     assert_turn_budget(environment, root)
@@ -310,7 +353,7 @@ def build_parser():
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    config = preflight(args.arms)  # raises PreconditionUnmet today, by design
+    config = preflight(args.arms, steps=args.steps)  # gate remains closed by design
 
     if args.preflight_only:
         print(json.dumps(

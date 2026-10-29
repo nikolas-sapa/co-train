@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-23",
+  "method": "Local stdlib file/JSON/digest audit only; no upstream code imported or executed",
+  "reports": [
+    {
+      "name": "meta-mechanisms",
+      "report_bytes": 24770,
+      "report_sha256": "a7cfb1050964d936d2f8ffde066687e09d5a05a8ccedb432dddd4365aa748f0b",
+      "manifest_sha256": "0e960b604b23bb55479ef1ef7b3f3f9aa8590a5c90b10ae24f9838746137eaab",
+      "indexed_sources": 33,
+      "cache_paths": 0,
+      "missing_cache": [],
+      "declared_cached_sha256_matches": 0,
+      "declared_cached_sha256_mismatches": [],
+      "git_blob_matches": 0,
+      "git_blob_mismatches": []
+    },
+    {
+      "name": "meta-failures",
+      "report_bytes": 29174,
+      "report_sha256": "483f4d6afde407cdba8e4b2321440fc2d6f7dcec1682d0a638a05cc3bbb0e4bf",
+      "manifest_sha256": "1ce398c087474d6c4ac6b482fc323734dfb2a0be8e54f8ab3bd7c78c6ec37e71",
+      "indexed_sources": 29,
+      "cache_paths": 29,
+      "missing_cache": [],
+      "declared_cached_sha256_matches": 0,
+      "declared_cached_sha256_mismatches": [],
+      "git_blob_matches": 29,
+      "git_blob_mismatches": []
+    },
+    {
+      "name": "rllm-mechanisms",
+      "report_bytes": 33841,
+      "report_sha256": "e7a71736925e989a63bd2f51a0b1d0e5074f883028c56e792dd090d14d3ea670",
+      "manifest_sha256": "95cfe3829197864407a5b02a6d9f35bcca175825c1a7574497a5d2adf0fb1f42",
+      "indexed_sources": 65,
+      "cache_paths": 65,
+      "missing_cache": [],
+      "declared_cached_sha256_matches": 0,
+      "declared_cached_sha256_mismatches": [],
+      "git_blob_matches": 55,
+      "git_blob_mismatches": [
+        {
+          "path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-mechanisms-cache/LICENSE",
+          "expected": "7a4a3ea2424c09fbe48d455aed1eaa94d9124835",
+          "cached_blob_sha": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+          "interpretation": "FetchUrl cached text is not byte-identical to Git blob; not executed"
+        },
+        {
+          "path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-mechanisms-cache/docs/backends/comparison.mdx",
+          "expected": "b9f6e1aaf8167630f0233921e972e8bd72876706",
+          "cached_blob_sha": "29f7616175e3502e94237dca478d719d65c9e5ee",
+          "interpretation": "FetchUrl cached text is not byte-identical to Git blob; not executed"
+        },
+        {
+          "path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-mechanisms-cache/rllm/trainer/config/rllm/backend/tinker.yaml",
+          "expected": "6b4c87364507751995e35cbee55c860cccd536cd",
+          "cached_blob_sha": "2dcd794fbc88b36dfe7a54c5529d8b36c814dee3",
+          "interpretation": "FetchUrl cached text is not byte-identical to Git blob; not executed"
+        }
+      ]
+    },
+    {
+      "name": "rllm-failures",
+      "report_bytes": 32909,
+      "report_sha256": "9e7a7da3947b28c24cf1d709c14dfde9cbb7e1ae5a17f5ee05d3af4e0e2ca9a9",
+      "manifest_sha256": "4bdd5b3f4ced65acc7b91d153d769b4e963546c66c6163e71b0b2918cdec9d4d",
+      "indexed_sources": 40,
+      "cache_paths": 40,
+      "missing_cache": [],
+      "declared_cached_sha256_matches": 0,
+      "declared_cached_sha256_mismatches": [],
+      "git_blob_matches": 39,
+      "git_blob_mismatches": [
+        {
+          "path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/rllm-failures-cache/LICENSE",
+          "expected": "7a4a3ea2424c09fbe48d455aed1eaa94d9124835",
+          "cached_blob_sha": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+          "interpretation": "FetchUrl cached text is not byte-identical to Git blob; not executed"
+        }
+      ]
+    },
+    {
+      "name": "skyrl-mechanisms",
+      "report_bytes": 34122,
+      "report_sha256": "1c3b1974d74fa0e784d9d348d7f1e58ddb7cc435ce2aba937aed614069f8add8",
+      "manifest_sha256": "de6d027df56542f44ec0b937d95edf3b2ccb3d54f7f634b6dae2055c1f1cd6b8",
+      "indexed_sources": 49,
+      "cache_paths": 49,
+      "missing_cache": [],
+      "declared_cached_sha256_matches": 0,
+      "declared_cached_sha256_mismatches": [],
+      "git_blob_matches": 49,
+      "git_blob_mismatches": []
+    },
+    {
+      "name": "skyrl-failures",
+      "report_bytes": 23000,
+      "report_sha256": "992f695023dabfbdcc548bb8d65e4adbf3975910bdb60080c5c1977e9209f6ee",
+      "manifest_sha256": "8c3ec075bdda8240da7d6ee0cdbf4ffd1f2cb5aa9061f74279fa4dda0c57138e",
+      "indexed_sources": 35,
+      "cache_paths": 35,
+      "missing_cache": [],
+      "declared_cached_sha256_matches": 35,
+      "declared_cached_sha256_mismatches": [],
+      "git_blob_matches": 34,
+      "git_blob_mismatches": [
+        {
+          "path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-failures-cache/docs__content__docs__checkpointing-logging__checkpointing.mdx",
+          "expected": "08e2ef1d3efd33fe627c39f21959613bc7be2795",
+          "cached_blob_sha": "e9c2ed0676fa57e87e36649bc97a98b38172f638",
+          "interpretation": "FetchUrl cached text is not byte-identical to Git blob; not executed"
+        }
+      ]
+    }
+  ],
+  "papers": [
+    {
+      "id": "2507.19457v1",
+      "source_url": "https://arxiv.org/html/2507.19457v1",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/papers/2507.19457v1.md",
+      "cached_text_bytes": 475702,
+      "cached_text_sha256": "f6d8e4ce985ab3c7355279f6ebb627f5fc63ec694f1bbb0e1bd0d0c798a1f65a",
+      "runtime_reproduced": false
+    },
+    {
+      "id": "2507.19457v2",
+      "source_url": "https://arxiv.org/html/2507.19457v2",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/papers/2507.19457v2.md",
+      "cached_text_bytes": 513033,
+      "cached_text_sha256": "be8981b4e8d96a6ce4130f0d364802f038a5d9bc5f7c05406dba8afce1cc2e3c",
+      "runtime_reproduced": false
+    },
+    {
+      "id": "2603.28052v1",
+      "source_url": "https://arxiv.org/html/2603.28052v1",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/papers/2603.28052v1.md",
+      "cached_text_bytes": 115507,
+      "cached_text_sha256": "eb3dbe5ea9b3ed9853b567934325d3fab8ec94593c8c55014e11f5bb54e9dd2a",
+      "runtime_reproduced": false
+    },
+    {
+      "id": "2607.12227v4",
+      "source_url": "https://arxiv.org/html/2607.12227v4",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/papers/2607.12227v4.md",
+      "cached_text_bytes": 111585,
+      "cached_text_sha256": "24f0f16f606c19392e67b27843534f42be93d7e7ad591813ffbddab895ca04ac",
+      "runtime_reproduced": false
+    },
+    {
+      "id": "2607.22688v1",
+      "source_url": "https://arxiv.org/html/2607.22688v1",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/papers/2607.22688v1.md",
+      "cached_text_bytes": 59070,
+      "cached_text_sha256": "fa1ae6973635e1195fbd7dd60c3f2430d361f703d1cc747cb033e62398827ff4",
+      "runtime_reproduced": false
+    },
+    {
+      "id": "2609.00196v1",
+      "source_url": "https://arxiv.org/html/2609.00196v1",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/papers/2609.00196v1.md",
+      "cached_text_bytes": 113224,
+      "cached_text_sha256": "325a42816129ad6314d2945a2bd4a9fd7924e785ba4ab69f3e33b71c6c7598ad",
+      "runtime_reproduced": false
+    },
+    {
+      "id": "2609.24972v3",
+      "source_url": "https://arxiv.org/html/2609.24972v3",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/papers/2609.24972v3.md",
+      "cached_text_bytes": 120349,
+      "cached_text_sha256": "b9c794fe169327db8e4902ebbc91c3e9426ca3a2aded368c9f2d8dbc0df0d7b7",
+      "runtime_reproduced": false
+    },
+    {
+      "id": "2610.10426v1",
+      "source_url": "https://arxiv.org/html/2610.10426v1",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/papers/2610.10426v1.md",
+      "cached_text_bytes": 169973,
+      "cached_text_sha256": "b97049e7556119a05e92524e198823d09f9008a3063523230105065e9066c476",
+      "runtime_reproduced": false
+    },
+    {
+      "id": "2511.16108v1",
+      "source_url": "https://arxiv.org/html/2511.16108v1",
+      "cache_path": "/Users/nikolassapalidis/scratch/co-train-research-round2-2026-10-23/skyrl-mechanisms-cache/paper-full.md",
+      "cached_text_bytes": 74910,
+      "cached_text_sha256": "f2b47543b0f9a7a0e3b6ef40f8746578baf1f4b891427a0cb9721cb6d84d1270",
+      "runtime_reproduced": false
+    }
+  ],
+  "runtime_verified": false,
+  "training_verified": false,
+  "launch_authorized": false,
+  "distinct_indexed_urls": 207,
+  "distinct_cached_source_files": 218,
+  "indexed_sources_with_overlap": 251,
+  "missing_cache_total": 0,
+  "declared_cached_hash_mismatches_total": 0,
+  "unique_paper_studies": 8,
+  "cached_paper_versions": 9,
+  "git_blob_comparison": {
+    "entries_with_git_blob_ids": 211,
+    "exact_matches": 206,
+    "nonidentical_cached_text_entries": 5,
+    "upstream_sources_executed": 0
+  },
+  "paper_review_coverage": {
+    "core_four": "Two independent paper reviewers; indexed primary methods/results/selected appendices",
+    "new_three": "Parent full-text methods/results/appendix analysis plus independent full-text validity review",
+    "skyrl_agent": "Source-mechanisms reviewer read official paper, separate from current implementation",
+    "paper_reviewer_files": "Not created by reviewers because no write-capable tools; parent synthesized returned conclusions in papers.md"
+  }
+}

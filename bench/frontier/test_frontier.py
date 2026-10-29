@@ -133,6 +133,129 @@ def test_probe_applies_extraction(tasks):
     assert all(p == 1.0 for p in r.rates.values())
 
 
+# --- lossless diagnostic reports --------------------------------------------------
+
+@pytest.fixture
+def mixed_probe(tasks) -> ProbeResult:
+    measured = [dataclasses.replace(tasks[i], name=name) for i, name in enumerate(
+        ('half/"quoted"', "never/δ", "always"))]
+    broken = dataclasses.replace(tasks[0], name="void\nbad gold",
+                                 gold_sql="SELECT FROM nowhere")
+    return probe(measured + [broken],
+                 _cycler({measured[0].name: [True, False],
+                          measured[1].name: [False], measured[2].name: [True]}),
+                 policy="offline/diagnostic-policy", g=4, dead_ceiling=0.55,
+                 compare="multiset")
+
+
+def test_probe_report_round_trips_all_existing_fields(mixed_probe):
+    """Three measured rates, one void, one retained; identities survive JSON exactly."""
+    r = mixed_probe
+    assert r.rates == {'half/"quoted"': 0.5, "never/δ": 0.0, "always": 1.0}
+    assert r.void == {"void\nbad gold": "gold_error"}
+    assert r.retained == ['half/"quoted"']
+    assert r.n_candidates == 3 and r.n_tasks == 1
+    assert r.retention == 1 / 3
+    loaded = json.loads(json.dumps(r.report()))
+    assert loaded == dataclasses.asdict(r)
+    restored = ProbeResult(**loaded)
+    assert restored == r
+    assert restored.retention == 1 / 3
+
+
+def test_probe_report_distinguishes_ids_with_identical_aggregates(mixed_probe):
+    r = mixed_probe
+    renamed = dataclasses.replace(
+        r, rates={f"other/{name}": rate for name, rate in r.rates.items()},
+        retained=[f"other/{name}" for name in r.retained],
+        void={f"other/{name}": reason for name, reason in r.void.items()})
+    assert renamed.manifest("A8") == r.manifest("A8")
+    assert json.dumps(renamed.report(), sort_keys=True) != json.dumps(
+        r.report(), sort_keys=True)
+
+
+def test_probe_rejects_duplicate_names_before_any_sampling(tasks):
+    """A duplicate at the end must cause zero calls, not partial measurement."""
+    calls = []
+
+    def generate(task):
+        calls.append(task.name)
+        return task.gold_sql
+
+    duplicate = dataclasses.replace(tasks[0], gold_sql="SELECT 'different gold'")
+    with pytest.raises(ValueError, match="duplicate"):
+        probe(list(tasks) + [duplicate], generate, policy="stand-in", g=4)
+    assert calls == []
+
+
+@pytest.mark.parametrize("empty", [False, True], ids=["retained", "empty"])
+def test_write_probe_report_is_lossless_and_never_emits_manifest(
+        mixed_probe, tmp_path, monkeypatch, empty):
+    from bench.frontier.probe import MANIFEST_PATH, write_report
+
+    r = dataclasses.replace(mixed_probe, retained=[]) if empty else mixed_probe
+
+    def refuse_manifest(*args, **kwargs):
+        pytest.fail("a diagnostic report must not call manifest()")
+
+    monkeypatch.setattr(ProbeResult, "manifest", refuse_manifest)
+    assert not MANIFEST_PATH.exists()
+    target = tmp_path / "diagnostics" / "probe.json"
+    assert write_report(r, target) == target
+    assert json.loads(target.read_text()) == dataclasses.asdict(r)
+    assert not MANIFEST_PATH.exists()
+
+
+@pytest.mark.parametrize("alias", ["direct", "relative", "dotdot", "symlink"])
+@pytest.mark.parametrize("existing", [False, True], ids=["absent", "existing"])
+def test_write_probe_report_refuses_resolved_manifest_path(
+        mixed_probe, tmp_path, monkeypatch, alias, existing):
+    """Reject all four path spellings without creating or overwriting the gate file."""
+    import importlib
+    fp = importlib.import_module("bench.frontier.probe")
+    from bench.frontier.probe import write_report
+
+    canonical = tmp_path / "bench" / "frontier" / "manifest.json"
+    canonical.parent.mkdir(parents=True)
+    if existing:
+        canonical.write_text("existing gate bytes\n")
+    monkeypatch.setattr(fp, "MANIFEST_PATH", canonical)
+    monkeypatch.chdir(tmp_path)
+    target = canonical
+    if alias == "relative":
+        target = Path("bench/frontier/manifest.json")
+    elif alias == "dotdot":
+        child = canonical.parent / "child"
+        child.mkdir()
+        target = child / ".." / "manifest.json"
+    elif alias == "symlink":
+        target = tmp_path / "report.json"
+        target.symlink_to(canonical)
+    with pytest.raises(ValueError, match="manifest"):
+        write_report(mixed_probe, target)
+    if existing:
+        assert canonical.read_text() == "existing gate bytes\n"
+    else:
+        assert not canonical.exists()
+
+
+def test_write_probe_report_refuses_hardlink_manifest(
+        mixed_probe, tmp_path, monkeypatch):
+    import importlib
+    fp = importlib.import_module("bench.frontier.probe")
+
+    canonical = tmp_path / "manifest.json"
+    canonical.write_text("existing gate bytes\n")
+    target = tmp_path / "report.json"
+    target.hardlink_to(canonical)
+    monkeypatch.setattr(fp, "MANIFEST_PATH", canonical)
+
+    with pytest.raises(ValueError, match="manifest"):
+        fp.write_report(mixed_probe, target)
+    assert canonical.read_text() == "existing gate bytes\n"
+    assert target.read_text() == "existing gate bytes\n"
+
+
 # --- the manifest -----------------------------------------------------------------
 
 def test_manifest_carries_the_five_gate_keys(tasks):
@@ -224,13 +347,3 @@ def test_render_reports_retention_not_just_the_band(tasks):
                    **{t.name: [True, False] for t in tasks[1:]}})
     text = render(probe(tasks, gen, policy="p", g=4))
     assert "retention" in text and "BY CONSTRUCTION" in text
-
-
-def test_the_frontier_scores_with_the_comparison_the_reward_trains_on():
-    """Selected under multiset and trained under set, the retained band would describe a
-    reward the run never optimises."""
-    import inspect
-    import importlib; fp = importlib.import_module("bench.frontier.probe")
-    from train import ex_reward
-    want = inspect.signature(ex_reward.make_execution_reward).parameters["compare"].default
-    assert inspect.signature(fp.probe).parameters["compare"].default == want

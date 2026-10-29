@@ -132,7 +132,7 @@ def select(tasks: list[SqlTask], per_tier: dict[str, int] | int, *,
     for t in tasks:
         pool[(t.tier, _shape_of(t, granularity))].append(t)
     rng = random.Random(seed)
-    for key in pool:
+    for key in sorted(pool):
         # Sorted first, so the shuffle is a pure function of the seed rather than of
         # whatever order the corpus file happened to use.
         pool[key].sort(key=lambda t: t.name)

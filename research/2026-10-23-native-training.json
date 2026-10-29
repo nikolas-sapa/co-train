@@ -1,0 +1,331 @@
+{
+  "actions_not_taken": [
+    "dependency/model installs or downloads",
+    "GPU/model/paid jobs",
+    "scientific contract changes",
+    "manifest/signature/threshold/model-selection/evaluation-membership changes",
+    "push",
+    "deployment"
+  ],
+  "actual_installed_metadata": {
+    "abi_verified": false,
+    "candidate_approved": false,
+    "candidate_core": {
+      "transformers": "5.17.0",
+      "trl": "1.13.0",
+      "unsloth": "2026.10.3",
+      "unsloth_zoo": "2026.10.3"
+    },
+    "dependency_graph_verified": false,
+    "issues": {
+      "frozen": [
+        "unsloth is not installed; the floor is 2026.10.3 (spec \u00a727)",
+        "trl is not installed; pin it to 1.13.0",
+        "transformers 5.18.0 violates transformers<5: at 5.x the chat-template flags invert and the error names neither package (measured, step2/README.md)."
+      ],
+      "invalid": {},
+      "missing": {
+        "accelerate": "accelerate distribution metadata is absent",
+        "peft": "peft distribution metadata is absent",
+        "torch": "torch distribution metadata is absent",
+        "trl": "trl distribution metadata is absent",
+        "unsloth": "unsloth distribution metadata is absent",
+        "unsloth_zoo": "unsloth_zoo distribution metadata is absent",
+        "vllm": "vllm distribution metadata is absent"
+      },
+      "native": {},
+      "selected": {
+        "datasets": [
+          "datasets 5.0.1 violates selected TRL and Unsloth/Zoo metadata require datasets>=4.7.0,<5.0.0"
+        ],
+        "transformers": [
+          "transformers 5.18.0 violates TRL's general package floor and selected Unsloth/Zoo metadata require transformers>=4.56.2,<=5.17.0"
+        ]
+      }
+    },
+    "launch_authorized": false,
+    "limitations": [
+      "Only selected direct constraints of the proposed core are checked; this is not full transitive dependency, extra or environment-marker resolution.",
+      "Version metadata does not verify CUDA builds, driver/kernel ABI, hardware fit, released Unsloth patches or import order.",
+      "Prerelease, development, postrelease, epoch and local/build version formats are unevaluable here, not assumed equivalent to release versions.",
+      "Actual platform and Python are recorded, not certified as a supported Linux CUDA environment by these selected package checks.",
+      "The candidate core is not owner-approved. No sampling, gradients, optimizer step, checkpoint restoration or launch authority is established."
+    ],
+    "metadata_scope": "selected_direct_constraints_only",
+    "metadata_source": "installed",
+    "platform": {
+      "machine": "arm64",
+      "python": "3.12.13",
+      "system": "Darwin"
+    },
+    "runtime_verified": false,
+    "schema_version": 1,
+    "training_verified": false,
+    "versions": {
+      "accelerate": null,
+      "datasets": "5.0.1",
+      "peft": null,
+      "torch": null,
+      "transformers": "5.18.0",
+      "trl": null,
+      "unsloth": null,
+      "unsloth_zoo": null,
+      "vllm": null
+    }
+  },
+  "actual_main_preflight": {
+    "command": "python -m train.grpo_ptc --preflight-only",
+    "exit": 1,
+    "log": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/real-main-preflight.log",
+    "reason": "bench/frontier/manifest.json absent"
+  },
+  "actual_runtime_requirement": {
+    "metadata_source": "installed",
+    "raises": "NativeRuntimeError"
+  },
+  "baseline": "d6d04f01b2fb69b9615f8d2d72692971cba32c1f",
+  "date": "2026-10-23",
+  "default_suite": {
+    "cache": "existing warm tokenizer cache; cold bootstrap unverified",
+    "includes_real_isolated_mutation_baselines": true,
+    "log": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/full-suite.log",
+    "passed": 1861,
+    "seconds": 291.67,
+    "skip": "optional contamination test requires absent torch",
+    "skipped": 1,
+    "summary": "1861 passed, 1 skipped in 291.67s"
+  },
+  "environment": {
+    "HF_DATASETS_OFFLINE": "1",
+    "HF_HUB_OFFLINE": "1",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "TRANSFORMERS_OFFLINE": "1"
+  },
+  "failure_first": {
+    "classification": "collected setup errors solely for missing implementation modules",
+    "constructor": {
+      "log": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/native-assembly-red.log",
+      "summary": "45 errors in 0.99s"
+    },
+    "invalid_initial_runtime_attempt": "188 errors included pytest environment-bookkeeping fixture failures; not accepted as RED",
+    "runtime": {
+      "log": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/runtime-red-clean.log",
+      "summary": "94 errors in 0.36s"
+    }
+  },
+  "limitations": [
+    "Constructor/tokenizer spies prove wiring only; no actual patched Trainer was executed",
+    "Frozen Transformers<5 and native>=5.2 contradiction remains closed",
+    "Cached native helper selection rejects exact template identity; canonical view is hypothetical",
+    "Proposed package core is not approved, fully resolved, ABI-verified or install-ready",
+    "No sampler likelihoods, gradients, changed weights, checkpoint existence or restore verified",
+    "Context3537 applies only to this fixture; production validates every actual native prompt",
+    "Partial approved construction allocations are not claimed cleaned up on failure",
+    "Frontier evidence, invalid-gold policy and scientific sign-off remain unresolved"
+  ],
+  "native_template_reference": {
+    "negative_controls": [
+      {
+        "error": "AssertionError: stock template token prefix mismatch at index 9",
+        "exit": 1,
+        "flag": "--stock-prefix",
+        "log": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/final-template-stock-prefix.err"
+      },
+      {
+        "error": "AssertionError: cached native helper selection failed: The chat template is not training-compatible (missing prefix-preservation or `{% generation %}` markers) and patching is not supported for this template. Please manually modify the chat template for training.",
+        "exit": 1,
+        "flag": "--require-cached-selection",
+        "log": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/final-template-require-cached-selection.err"
+      },
+      {
+        "error": "AssertionError: selected template token prefix mismatch",
+        "exit": 1,
+        "flag": "--break-prefix",
+        "log": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/final-template-break-prefix.err"
+      },
+      {
+        "error": "AssertionError: native external token mask mismatch",
+        "exit": 1,
+        "flag": "--break-mask",
+        "log": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/final-template-break-mask.err"
+      }
+    ],
+    "pins": {
+      "METHOD_PINS": {
+        "_get_tool_suffix_ids": "7df4ed7d436f1dcc3084abd4813d2c5df92bbff9f0801cb122d84b8def220bd6",
+        "_tool_call_loop": "3a513812b6988bb1bb4cc9cceee21ebf343b63f6810c7d12eb693af856027f79"
+      },
+      "PINNED": {
+        "qwen3.jinja": "a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8",
+        "qwen3_training.jinja": "1d944ff8f268b611abb296cdd24d0f51981eef1c8647ac321c3a0258f61eb6c9",
+        "upstream_chat_template_utils.py": "0152999b59e2210fc125703f85d33f459f74fbb72ba61494d5f38d6cb04455e2"
+      }
+    },
+    "positive_exit": 0,
+    "positive_log": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/template-reference-checked-bytes.json",
+    "result": {
+      "cached_matches_official_qwen3_template": false,
+      "cached_native_helper_selected": false,
+      "cached_native_helper_selection_error": "The chat template is not training-compatible (missing prefix-preservation or `{% generation %}` markers) and patching is not supported for this template. Please manually modify the chat template for training.",
+      "cached_template_sha256": "5da44855ab7e0641774d5ed0ff0b4f89671d01df7d316e54d06557a962211cb4",
+      "canonical_identity_view_selects_training_template": true,
+      "discovered_schema_count": 1,
+      "execution_reward": [
+        1.0
+      ],
+      "external_mask_zero_count": 19,
+      "external_suffix_tokens": 19,
+      "gradients_observed": 0,
+      "models_loaded": 0,
+      "native_template_boundary": {
+        "external_suffix_tokens": 19,
+        "first_mismatch_index": null,
+        "full_tokens": 48,
+        "prefix_preserving": true,
+        "prefix_tokens": 29
+      },
+      "native_template_sha256": "1d944ff8f268b611abb296cdd24d0f51981eef1c8647ac321c3a0258f61eb6c9",
+      "native_trainer_template_prompt_tokens": 465,
+      "parser": "fixture, not tested",
+      "required_minimum_context": 3537,
+      "sampler_logprobs": null,
+      "scripted_call_tokens": 41,
+      "scripted_final_tokens": 10,
+      "selected_template_production_approved": false,
+      "sql_value": 17,
+      "stock_boundary": {
+        "external_suffix_tokens": 15,
+        "first_mismatch_index": 9,
+        "full_tokens": 44,
+        "prefix_preserving": false,
+        "prefix_tokens": 29
+      },
+      "stock_helper_prefix_preserving": false,
+      "stock_prompt_tokens": 465,
+      "training_steps": 0,
+      "unchanged_completion_cap": 3072
+    },
+    "suffix_source_authentication": "inspected local cached method body only, not independent whole-upstream authentication",
+    "upstream_license": "TRL Apache-2.0; upstream source files not vendored"
+  },
+  "negative_controls": {
+    "baseline": {
+      "log": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/control-baseline.log",
+      "passed": 6,
+      "pytest_exit": 0,
+      "summary": "6 passed in 0.93s"
+    },
+    "method": "fresh-process in-memory module-source mutations; production files unchanged",
+    "mutations": [
+      {
+        "anchor": "if transformers is not None and transformers < (5, 2, 0, 0):",
+        "failures": 1,
+        "log": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/control-native_floor.log",
+        "name": "native_floor",
+        "pytest_exit": 1,
+        "replacement": "if False:",
+        "summary": "1 failed in 0.35s",
+        "target": "train/native_runtime.py"
+      },
+      {
+        "anchor": "config = dict(grpo_ptc.preflight(root=root, steps=steps))",
+        "failures": 1,
+        "log": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/control-preflight.log",
+        "name": "preflight",
+        "pytest_exit": 1,
+        "replacement": "config = dict(grpo_ptc.training_config(steps=steps))",
+        "summary": "1 failed in 0.53s",
+        "target": "train/native_training.py"
+      },
+      {
+        "anchor": "    native_runtime.require_native_runtime()",
+        "failures": 1,
+        "log": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/control-runtime.log",
+        "name": "runtime",
+        "pytest_exit": 1,
+        "replacement": "    pass",
+        "summary": "1 failed in 0.72s",
+        "target": "train/native_training.py"
+      },
+      {
+        "anchor": "if needed > max_seq_length:",
+        "failures": 1,
+        "log": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/control-context.log",
+        "name": "context",
+        "pytest_exit": 1,
+        "replacement": "if False:",
+        "summary": "1 failed in 0.51s",
+        "target": "train/native_training.py"
+      },
+      {
+        "anchor": "for row in rows:",
+        "failures": 2,
+        "log": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/control-all_rows.log",
+        "name": "all_rows",
+        "pytest_exit": 1,
+        "replacement": "for row in rows[:1]:",
+        "summary": "2 failed in 0.61s",
+        "target": "train/native_training.py"
+      },
+      {
+        "anchor": "    guards.assert_one_tool(tools)",
+        "failures": 1,
+        "log": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/control-one_tool.log",
+        "name": "one_tool",
+        "pytest_exit": 1,
+        "replacement": "    pass",
+        "summary": "1 failed in 0.61s",
+        "target": "train/native_training.py"
+      }
+    ],
+    "runner": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/negative_controls.py"
+  },
+  "protected_sources_unchanged": [
+    "train/guards.py",
+    "train/grpo_ptc.py",
+    "train/dead_group_probe.py",
+    "ptc/sql_arms.py",
+    "bench/score.py",
+    "spec/notes.md",
+    "docs/pre-registration.md"
+  ],
+  "python": "/Users/nikolassapalidis/Developer/misc/co-train/.venv-ptc/bin/python",
+  "real_nonmock_checks": [
+    "fresh installed distribution metadata equals independent metadata reads",
+    "real preflight refuses before framework/schema/output work, including python -O",
+    "two SQLite tasks retain distinct 17/29 tool and SQL reward bindings",
+    "installed datasets5.0.1 converts both conversational Arrow rows, not runtime compatibility",
+    "cached real tokenizer + pinned template methods + SQLite; parser/final answer scripted"
+  ],
+  "reviews": [
+    {
+      "execution": "static only",
+      "result": "approved both source tranches",
+      "session": "73d36baf-ad53-40c9-80f9-4d68d48be089",
+      "type": "python-reviewer"
+    },
+    {
+      "execution": "static only",
+      "result": "no high-confidence findings",
+      "session": "2e9894a3-bac9-4629-9c6d-42207d325757",
+      "type": "security-reviewer"
+    }
+  ],
+  "schema_version": 1,
+  "scope": "Additive guarded explicit-task trainer construction; no launch activation",
+  "source_sha256": {
+    "research/2026-10-23-native-runtime-metadata.json": "79e5e0eca035b219f2abeffd7464675c98be4f15c5de7d013627fe73b8e51078",
+    "spec/native-training.md": "2184842058f82c0e9b788e40b3d761bef2b08a9a6e7ae39957dd36300df23b8f",
+    "spec/spikes/reference/native_template.py": "935bde81ca06226fbf7dcb8a857324a336906fccc7ac7eac8503d1f50618aded",
+    "train/native_runtime.py": "3ddcc2f059cfe56166aa4d0f5bd62471aeba99d49881c85988209aad6f53b237",
+    "train/native_training.py": "ae715ed68328f0bd6da99e0729b0f3b4f9f91669dd2f0744260400381fcd380c",
+    "train/test_native_runtime.py": "235c679044a59501b3a44bdbbfb2605f5113600d1d752aa128eaf3f84704e16e",
+    "train/test_native_training.py": "784bc410bed58147471578962543e310ac8838b4da108e6c08933134193b2581"
+  },
+  "targeted": {
+    "log": "/Users/nikolassapalidis/scratch/co-train-native-training-2026-10-23/targeted-first.log",
+    "passed": 139,
+    "seconds": 4.6,
+    "summary": "139 passed in 4.60s"
+  }
+}

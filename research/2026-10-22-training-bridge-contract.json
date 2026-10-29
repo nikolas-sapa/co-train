@@ -1,0 +1,48 @@
+{
+  "checked_on": "2026-10-22",
+  "trl_version": "1.13.0",
+  "trainer_source": "https://raw.githubusercontent.com/huggingface/trl/v1.13.0/trl/trainer/grpo_trainer.py",
+  "native_tool_loop_sha256": "3a513812b6988bb1bb4cc9cceee21ebf343b63f6810c7d12eb693af856027f79",
+  "trl_pypi_metadata": "https://pypi.org/pypi/trl/1.13.0/json",
+  "trl_wheel_sha256_from_pypi_metadata": "7c7ae0c72e969450221cf4c7cfe69c532c5a83c727204f1c8ced38a9b79134ec",
+  "trl_wheel_downloaded": false,
+  "native_environment_transformers_floor": "5.2.0",
+  "project_transformers_ceiling_exclusive": "5",
+  "schema_probe_transformers_version": "5.18.0",
+  "unsloth_metadata_checked": [
+    "https://pypi.org/pypi/unsloth/2026.10.3/json",
+    "https://pypi.org/pypi/unsloth/2026.10.7/json"
+  ],
+  "unsloth_declared_transformers_ceiling_inclusive": "5.17.0",
+  "source_method_matches_pinned_upstream": true,
+  "discovered_tools": 1,
+  "real_sql_value": 17,
+  "tool_mask": [[1, 1, 0, 0, 1, 1]],
+  "synthetic_logprobs": [[-0.1, -0.2, 0.0, 0.0, -0.7, -0.8]],
+  "negative_mask_control_exit_code": 1,
+  "production_adapter_native_method_verified": true,
+  "production_adapter_final_execution_reward": [1.0],
+  "optimized_python_rejected": true,
+  "bridge_regression_cases": 66,
+  "step_regression_cases": 14,
+  "default_suite": {
+    "passed": 1189,
+    "skipped": 1,
+    "seconds": 143.89,
+    "offline_flags": true,
+    "existing_tokenizer_cache_used": true
+  },
+  "runtime_negative_controls": {
+    "budget": {"exit_code": 1, "assertion_failures": 1},
+    "stale_reset": {"exit_code": 1, "assertion_failures": 7},
+    "corpus_identity": {"exit_code": 1, "assertion_failures": 2},
+    "unfinished_answer": {"exit_code": 1, "assertion_failures": 1}
+  },
+  "python_review": "bounded static approval",
+  "security_review": "bounded static approval",
+  "models_loaded": 0,
+  "training_steps": 0,
+  "packages_installed": 0,
+  "full_patched_trainer_verified": false,
+  "compatible_training_stack_approved": false
+}

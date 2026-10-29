@@ -1,8 +1,676 @@
 # HANDOFF — model-harness co-training
 
-**Current state is this section. Everything under [History](#history) is the body this
-section superseded, kept verbatim** — the convention in this repo is to correct visibly, not
-to overwrite.
+**The first current-state section supersedes every earlier checkpoint below.**
+Historical receipts, including non-green runs, are retained rather than rewritten.
+The original body remains under [History](#history).
+
+---
+
+## Current state, 2026-10-24, executable skills and fixture readiness
+
+**Bounded offline acceptance receipt, 2026-10-24.** The implementation base is
+`8efeb93b55f4435c7b6913156c082b87f4290fc1`, branch
+`fix/nonfinite-dead-group-monitor`. Acceptance binds tested source bytes, not
+future commit metadata or a permanent current-HEAD claim. Complete configured
+default validation passed; independent Python/general/security static reviews
+read all seven implementation files and found no issues. General static review
+also found no issues in the four integration docs before this receipt update.
+Execution validation was performed separately, not by those reviewers. No push
+or deployment occurred.
+
+### Implemented boundary
+
+[Executable SQL skills](spec/sql-executable-skills.md) are caller-authored,
+explicitly opt-in mechanics, not automatic AI learning:
+
+- `create_candidate(source_capture, *, source_task, source_ids, skill_id,
+  program)` is data-only. Required `source_task` corrects the original contract:
+  capture fingerprints cannot recover routing fields. Exact task/ID consistency
+  and declared valid EX=0 are checked; no source rescore or program runs here.
+  Scope is exactly `source`, `shape`, `coarse_shape`, for routing only.
+- `evaluate_candidate` is provisional. Literal `allow_execution is True`
+  submits once through existing capture. Observation must begin at byte zero
+  with `FINAL_SQL:` and a nonempty SQL suffix. Only the suffix reaches `finish`;
+  malformed/runtime rejection aborts unscored, well-framed wrong SQL can score 0.
+- `promote_candidate` checks an external whole-source-envelope SHA and
+  independently rescores source to valid EX=0. It pre-admits exactly four
+  externally supplied qualification cases with matching roles/scope/provenance,
+  non-source splits, and scoped IDs/task fingerprints/DB digests distinct from
+  source and each other. The same program actually runs once per case, at most
+  four submissions, no retries. Only four valid EX=1 results yield a receipt.
+  Actual captures return separately, not as embedded gold/transcripts.
+- `reuse_promoted` checks externally approved whole-promotion-envelope SHA,
+  candidate SHA, exact approval IDs, scope/source and current capture/runtime
+  plus both new module bindings before dispatch. It need not reopen origin or
+  qualification DBs. Payload self-digests and entire-envelope pins differ;
+  neither authenticates approval. Caller owns trusted evaluator/assets/pins.
+
+Programs: at most 65,536 UTF-8 bytes. Separate canonical frozen artifacts:
+at most 8 MiB. No registry or automatic writes. Existing budget counts eight
+PTC submissions, not internal SQL calls; this workflow uses one per case.
+Five-second tracing/output bounds are not an OS sandbox, hard-memory bound or
+hard deadline. Distinct DB bytes/IDs are not independent draws or semantic
+diversity proof; selected source pins are not in-memory attestation.
+
+Native discovery remains exactly one `run_program`; default arms, graders,
+trainer and scientific preregistration are unchanged. No model/provider
+generation, learned policy, weight update, GPU workflow, adaptive
+context/delegation or T3 runtime was added. See [train usage](train/README.md)
+and the [remaining research matrix](research/2026-10-24-prime-t3-opportunities.md).
+
+### Targeted receipts
+
+Evidence base:
+`/Users/nikolassapalidis/scratch/co-train-completion-2026-10-24/`.
+
+- Skills: tests-first **185 failures**, then final **218 new passes**.
+  `skills-regression-02.log`: **813 passed in 57.33s**, comprising skills,
+  unchanged 276 capture and exact 319 legacy cases. Five baseline controls
+  passed; separate source-rescore/disjointness/actual-rerun/scope/approved-pin
+  bypasses each caused one intended assertion failure, not import/stale-binding
+  errors (`skills-control-*-02.log`).
+- Catalog-discovering, identifier-quoting code qualified on four differently
+  named schemas with 0/1/3/7 rows and reused on fresh 11/13-row DBs.
+  `skills-regression-temp-02/test_fresh_process_receipt_reu0/fresh-process-reuse-receipt.json`
+  records two actual dispatches and two valid EX=1 results in a fresh process
+  after origin and qualification DBs were deleted. This proves mechanics,
+  not model-generated skill discovery, scientific generalization or a new win.
+- Bench fixture repair requires real parent/grandchild ACKs and original
+  PID/PGID/session before release. Startup is independently bounded to 5s;
+  cleanup remains under 1s from the real trigger. Late-effect observation is
+  at least 0.8s after return, with a separate 20s emergency supervisor.
+  The 0.2s observer and production 30/45s deadlines are unchanged.
+  `readiness-worker-qs2r82r0/complete-handshake-repeat-results.json`: **80/80**
+  normal runs (four cases, startup delays 0/0.2s, ten repetitions) and
+  **20/20** disabled-termination controls detected actual workers/late effects.
+- `readiness-worker-qs2r82r0/final-baseline-results.json`: three actual fresh-copy
+  isolated bench baselines, each **516 passed, one optional skip, two configured
+  deselections**. Complete parity file: **56 passed**.
+  `final-owned-and-evidence-audit.json` in that directory records 95 observer
+  records with zero errors and 27 PIDs absent per baseline; aggregate 686
+  recorded PIDs absent is not a global process proof. Ten earlier invalid
+  harness runs failed with zero reports and were preserved/excluded.
+
+These earlier targeted harness audits recorded zero network/cache/tokenizer/
+loopback events. They are not the full-run audit below and do not claim
+arbitrary-child telemetry. No dependency download or paid network was needed.
+
+### Independent final acceptance
+
+Evidence directory:
+`/Users/nikolassapalidis/scratch/co-train-completion-2026-10-24/final-validator-vdespsu0/`.
+Primary files: `validation-receipt.json`, `full-suite.log` and
+`evidence-manifest.json`; all 68 evidence files were read back by the validator.
+
+Complete default offline pytest used
+`-q -ra --tb=short -o faulthandler_timeout=60`, with no path selection, filters,
+`-x`, retries or additional deselections: **2,446 passed, 1 skipped,
+2 deselected in 251.42s**, exit **0**. The skip is unavailable optional torch;
+the two deselections are the existing `tokenizer_integration` configuration.
+`step2` is outside configured default testpaths. Actual nested baselines passed:
+PTC **361**, ledger **30**, bench **516**, with the bench optional skip and two
+configured deselections. Full nested output is retained; the bench receipt is
+`nested-0002-ptc.stdout.log` (legacy filename, actual `bench/` arguments).
+
+Pytest-process audit: external-network attempts **0**, cache accesses **0**,
+tokenizer loads **0**, allowed loopback events **5**. Children inherited the
+previously sensitivity-verified OS network-deny sandbox; pytest audit hooks do
+not establish arbitrary-child telemetry. Implementation source bindings stayed
+unchanged throughout validation.
+
+Five fresh skill baseline controls passed. Five separate in-memory bypasses
+each caused one intended assertion failure: source rescoring, disjointness,
+actual qualification reruns, scope and approved promotion pin. The independent
+validator reconstructed these controls against actual exports/tests because the
+author's root scratch script was absent; no import, stale-binding or collection
+failure counted. Four disabled-termination cleanup controls also failed ordinary
+assertions before emergency cleanup, after real parent/grandchild ACKs and
+PID/PGID/session checks. Late effects were observed at least 0.855s after return;
+sentinels remained intact and all 14 recorded owned PIDs, including supervisors,
+were absent afterward. Cleanup controls had 52 observer records, zero errors.
+The full run recorded 27 outer and 27 nested bench fixture PIDs absent;
+combined recorded fixture evidence covered 64 absent PIDs, 252 observations and
+zero observer errors. These are owned recorded PIDs, not global process clearance.
+
+The readiness gap was demonstrated against old source by two RED failures and
+repaired without weakening the observer. The historical full run below had
+**2,222 passed, one outer failure and two nested bench failures**. Only one
+nested ID survived; the second ID and both assertion bodies were lost.
+Fresh readiness evidence cannot explain or retroactively fix the unknown
+historical failure. The current full pass clears the offline blocker without
+proving those lost assertions' root causes or a production watchdog defect.
+
+The bounded offline workflow/readiness gate is accepted. Model-generated
+skills/held-out benefit, context/delegation economics and real native training
+remain separate gates.
+Historical 6.1–8.2× economics were setup-specific, no-cache results; the original
+accuracy thesis failed. No new economic or scientific claim follows.
+
+## Historical checkpoint, 2026-10-24, incremental SQL/PTC execution capture
+
+`train/sql_capture.py` implements trusted host capture through the unchanged
+canonical `train.grpo_ptc.sql_environment(task)`. `start_capture` requires
+literal `allow_execution=True` and explicit `EpisodeIds`. `session.prompt` is
+canonical; sequential `step(code)` returns actual observations. Eight dispatched
+submissions are separate from later budget refusals. `finish(final_answer)`
+scores protected final/gold SQL without replaying actions; `abort()` has no final
+or score. Terminal/invalidated sessions reject reuse. Per-session locks serialize
+host calls, not external effects or crash recovery.
+
+Frozen `SqlCapture` records reuse existing IDs, action observations, instrument
+settings and `ExResult`. The separate `sql_execution_capture` v1 JSON envelope
+is strict, canonical and bounded to 8 MiB. Decode is data-only; rescore rechecks
+external caller/task/DB/prompt/source/settings bindings and executes only
+protected final/gold SQL. Source coverage includes the actual capture,
+environment, budget and shared evidence owners. Existing scripted v1 origin
+`scripted` / terminal `scripted_final` and native tool discovery stay unchanged.
+No legacy tests were edited and no acceptance cases were weakened.
+
+Python review found a real P2: sub-8-MiB quoted-semicolon input can make the
+frozen shared extractor scan quadratic prefixes before query timeout applies.
+Capture now calls `_bounded_extract_sql` from both validation and finish.
+It admits UTF-8 byte length plus `sum(semicolon_byte_position + 1)` at most
+`64 * 1024 * 1024` before invoking the existing extractor. Incremental byte
+search exits as soon as the budget is exceeded. Quoted/comment semicolons,
+discarded prose/fences and text after an early complete statement all count,
+so some cheap-to-extract texts conservatively reject. This is per invocation,
+not a whole-operation CPU/memory deadline; the independent 8 MiB format bound
+and all API/schema/source fields remain unchanged. `bench/score.py` is frozen
+and was not edited. Failed finish invalidates before scoring.
+
+Validation used the existing read-only reference interpreter
+`/Users/nikolassapalidis/Developer/misc/co-train/.venv-ptc/bin/python`
+(Python 3.12.13, pytest 9.1.1), targeting this actual repository, not reference
+source. The reviewed real offline harness used fresh caches, bytecode/pytest
+cache disabled, inherited OS external-IP denial, and its native observer.
+
+* RED: **252 failed in 4.09s**, exit 1, all expected missing-API failures from
+  test bodies, not collection/dependency errors.
+* Focused GREEN: **252 passed in 13.39s**, exit 0.
+* Combined GREEN: **570 passed in 41.10s**, exit 0, no skips, across
+  `train/test_sql_capture.py`, `train/test_sql_episodes.py`,
+  `train/test_sql_bridge.py`, `train/test_execution_binding.py`, and
+  `train/test_sql_reward_queries.py`.
+* Every run's audit counters were zero: external network attempts, cache file
+  accesses, tokenizer loads and loopback events. These counters are not
+  arbitrary-child/native telemetry. Supplied baseline sensitivity controls
+  were not rerun.
+
+Logs, all under
+`/Users/nikolassapalidis/scratch/co-train-capture-2026-10-24/`:
+`capture-red-01.log`, `capture-green-01.log`, `capture-combined-01.log`.
+`capture-regression-collection-01.log` records 239 scripted, 66 bridge,
+10 execution-binding and 3 reward-query cases: **318 legacy cases**. The supplied
+independent baseline used `train/test_learning_lab.py` (4 cases), not
+`train/test_sql_reward_queries.py` (3). This explains 570 versus 571; no test
+was lost. The exact original four legacy modules plus capture independently
+passed **571 in 157.49s**, in `validator-exact-baseline-plus-capture-01.log`.
+Parent's original DB/budget/replay/sealed controls caused **1/1/1/2** real
+assertion failures against a **5-pass baseline**. Budget/replay's old report
+string matcher missed rewritten `assert` traces; raw failures are actual
+count mismatches (10 vs 8 dispatches, 6 vs 4 before finish).
+
+Extraction-repair receipts, under the same scratch directory:
+
+* `capture-extraction-red-01.log`: **17 failed, 7 passed, 252 deselected,
+  31.02s**, exit 1. Fifteen extractor-sentry assertions and two missing
+  +1-byte rejections, not source/digest/import/collection failures. No
+  quadratic attack extraction was actually executed.
+* `capture-extraction-green-01.log`: **24 passed, 252 deselected, 6.50s**.
+* `capture-extraction-combined-01.log`: **595 passed, 149.43s**, no skips,
+  exit 0. Exact legacy modules: SQL episodes, SQL bridge, execution binding,
+  learning lab. Capture now has **276 cases**.
+* `capture-extraction-probe-01.log`: real-code positive plus valid-digest
+  4,003,379-byte attack decode in a fresh sandbox-inheriting child.
+  Work-limit `ValueError` after **0.01664s**, child normal exit **0**,
+  parent **0.31109s**, under its **10-second kill/reap deadline**.
+  External pytest probe: **1 passed in 1.59s**.
+* `capture-extraction-control-baseline-01.log`: **2 passed in 1.68s**.
+  `capture-extraction-control-validation-01.log` and
+  `capture-extraction-control-finish-01.log`: each independently bypassed
+  its guard in memory and produced **1 extractor-sentry assertion failure**,
+  exit 1, **1.86s / 2.35s**. No working source was mutated.
+
+All extraction-harness runs recorded **zero** network/cache/tokenizer audit
+violations and loopback events. Probe audit counters cover the parent pytest
+process, not arbitrary child telemetry; the fresh child inherited the OS
+sandbox. Original four runtime controls were not repeated for this guard fix.
+
+General/security review found no actionable issues. Fresh Python static
+re-review closed the P2: both extraction sites, all entrypoints, tests and docs
+were checked; no new findings remained.
+
+Final independent full default offline run completed **100% of 2,224 selected
+tests across 38 modules**: **2,222 passed, 1 failed, 1 skipped, 2 deselected
+in 428.41s**, exit **1**. All **276 capture** (including 24 extraction guards)
+and **319 exact legacy** cases passed independently too. The optional skip is
+unavailable torch; the two configured deselections are tokenizer integration
+controls. No `-x`, retries, timer changes or additional deselection were used.
+External-network/cache/tokenizer audit counts were **0/0/0**, with **5 permitted
+loopback events**. Parent/child OS external-network denial and five audit-guard
+RED controls were verified earlier; audit counters are not arbitrary-child
+telemetry.
+
+The unresolved failure is
+`tests/test_mutation_harness.py::test_ptc_real_isolated_baseline_collects_and_passes[bench]`
+at line 165: nested bench returned **1**, not 0 (**2 failed, 509 passed,
+1 skipped, 2 deselected in 38.30s**). Retained inner detail identifies
+`bench/test_sql_parity_sweep.py::test_interruption_cleans_owned_work_and_propagates`;
+the other inner failure detail is abbreviated and unavailable. These isolated
+baselines copy `ptc`/`ledger`/`bench`, not `train`, independently of capture.
+Direct outer parity cases passed. An earlier run hit the existing 0.1s startup
+PID-readiness fixture; a candidate 0.5s change passed isolated but broader file
+timers failed. **All candidate edits were reverted**: the parity test and legacy
+production files remain unchanged, with no weakened guards. Investigation ended;
+the baseline infrastructure blocker remains unresolved, not a proven production
+cleanup defect. All 17 probe PIDs were finally absent. **Full-suite GREEN and
+release acceptance are not established.**
+
+Use the interpreter above with the real offline harness documented in
+`spec/offline-harness-reliability.md`; final default pytest arguments were
+`-q -ra --tb=short -o faulthandler_timeout=60` (no path selection).
+Optional local provenance: `validator-final-full-default-01.log`,
+`validator-final-default-collection-01.log` and
+`validator-final-integrity-after-01.log` under the scratch directory above.
+Integrity checked unchanged **44 repository / 4,878 reference bytecodes** and
+**23 repository / 10 reference source fingerprints**. All eight authored
+artifacts were nonempty; no reference source was edited.
+
+Research synthesis/backlog is saved in
+`research/2026-10-24-prime-t3-opportunities.md`; the backend capture prerequisite
+is complete and targeted-verified, not fully offline accepted. Skill generation/promotion,
+adaptive context/delegation and native training remain deferred gates.
+
+Limits: caller declarations and artifact digests are not authentication;
+selected on-disk sources are not in-memory attestation; DB hashing needs a stable
+caller-owned snapshot without sidecars and does not prevent malicious ABA
+writes. PTC is not an OS sandbox. Incremental fixture execution is not
+token-faithful provider capture, model authorship, learning or production
+readiness. No native runtime/model generation/optimizer/checkpoint path was
+verified. Training remains fail-closed; no default, gold-policy, scientific
+manifest/protocol, dependency or reference source was changed. No push or
+deployment occurred.
+
+## Earlier checkpoint, 2026-10-23, offline harness reliability
+
+The two immediate offline fixes from the
+[round-2 research](research/2026-10-23-harness-round2.md) are implemented.
+Each SQL differential now runs in a fresh isolated Python process, with JSON
+request/result files and owned process-group cleanup. A timeout stops owned
+work instead of abandoning a daemon. Arm deadlines remain 30s and the outer
+allowance remains 45s. Unexpected cleanup failures abort, retain diagnostic
+directories and prevent a success-summary write. Already-running pool jobs
+keep their own bounds; queued jobs cancel.
+
+Default pytest excludes exactly the two marked real-tokenizer contamination
+controls. Explicit integration requires `--tokenizer-artifact` and the eight
+frozen SHA256 values in `bench/tokenizer_artifact.json`. Admission precedes
+the dependency import; loading is local-only with remote code disabled.
+Missing artifacts/dependencies fail rather than skip. Fresh mutation copies
+now carry `pytest.ini`, so their bench baseline preserves the same exclusion.
+Both original scientific assertion bodies and inputs remain unchanged.
+The manifest records a diagnostic baseline, not upstream authenticity or
+native model/template approval. Symlinks are accepted after hashing; TOCTOU
+and cache immutability are not guaranteed.
+
+Parent reproduced behavioral RED on both paths before implementation.
+Narrow checks passed 51 sweep tests, 40 tokenizer-admission tests and both
+real tokenizer controls with zero integration skips. The overlapping sweep
+and watchdog scope passed 130 tests under OS network denial. Actual SIGINT
+propagates after owned work stops; normal leader exit also cleans descendants.
+Disabling termination produces live work and a late marker, which the
+independent liveness guard rejects. Independent in-memory digest/local-only
+source mutations cause two/one failures. Python/security reviews found no
+actionable issues, including the fresh-copy follow-up.
+
+The full default suite passed **1947 tests, one optional torch skip and two
+tokenizer-control deselections**, in **204.38s**, with fresh isolated HF,
+Transformers, Datasets, modules and XDG caches. Python cache/network auditing
+recorded zero cache accesses and external attempts in the pytest process;
+main-thread tokenizer profiling recorded zero loads. Five allowed loopback
+audit events came from local fixtures. Child sensitivity controls intentionally
+attempt denied connections; these counters are not child/native telemetry.
+OS external-network denial was inherited and separately verified in a child.
+
+The first strict no-IP run timed out after 900s because existing tests serve
+local MCP fixtures. It is retained as a failed validation attempt. The final
+policy denies external IPv4/IPv6 networking but permits loopback and Unix IPC;
+it is not local-proxy isolation. Parent/child external-denial probes and a real
+loopback TCP positive passed. The MCP/fresh-marker scope passed 43 tests.
+The macOS sandbox also blocks setuid `ps`; a validation-only native libproc
+observer preserves real liveness checks without changing fixture deadlines.
+API errors count as executing, not dead; its injected-denial control rejects.
+See `spec/offline-harness-reliability.md` and
+`research/2026-10-23-offline-harness-reliability.json` for source hashes,
+embedded validation-harness sources, logs and limits. The preceding research
+artifacts and their recorded hashes remain unchanged.
+
+The commit scanner initially flagged eight public checksums as API keys.
+Owner-approved `.gitleaks.toml` exceptions match only those exact values in
+the generic rule; defaults stay enabled. Unrelated, uppercase and embedded
+hash-shaped keys and a synthetic provider token still trigger detection.
+An overbroad-exception mutation fails the negative-control check.
+
+No native runtime, model generation, optimizer update or checkpoint restoration
+was verified. Frozen/native dependency conflicts, exact-template rejection,
+frontier evidence and invalid-gold policy remain blockers. Main remains
+fail-closed. No scientific contract or evaluation membership changed.
+No dependency/model download, GPU/paid/training job, push or deployment occurred.
+
+## Earlier checkpoint, 2026-10-23, guarded native trainer construction
+
+`train.native_runtime` now reports selected distribution constraints without
+importing frameworks, running installers or granting approval. Enforcement
+always reads fresh installed metadata; fixture reports cannot authorize it.
+All six approval/verification/authorization fields stay false. The frozen
+Transformers<5 rule is unchanged and conflicts with native TRL's >=5.2.
+Local Transformers5.18 and datasets5 also violate selected Unsloth bounds.
+The proposed core remains unapproved, with dependency graph and CUDA ABI open.
+
+`train.native_training.build_sql_trainer` adds the explicit-task constructor
+behind real preflight and runtime checks. It separates loader/PEFT/Trainer
+arguments, requests pinned local-only fp16 loading and preserves existing SQL
+bindings, G, optimizer ownership and eight-turn limits. It checks the actual
+discovered tool/schema, selected native template, every row's context and the
+native suffix-prefix contract. It configures checkpoints at requested steps,
+but never invokes train/save. Main's post-preflight refusal remains.
+Constructor failures after admission may leave allocated runtime resources.
+
+Failure-first receipts contain 94 runtime and 45 constructor setup errors
+solely for absent implementation modules, followed by **139 passing tests**.
+The initial runtime fixture accidentally compared pytest's changing
+`PYTEST_CURRENT_TEST`; that harness error was fixed before accepting RED.
+Real SQLite 17/29 and real Dataset Arrow conversion passed; constructor/model
+spies prove wiring only. Dataset5 interoperability is not Unsloth compatibility.
+Six fresh-process in-memory source mutations caused **1, 1, 1, 1, 2, 1 failures**:
+native floor, real preflight, fresh runtime gate, context bound, all-row checking
+and one-tool discovery. All six baseline controls passed. Production files
+were not mutated. Real preflight also refused under optimized Python.
+
+The promoted `native_template.py` reference executes captured hash-checked
+upstream helper/template bytes and pinned native methods. Conditional rendering
+preserves a 29-token prefix in 48 tokens, with real SQLite 17 and 19 external
+masked tokens. **Automatic helper selection rejects the cached template's
+identity.** The positive branch's canonical identity view is hypothetical,
+never production code. Stock-prefix, cached-selection, prefix-mutation and
+mask-mutation controls each exit 1. Sampler logprobs remain absent; the parser
+and final answer are scripted. Its 3537-token context minimum is fixture-only.
+
+Python and security reviewers approved the source statically; the parent
+executed validation. The full offline warm-cache default suite passed
+**1861 tests, one optional torch skip**, in **291.67s**, including real isolated
+mutation baselines. Cold-cache bootstrap remains unverified. The actual
+`train.grpo_ptc --preflight-only` command still exits 1 for the absent manifest.
+See `spec/native-training.md`, the reference README,
+`research/2026-10-23-native-runtime-metadata.json` and
+`research/2026-10-23-native-training.json`.
+
+No real patched Trainer, sampling, gradients, changed weights or checkpoint
+restoration was verified. Runtime resolution, cached-template support,
+frontier evidence and invalid-gold policy remain blockers. No scientific
+contract, manifest, model selection or evaluation membership changed.
+No install/model download, GPU/paid job, push or deployment occurred.
+
+## Earlier checkpoint, 2026-10-23, calibrated SQL evidence (`d6d04f0`)
+
+Two additive offline modules are implemented:
+
+- `bench.frontier.calibration` computes hypothetical IID screening diagnostics
+  and validates/reduces explicit binary sample groups by task/arm/phase/config.
+  Empirical all-equal frequency is separate from the plug-in estimate.
+  Invalid groups remain visible and do not enter usable denominators.
+- `train.sql_episodes` records trusted scripts through unchanged SQL arms,
+  freezes actions/observations and complete scoring results, and encodes strict
+  canonical JSON with a corruption digest. Rescore runs protected final/gold
+  SQL only; action re-execution requires literal `allow_execution=True`.
+  Caller IDs, task, DB snapshot, prompt, settings and selected sources must
+  bind before either operation. Decode never executes actions.
+
+The recorder allows eight actions plus separate FINAL text. It does not
+redefine native model-round accounting. Existing defaults remain 200 action
+rows versus 500,000 scorer rows, PTC timeout 5s and bash/scorer timeout 30s.
+It rejects WAL/journal/shared-memory sidecars and checks DB content before
+and after operations. Stable caller-owned snapshots are required.
+Self-digests are not authentication; trusted bash remains a real shell.
+Selected source/runtime bindings are not a full host snapshot or SBOM.
+
+Test-first receipts: 160 calibration, 239 episode and four parent integration
+tests initially failed before their implementation. Numeric review reproduced
+boundary asymmetry, rounded input tails/ceilings, rational formatting, and
+unsafe Decimal expansion before repair. Final narrow checks passed **445**.
+Five isolated source mutations produced **2, 1, 1, 10 and 6 failures**, with
+passing controls, for sample reuse, task pooling, marginal substitution,
+task-fingerprint removal and Decimal-bound removal. No production source
+was mutated. Python and security reviewers approved the final source;
+their reviews were static, runtime checks were executed by the parent.
+
+The final offline warm-cache default suite passed **1722 tests, one optional
+torch skip**, in 157.63 seconds, including real isolated mutation baselines.
+That adds 445 cases over `f817045`. Cold-cache bootstrap remains unverified.
+See `spec/learning-lab.md`, `research/2026-10-23-learning-lab.json`, and
+the runnable references under `spec/spikes/reference/`.
+
+Additional pinned-source analysis covers Harbor, OpenEnv, Agent Lightning and
+Reasoning Gym, plus Terminal-Bench release identity. The report separates
+inspected source/tests from author claims and actual local execution:
+`research/2026-10-23-harness-deep-analysis.md`. No upstream tests or learning
+gains were reproduced.
+
+**Main training remains unimplemented and fail-closed.** The frontier manifest,
+frozen Transformers/native-TRL conflict, invalid-gold policy, optimizer and
+checkpoint proof remain unresolved. Follow-on acceptance gates are in the spec.
+No model generation, GPU/paid job, install, scientific contract change, push
+or deployment occurred.
+
+## Earlier checkpoint, 2026-10-23, mutation process lifetime (`f817045`)
+
+All three mutation runners now use stdlib-only `process_watchdog.run_bounded`.
+Each suite owns a POSIX session, has a
+300-second deadline, and gets original-group TERM/KILL cleanup on completion,
+timeout or interruption. Final pipe drain and direct-child reap have separate
+bounded waits. Leader exit cannot skip descendant cleanup. A failed reap raises
+an infrastructure error instead of looking like a killed mutant.
+
+Six bounded real-process regressions failed against `91b90bd`: Step2/train
+could wait indefinitely, PTC left a TERM-ignoring descendant after leader exit,
+and all three left descendants after a successful leader exit. Independent
+2.5-second supervisors cleaned the fixtures even when the runner failed.
+
+Before review, all 67 lifecycle checks passed. The existing 69 mutation-harness cases,
+including real isolated PTC/ledger/bench baselines and 52-anchor validation,
+passed. Six additional isolated-import cases passed: every fresh sandbox
+imports its own copied helper under Python `-I -B` outside the repository;
+removing only that generated helper produces a real ModuleNotFoundError.
+
+A real Darwin edge case was reproduced: killpg on an empty group containing
+only an unreaped leader returned EPERM; after poll/reap, it returned ESRCH.
+The helper retries the same group only after reaping, without swallowing a
+real permission error. A separate regression prevents failed cleanup/reap
+from being classified as an ordinary suite timeout.
+
+The pre-review offline warm-cache default suite passed **1262 tests, one optional
+torch skip**, in 369.91 seconds. Python review then found that escalation
+interruptions/signaling errors could bypass stream closure/reap, and runner
+adapters hid escaped-pipe notes. Ten failures and three passing controls
+reproduced those findings before repair. A subsequent security finding exposed
+lost secondary cleanup diagnostics through the public interruption path; two
+more failures reproduced it. A guarded shared-exception case also failed before
+notes were snapshotted. The final fixes passed 154 targeted checks; the three
+real isolated baselines are included in the final suite being rerun.
+
+The original exception now survives cleanup failures, both streams close,
+and a bounded reap is attempted even when escalation fails. All three CLIs
+retain incomplete-drain warnings, including PTC's killed-timeout path.
+Python and security re-reviews approved the final fixes. The final offline
+warm-cache default suite passed **1277 tests, one optional torch skip**, in
+147.57 seconds. That includes 79 lifecycle cases and 78 mutation-harness cases;
+the groups overlap with the default suite. This adds 88 cases over `91b90bd`.
+The skipped contamination check requires the absent torch package.
+Earlier provider failures are resolved.
+`research/2026-10-23-process-watchdog.json` records the validation.
+
+Timeout classifications are unchanged: PTC 124 means killed(timeout), while
+Step2/train 124 is INVALID. Every nonzero baseline remains invalid.
+This does not contain descendants that create another session, bound output
+volume, support Windows, or cancel the bench sweep's daemon threads.
+All training/frontier/framework gates remain closed. No paid service, model,
+GPU job, dependency installation, scientific contract change or push occurred.
+Tests/plan: `tests/test_process_watchdog.py`, `tests/test_mutation_harness.py`,
+`spec/process-watchdog.md`.
+
+## Earlier checkpoint, 2026-10-22, native SQL training inputs (`91b90bd`)
+
+`train.sql_bridge.prepare_sql_training` now prepares plain conversational rows,
+a zero-argument native environment factory, and the existing SQL execution
+reward from explicitly supplied tasks. It does not choose a taskset or construct
+a trainer. Only `run_program` is exported as a tool; reserved `reset` validates
+the row against private frozen bindings and creates fresh execution state.
+Failed resets clear the old executor first. Tool and scorer databases must be
+the same physical file. The prompt and eight-submission budget match evaluation.
+
+Native transcript normalization accepts only a final assistant string without
+outstanding tool calls; observations and earlier SQL cannot become answers.
+Strict metadata cardinality, missing-database exceptions and invalid-gold
+mapping are unchanged. Requested positive integer `--steps` now reaches
+preflight/configuration; it previously silently stayed at 200.
+
+Before implementation, the step tests produced 12 failures and two controls
+passed. All 66 bridge cases failed in fixture setup because the module was
+absent, with pytest exit 1 rather than a collection failure. After implementation,
+all 80 new cases passed. Four independent runtime mutations removed the
+submission limit, stale-reset invalidation, corpus-identity check and unfinished
+answer rejection: 1, 7, 2 and 1 assertions failed respectively. No production
+file was mutated.
+
+The actual production adapter also passed through the hash-verified
+`GRPOTrainer._tool_call_loop` from official TRL v1.13.0: one real SQLite result
+17, one exact tool schema, external mask positions zero, and final execution
+reward 1. Changing only that method's mask in memory failed with exit 1.
+Optimized Python is explicitly rejected. Tokenization, generation and response
+parsing are fixtures; this is not complete trainer, gradient or CUDA evidence.
+See `spec/spikes/reference/` and
+`research/2026-10-22-training-bridge-contract.json`.
+
+Python/security static reviews approved the bounded changes. The final offline
+warm-cache default suite passed **1189 tests, one optional torch skip**, in
+143.89 seconds. Cold-cache bootstrap remains unverified.
+
+**Main training is still not runnable.** Real `--preflight-only --steps 17`
+still exits 1 for the absent frontier manifest; the downstream
+`NotImplementedError` remains. Native TRL environments require Transformers
+at least 5.2, while the frozen project guard requires below 5. The local 5.18.0
+schema utility does not establish a compatible stack; Unsloth's checked metadata
+caps Transformers at 5.17.0. Resolve this conflict explicitly before a patched
+trainer/optimizer/checkpoint smoke on approved hardware.
+
+No dependency installation, model loading, GPU job, paid service, scientific
+threshold, amendment, signature, manifest, push or release was performed.
+The earlier SQL repair and all remaining process, bootstrap, invalid-gold and
+measurement-contract gates still apply.
+
+## Earlier checkpoint, 2026-10-22, SQL safety and scorer integrity (`3a86d60`)
+
+The previously reproduced SQL file writes, rewards for no-result SQL, and
+timed-out wrapper replacement are repaired. Both Python SQL paths install the
+same fail-closed authorizer; both CLI invocations require `-safe`. The scorer
+requires result metadata, preserving genuine empty queries. Sweep wrappers
+belong to individual watched invocations and survive until their work ends.
+Timeout and execution errors are no longer conflated.
+
+Real SQLite/CLI regressions went red before the repairs. Four independent
+negative controls then disabled the PTC guard, scorer guard, CLI count safe
+flag, and CLI final safe flag: 20, 8, 2 and 2 assertion failures respectively.
+Valid-query controls also passed. All 800 shipped gold queries remain valid
+under the protected scorer at 30 seconds/500,000 rows per query; the local
+metadata and code hashes are in
+`research/2026-10-22-sql-safety-golds.json`. This is not a new full-corpus parity
+sweep or proof of historical Kaggle database bytes.
+
+Python review caught two dependency regressions that the repository-wide suite
+missed. The guard now lives in stdlib-only `ptc.sqlite_safety`, keeping PTC
+importable without bench. Three training integration cases live in `train/`,
+so the real isolated bench mutation baseline passes without copying training
+code into it. Both findings were reproduced, repaired, and re-reviewed.
+The guard/standalone group passed 70 checks; scorer/reward/isolated-bench checks
+passed 48. These are overlapping with the default suite.
+
+The final default suite passed **1109 tests, with one optional torch test
+skipped**, in 122.63 seconds: 136 more cases than `5bac4fc`. This was an offline
+warm-cache run, not proof of cold-cache tokenizer bootstrap.
+
+Co-training is still not runnable or experiment-ready. Main training and the
+frontier gate remain closed. Watchdog cancellation, mutation process lifetime,
+cold-cache tokenizer bootstrap, invalid-gold void policy, and the frozen
+model/channel/data contract remain open. SQL guards do not sandbox the OS or
+the wider bash shell. The eight historical channel divergences were not
+silently repaired or remeasured. No GPU job, paid call, signature, threshold
+change, push or release was performed. See `docs/completion-roadmap.md`.
+
+## Earlier checkpoint, 2026-10-22, team hardening (`5bac4fc`)
+
+The unresolved SQL/scoring findings below describe that earlier checkpoint;
+the current section above supersedes them.
+
+The five-lane audit led to four implementation tracks, with regression failures
+executed before production changes. The branch now has real task-bound SQL
+execution, required-telemetry checks that reject unevaluable runs, lossless
+frontier diagnostic reports, corpus-order-independent seeded selection, and
+mutation runners that distinguish invalid verification from killed mutants.
+Literal SQLite paths cannot inject URI access modes; malformed tool argument
+shapes return rejection data and permit retry. The diagnostic writer rejects
+manifest aliases, including hard links.
+
+Python review found three stale registered mutation anchors. All 52 anchors now
+match exactly once, and the three repaired mutations were executed against a
+real fresh baseline: all three died, with zero survivors or invalid runs.
+Security review's hard-link finding was also reproduced and repaired.
+The final post-review default suite passed **973 tests, with one optional
+torch test skipped**. That is 329 additional test cases over the preceding
+644-pass baseline. Python and security source reviews approved the bounded
+patch; they did not establish whole-system safety.
+
+**This does not make co-training runnable or the instrument experiment-ready.**
+The actual preflight still exits 1 for the missing frontier manifest, and main
+training remains unimplemented after that gate. Disposable fixtures also
+confirmed two unresolved blockers: both SQL arms can create files with
+`VACUUM INTO`, and comment-only SQL can receive execution reward against an
+empty result. No channel/scoring policy was silently changed. Cold-cache
+offline tokenizer controls also failed; warm-cache green is not a bootstrap.
+
+[`docs/completion-roadmap.md`](docs/completion-roadmap.md) records the repairs,
+reproductions, remaining safety/process/provenance gaps, and acceptance checks
+from runnable training through the six-cell scientific comparison. Probe/run
+thresholds, signed amendments and the 800 shipped prompt files are unchanged.
+No GPU run, paid call, signature, push or release was performed.
+
+## Earlier continuation, 2026-10-22
+
+**v10 ran and aborted after three steps.** The local metrics and companion log were
+found and re-read with the logged three-step window. Dead fractions were 1.00,
+1.00 and 0.75; the third step had mean execution reward 0.34375 and gradient norm
+0.413225. All clipping ratios were zero. The verdict is `PROBE ABORT`, not an
+unobserved ten-step run or a frontier measurement. See `docs/probe-v10.md` for
+artifact hashes, provenance gaps and the executed verdict.
+
+All 800 shipped SQL prompt IDs, database references and gold queries matched the
+local corpus; all 800 gold queries executed successfully under the scorer's
+30-second deadline and 500,000-row cap. That does not establish byte identity with
+the historical Kaggle upload.
+
+The frontier manifest is still absent and preflight was verified to fail closed.
+The downstream co-training entry point also remains deliberately unimplemented.
+A11 is still unsigned. No new GPU run, scientific-criterion change, signature,
+paid call or publication was performed.
+
+`research/2026-10-22-continuation-review.md` records the current literature,
+independently checked power/abort arithmetic, and the proposed frozen-policy
+frontier measurement. It also distinguishes dormant manifest-validation code
+from enforced requirements; do not wire in its unsigned retention floor.
+
+The SQL extractor now preserves semicolons inside quotes/comments while retaining
+only the first statement. Twenty fixture-backed failures were reproduced before
+the fix; the final default suite passed 644 tests with one optional torch test
+skipped. Python and security source reviews approved the change.
 
 ---
 

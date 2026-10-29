@@ -18,6 +18,8 @@ keeps finding.
 
 from __future__ import annotations
 
+import ast
+import inspect
 import json
 import pathlib
 import shutil
@@ -448,6 +450,83 @@ def test_monitor_fails_closed_when_the_metric_is_absent():
     assert reason is not None and "not a number" in reason
 
 
+@pytest.mark.parametrize("window", [1, 3])
+@pytest.mark.parametrize("value", [float("nan"), float("-inf"), float("inf")],
+                         ids=["nan", "negative-infinity", "positive-infinity"])
+def test_monitor_nonfinite_metrics_abort_immediately_and_agree_with_verdict(value, window):
+    """An invalid instrument reading cannot wait for a finite-breach window."""
+    monitor = probe.ProbeMonitor(window=window)
+    reason = monitor.observe(step(value))
+    verdict_reasons = V.criterion_a_any_step(monitor.rows, window=window)
+
+    assert any("not a finite number" in r for r in verdict_reasons)
+    assert reason is not None
+    assert monitor.aborted == reason
+    assert "step 0" in reason and V.ZERO_STD_KEY in reason
+    assert repr(value) in reason
+    assert len(V.training_steps(monitor.rows)) == 1
+
+
+@pytest.mark.parametrize("window", [1, 3])
+@pytest.mark.parametrize("value", [0.0, 0.4, 0.60])
+def test_monitor_finite_controls_continue_and_agree_with_verdict(value, window):
+    monitor = probe.ProbeMonitor(window=window)
+    for _ in range(3):
+        assert monitor.observe(step(value)) is None
+        assert V.criterion_a_any_step(monitor.rows, window=window) == []
+    assert monitor.aborted is None
+
+
+@pytest.mark.parametrize("window", [1, 3])
+@pytest.mark.parametrize("value", [float("nan"), float("-inf"), float("inf")],
+                         ids=["nan", "negative-infinity", "positive-infinity"])
+def test_callback_nonfinite_metrics_stop_and_raise_without_waiting_for_window(
+    monkeypatch, value, window
+):
+    """Exercise the real callback body without importing the training stack."""
+    from types import ModuleType, SimpleNamespace
+
+    transformers = ModuleType("transformers")
+    transformers.TrainerCallback = object
+    monkeypatch.setitem(sys.modules, "transformers", transformers)
+    monitor = probe.ProbeMonitor(window=window)
+    callback = probe.make_callback(monitor)
+    control = SimpleNamespace(should_training_stop=False)
+
+    if window == 3:
+        # One finite breach has not filled the window. An invalid next reading
+        # must stop now, not wait for a third step or reset the finite streak.
+        assert callback.on_log(None, None, control, logs=step(0.9)) is control
+        assert control.should_training_stop is False
+        assert monitor.aborted is None
+
+    with pytest.raises(probe.DeadGroupAbort, match=V.ZERO_STD_KEY) as abort:
+        callback.on_log(None, None, control, logs=step(value))
+
+    assert control.should_training_stop is True
+    assert str(abort.value) == monitor.aborted
+    assert V.criterion_a_any_step(monitor.rows, window=window) != []
+
+
+@pytest.mark.parametrize("window", [1, 3])
+def test_monitor_finite_breaches_abort_only_when_the_window_is_full(window):
+    monitor = probe.ProbeMonitor(window=window)
+    for _ in range(window - 1):
+        assert monitor.observe(step(0.9)) is None
+        assert V.criterion_a_any_step(monitor.rows, window=window) == []
+    assert monitor.observe(step(0.9)) is not None
+    assert V.criterion_a_any_step(monitor.rows, window=window) != []
+
+
+def test_monitor_finite_clear_step_resets_the_breach_window():
+    monitor = probe.ProbeMonitor(window=3)
+    for value in (0.9, 0.9, 0.4, 0.9, 0.9):
+        assert monitor.observe(step(value)) is None
+        assert V.criterion_a_any_step(monitor.rows, window=3) == []
+    assert monitor.observe(step(0.9)) is not None
+    assert V.criterion_a_any_step(monitor.rows, window=3) != []
+
+
 def test_the_end_of_run_summary_is_not_a_step():
     monitor = probe.ProbeMonitor()
     assert monitor.observe({"train_runtime": 298.2, "train_loss": 0.015}) is None
@@ -574,7 +653,12 @@ def test_criterion_b_absent_metric_is_a_failure_when_required_and_a_note_when_no
 
 
 def test_criterion_b_is_declared_not_evaluable_on_a_short_run():
-    reasons, notes = V.criterion_b(logp([0.1] * 5))
+    """Corrected contract: only optional B is note-only on a short probe.
+
+    Required B's old [] expectation mistook unevaluable for passing. The required
+    case is pinned by test_run_verdict_integrity_required_short_b_is_not_a_note_only.
+    """
+    reasons, notes = V.criterion_b(logp([0.1] * 5), required=False)
     assert reasons == []
     assert any("NOT evaluable" in n for n in notes)
 
@@ -611,6 +695,151 @@ def test_run_verdict_requires_both_criteria():
     assert V.run_verdict(logp([1.0] * 12)[:3])[0] is False      # too short
 
 
+def test_run_verdict_integrity_ten_complete_constant_steps_pass_without_a_header():
+    """A flat positive B is a control, not a collapse or a new provenance gate."""
+    assert V.run_verdict(logp([1.0] * V.SUSTAINED_WINDOW)) == (True, [])
+
+
+def test_run_verdict_integrity_five_steps_cannot_pass_an_unevaluable_b():
+    rows = logp([1.0] * V.MIN_PROBE_STEPS)
+    ok, reasons = V.run_verdict(rows)
+    assert ok is False, "five steps cannot evaluate B's ten-step window"
+    assert any("B" in r and "evaluable" in r.lower() for r in reasons), reasons
+
+
+def test_run_verdict_integrity_one_b_value_in_twelve_steps_cannot_pass():
+    rows = logp([1.0] * 12)
+    for row in rows[1:]:
+        del row[V.LOGP_DIFF_KEY]
+    ok, reasons = V.run_verdict(rows)
+    assert ok is False, "one finite B value does not make twelve steps adjudicable"
+    assert any(V.LOGP_DIFF_KEY in r or "criterion B" in r for r in reasons), reasons
+
+
+_MISSING_RUN_METRIC = object()
+_INVALID_RUN_METRICS = [
+    pytest.param(_MISSING_RUN_METRIC, id="missing"),
+    pytest.param(float("nan"), id="nan"),
+    pytest.param(float("inf"), id="positive-inf"),
+    pytest.param(float("-inf"), id="negative-inf"),
+]
+
+
+def _replace_run_metric(rows, index, key, value):
+    if value is _MISSING_RUN_METRIC:
+        del rows[index][key]
+    else:
+        rows[index][key] = value
+
+
+def _assert_unevaluable_metric(reasons, key):
+    """An instrumentation fault must not masquerade as measured collapse."""
+    assert any(
+        key in r and any(marker in r.lower() for marker in (
+            "not adjudicable", "not evaluable", "not a finite", "invalid",
+            "insufficient", "missing", "never logged",
+        ))
+        for r in reasons
+    ), reasons
+
+
+@pytest.mark.parametrize(
+    "n_steps,bad_index",
+    [(n, i) for n in (10, 12) for i in range(n)],
+    ids=[f"{n}-steps-row-{i}" for n in (10, 12) for i in range(n)],
+)
+@pytest.mark.parametrize("key", [V.ZERO_STD_KEY, V.LOGP_DIFF_KEY], ids=["A", "B"])
+@pytest.mark.parametrize("value", _INVALID_RUN_METRICS)
+def test_run_verdict_integrity_every_required_row_must_be_finite(
+    n_steps, bad_index, key, value,
+):
+    """176 cases: every position, both metrics, both lengths, four telemetry faults."""
+    rows = logp([1.0] * n_steps)
+    _replace_run_metric(rows, bad_index, key, value)
+    ok, reasons = V.run_verdict(rows)
+    assert ok is False, (n_steps, bad_index, key, value, reasons)
+    _assert_unevaluable_metric(reasons, key)
+    assert any(f"step {bad_index}" in r for r in reasons), reasons
+
+
+@pytest.mark.parametrize("value", _INVALID_RUN_METRICS)
+def test_run_verdict_integrity_a_gap_is_unevaluable_not_a_healthy_reset(value):
+    """Two nine-step breaches separated by missing data are not a healthy A trace."""
+    rows = [step(0.9) for _ in range(2 * V.SUSTAINED_WINDOW - 1)]
+    gap = V.SUSTAINED_WINDOW - 1
+    _replace_run_metric(rows, gap, V.ZERO_STD_KEY, value)
+    reasons = V.criterion_a_sustained(rows)
+    _assert_unevaluable_metric(reasons, V.ZERO_STD_KEY)
+    assert not any("consecutive steps" in r for r in reasons), reasons
+
+
+@pytest.mark.parametrize("value", _INVALID_RUN_METRICS)
+def test_run_verdict_integrity_b_gap_never_compresses_a_consecutive_window(value):
+    """Ten rising valid values with a hole do not make ten consecutive logged steps."""
+    rows = logp([1.0 + i / 100 for i in range(V.SUSTAINED_WINDOW + 1)])
+    _replace_run_metric(rows, V.SUSTAINED_WINDOW // 2, V.LOGP_DIFF_KEY, value)
+    reasons, _ = V.criterion_b(rows, required=True)
+    assert not any("monotonically" in r for r in reasons), reasons
+    _assert_unevaluable_metric(reasons, V.LOGP_DIFF_KEY)
+
+
+@pytest.mark.parametrize("value", _INVALID_RUN_METRICS)
+def test_run_verdict_integrity_b_gap_cannot_shift_the_first_ten_step_baseline(value):
+    rows = logp([1.0] * V.SUSTAINED_WINDOW + [4.0, 4.0])
+    _replace_run_metric(rows, 0, V.LOGP_DIFF_KEY, value)
+    reasons, _ = V.criterion_b(rows, required=True)
+    _assert_unevaluable_metric(reasons, V.LOGP_DIFF_KEY)
+    assert any("first-10-step baseline" in r and "NOT evaluable" in r for r in reasons)
+    assert not any(" reached " in r for r in reasons), reasons
+
+
+def test_run_verdict_integrity_b_reports_real_logged_row_indices_after_a_gap():
+    rows = logp([1.0] + [1.0 + i / 100 for i in range(V.SUSTAINED_WINDOW + 1)])
+    del rows[0][V.LOGP_DIFF_KEY]
+    reasons, _ = V.criterion_b(rows, required=True)
+    _assert_unevaluable_metric(reasons, V.LOGP_DIFF_KEY)
+    assert any("steps 1-10:" in r and "monotonically" in r for r in reasons), reasons
+    assert not any("steps 0-9:" in r for r in reasons), reasons
+
+
+@pytest.mark.parametrize("baseline", [0.0, -1.0])
+def test_run_verdict_integrity_nonpositive_finite_baseline_remains_informational(baseline):
+    """Owner policy unchanged: this note is not a new scientific failure criterion."""
+    assert V.run_verdict(logp([baseline] * V.SUSTAINED_WINDOW)) == (True, [])
+
+
+def test_run_verdict_integrity_required_short_b_is_not_a_note_only():
+    """The run requires B; a short probe may merely observe that B is unavailable.
+
+    The older `test_criterion_b_is_declared_not_evaluable_on_a_short_run`
+    expected [] with required=True and was kept intact for the verified RED phase.
+    It now explicitly tests required=False, matching the "not a pass" contract.
+    """
+    reasons, _ = V.criterion_b(logp([1.0] * V.MIN_PROBE_STEPS), required=True)
+    assert any("NOT evaluable" in r for r in reasons), reasons
+    optional_reasons, notes = V.criterion_b(
+        logp([1.0] * V.MIN_PROBE_STEPS), required=False,
+    )
+    assert optional_reasons == []
+    assert any("NOT evaluable" in n for n in notes), notes
+
+
+def test_run_verdict_integrity_probe_defaults_and_scientific_constants_stay_fixed():
+    assert V.MIN_PROBE_STEPS == 5
+    assert V.SUSTAINED_WINDOW == 10
+    assert V.ZERO_STD_CEILING == 0.60
+    assert V.LOGP_RATIO_MULTIPLE == 3.0
+    assert V.probe_verdict(probe_log([0.4] * V.MIN_PROBE_STEPS)) == (True, [])
+    assert V.probe_verdict(probe_log([0.4] * (V.MIN_PROBE_STEPS - 1)))[0] is False
+    assert V.probe_verdict(probe_log([0.9] + [0.4] * 4))[0] is False
+    # The ratio threshold remains strictly greater than 3x, never >= or an offset.
+    baseline = logp([1.0] * V.SUSTAINED_WINDOW)
+    assert V.run_verdict(baseline + logp([V.LOGP_RATIO_MULTIPLE])) == (True, [])
+    ok, reasons = V.run_verdict(baseline + logp([V.LOGP_RATIO_MULTIPLE + 0.01]))
+    assert ok is False
+    assert any("median" in r for r in reasons), reasons
+
+
 def test_training_steps_agrees_with_step2s_definition():
     """The duplicated definition is guarded, not trusted. See `V.training_steps`."""
     from step2.verdict import training_steps as step2_training_steps
@@ -640,6 +869,29 @@ def test_observations_report_the_realised_number_against_the_reference():
 
 def test_the_measured_stack_passes():
     assert guards.check_stack(GOOD_STACK) == []
+
+
+@pytest.mark.parametrize("transformers", ["5.2.0", "5.17.0", "5.18.0"])
+def test_default_stack_keeps_the_transformers_five_ceiling(transformers):
+    versions = {**GOOD_STACK, "transformers": transformers}
+    assert guards.check_stack_common(versions) == []
+    faults = guards.check_stack(versions)
+    assert len(faults) == 1
+    assert "transformers<5" in faults[0]
+    with pytest.raises(guards.StackError, match="transformers<5"):
+        guards.require_stack(versions)
+
+
+def test_default_stack_delegates_shared_checks_without_replacing_them(monkeypatch):
+    seen = []
+
+    def common(versions):
+        seen.append(dict(versions))
+        return ["shared-stack-sentinel"]
+
+    monkeypatch.setattr(guards, "check_stack_common", common)
+    assert guards.check_stack(GOOD_STACK) == ["shared-stack-sentinel"]
+    assert seen == [GOOD_STACK]
 
 
 def test_below_the_unsloth_floor_is_a_different_experiment_not_a_worse_one():
@@ -953,6 +1205,122 @@ def test_preflight_passes_every_invariant_once_the_gate_opens(tmp_path):
     assert config["num_generations"] == 4
 
 
+def test_native_preflight_has_no_runtime_policy_or_fixture_switches():
+    parameters = inspect.signature(grpo_ptc.native_sql_preflight).parameters
+    assert list(parameters) == ["root", "steps"]
+    assert all(parameter.kind is inspect.Parameter.KEYWORD_ONLY
+               for parameter in parameters.values())
+    assert parameters["root"].default == REPO
+    assert parameters["steps"].default == 200
+    with pytest.raises(TypeError):
+        grpo_ptc.native_sql_preflight(versions=GOOD_STACK)
+    with pytest.raises(TypeError):
+        grpo_ptc.native_sql_preflight(arms=("ptc", "bash"))
+    with pytest.raises(TypeError):
+        grpo_ptc.native_sql_preflight(require_runtime=lambda: None)
+
+
+@pytest.mark.parametrize("entrypoint", ["preflight", "native_sql_preflight"])
+@pytest.mark.parametrize("steps", [1, 17, 200])
+def test_both_preflights_check_frontier_before_stack_or_config(
+    tmp_path, monkeypatch, entrypoint, steps,
+):
+    def forbidden(*args, **kwargs):
+        pytest.fail("missing frontier reached stack/runtime/config work")
+
+    monkeypatch.setattr(grpo_ptc, "require_stack", forbidden)
+    monkeypatch.setattr(grpo_ptc, "require_native_runtime", forbidden)
+    monkeypatch.setattr(grpo_ptc, "training_config", forbidden)
+    with pytest.raises(guards.PreconditionUnmet, match="no frontier taskset"):
+        getattr(grpo_ptc, entrypoint)(root=tmp_path, steps=steps)
+
+
+@pytest.mark.parametrize("entrypoint", ["preflight", "native_sql_preflight"])
+@pytest.mark.parametrize("steps", [1, 17, 200])
+def test_optimized_preflight_sources_keep_missing_frontier_closed(
+    tmp_path, entrypoint, steps,
+):
+    """Compile actual gate/entrypoint source with -O semantics, without processes."""
+    guard_namespace = dict(vars(guards))
+    exec(compile(inspect.getsource(guards.require_frontier_taskset),
+                 "<optimized-frontier>", "exec", optimize=1), guard_namespace)
+    tree = ast.parse(pathlib.Path(grpo_ptc.__file__).read_text())
+    tree.body = [
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == entrypoint
+    ]
+    assert len(tree.body) == 1
+    namespace = dict(vars(grpo_ptc))
+    namespace["require_frontier_taskset"] = guard_namespace["require_frontier_taskset"]
+    exec(compile(tree, "<optimized-preflight>", "exec", optimize=1), namespace)
+    with pytest.raises(guards.PreconditionUnmet, match="no frontier taskset"):
+        namespace[entrypoint](root=tmp_path, steps=steps)
+
+
+@pytest.mark.parametrize("steps", [1, 17, 200])
+def test_native_preflight_uses_fixed_arms_and_preserves_requested_steps(
+    tmp_path, monkeypatch, steps,
+):
+    calls = []
+    monkeypatch.setattr(grpo_ptc, "require_native_runtime", lambda: calls.append("native"))
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("native preflight called the default Transformers<5 enforcer")
+
+    monkeypatch.setattr(grpo_ptc, "require_stack", forbidden)
+    root = gate_open_root(tmp_path)
+    config = grpo_ptc.native_sql_preflight(root=root, steps=steps)
+    assert calls == ["native"]
+    assert config == grpo_ptc.training_config(grpo_ptc.TRAINED_ARMS_DEFAULT, steps=steps)
+
+
+def test_native_preflight_keeps_real_runtime_blockers_after_frontier(tmp_path, monkeypatch):
+    from train import native_runtime
+
+    def absent(name):
+        raise native_runtime.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(native_runtime.metadata, "version", absent)
+    with pytest.raises(native_runtime.NativeRuntimeError) as caught:
+        grpo_ptc.native_sql_preflight(root=gate_open_root(tmp_path))
+    assert caught.value.report["issues"]["unresolved"]
+    assert all(not caught.value.report[key] for key in (
+        "candidate_approved", "dependency_graph_verified", "abi_verified",
+        "runtime_verified", "training_verified", "launch_authorized",
+    ))
+
+
+@pytest.mark.parametrize("entrypoint", ["preflight", "native_sql_preflight"])
+@pytest.mark.parametrize("fault", ["tools", "completion_cap", "turn_budget"])
+def test_both_preflights_refuse_each_shared_scientific_fault(
+    tmp_path, monkeypatch, entrypoint, fault,
+):
+    root = gate_open_root(tmp_path)
+    kwargs = {"root": root}
+    if entrypoint == "native_sql_preflight":
+        # Wiring test only: the real native runtime remains blocked elsewhere.
+        monkeypatch.setattr(grpo_ptc, "require_native_runtime", lambda: None)
+    else:
+        kwargs["versions"] = GOOD_STACK
+    if fault == "completion_cap":
+        config = grpo_ptc.training_config()
+        config["max_completion_length"] -= 1
+        monkeypatch.setattr(grpo_ptc, "training_config", lambda *args, **kwargs: config)
+        invariant = 2
+    else:
+        environment = grpo_ptc.environment_factory(root)()
+        if fault == "tools":
+            environment.tools = (grpo_ptc.THE_TOOL_SCHEMA,) * 2
+            invariant = 1
+        else:
+            environment.max_turns += 1
+            invariant = 3
+        monkeypatch.setattr(grpo_ptc, "environment_factory",
+                            lambda root: lambda: environment)
+    with pytest.raises(guards.InvariantViolation, match=f"invariant {invariant}"):
+        getattr(grpo_ptc, entrypoint)(**kwargs)
+
+
 def test_step_zero_tool_success_flags_the_floor_artifact():
     """Run 3d measured: bash 0 failures in 822 calls, PTC 74 in 156."""
     flagged = grpo_ptc.step_zero_tool_success(822, 0)
@@ -1067,7 +1435,9 @@ def test_the_gate_refuses_a_frontier_too_small_to_carry_the_effect(tmp_path):
         status.reasons
 
     # and the boundary itself passes, so the floor is not off by one
-    at_floor = {**GOOD_MANIFEST, "n_tasks": guards.MIN_FRONTIER_TASKS}
+    at_floor = {**GOOD_MANIFEST, "n_tasks": guards.MIN_FRONTIER_TASKS,
+                "measurement": {**GOOD_MANIFEST["measurement"],
+                                "retention": guards.MIN_FRONTIER_TASKS / 198}}
     write_manifest(tmp_path, at_floor, SIGNED)
     assert guards.frontier_taskset_status(tmp_path).ok
 

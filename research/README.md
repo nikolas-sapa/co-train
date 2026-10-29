@@ -19,6 +19,7 @@ beat that harness's untrained baseline — and does it survive a harness swap?
 | `05-delta-tierlist-and-rdi.md` | Berkeley RDI broke 8/8 agent benchmarks. Four harnesses the sweep missed. |
 | `06-perplexity-delta.md` | **fp16-on-T4 unknown RESOLVED.** BenchJack tooling, practitioner failure modes, sandbox economics, from-scratch verdict. |
 | `07-prior-art-closure.md` | OpenForgeRL, Harness-Bench, Agentic Routing. Honest novelty assessment: narrower but better-posed. |
+| `2026-10-24-prime-t3-opportunities.md` | Pinned Prime/T3 synthesis and ranked backlog; capture prerequisite implemented/targeted-verified, reviews complete. Full default suite RED on existing isolated bench baseline; skill generation/promotion not implemented. |
 
 ## Headline findings
 1. **PTC loses to plain bash** on untrained models, on both quality and cost (arXiv 2609.11999).

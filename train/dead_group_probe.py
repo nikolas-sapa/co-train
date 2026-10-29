@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import functools
 import json
+import math
 import pathlib
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Sequence
@@ -432,6 +433,11 @@ class ProbeMonitor:
             self.aborted = (
                 f"step {index}: {ZERO_STD_KEY} is {value!r}, not a number. The probe's "
                 "only instrument is not reporting; this is not a clean probe."
+            )
+        elif not math.isfinite(value):
+            self.aborted = (
+                f"step {index}: {ZERO_STD_KEY} is {value!r}, not a finite number. The "
+                "probe's only instrument is not reporting; this is not a clean probe."
             )
         elif value > self.ceiling:
             # Delegated to the verdict's own criterion over the rows logged so far, so

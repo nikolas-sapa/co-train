@@ -1,0 +1,23 @@
+{
+  "prompts": 800,
+  "unique_ids": 800,
+  "databases": [
+    "california_schools",
+    "debit_card_specializing",
+    "formula_1",
+    "student_club",
+    "superhero",
+    "thrombosis_prediction",
+    "toxicology"
+  ],
+  "timeout_s": 30.0,
+  "max_rows": 500000,
+  "compare": "set",
+  "sqlite_version": "3.50.4",
+  "prompt_sha256": "2d3a1bdc39d2878c2429c6afcd6aa4105f9dd8a05a4e2a8a7c7447e702d131ff",
+  "corpus_metadata_sha256": "630272f2b1c44d8cef2c3b246f623355cf0bbc1e832c81061df895530dfc2f06",
+  "scorer_sha256": "e55a4e6027cce31208881965d222a5e10636dda69a94b0a3c43c0768b2de703c",
+  "sqlite_safety_sha256": "27543b08ce12f6870fac43327f333fc369b12e50604d151f452fac818648a02a",
+  "elapsed_s": 9.702,
+  "broken": []
+}

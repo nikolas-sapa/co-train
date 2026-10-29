@@ -18,6 +18,9 @@ identical mtime AND size, so Python keeps executing the cached .pyc.
 import json, os, pathlib, shutil, subprocess, sys, tempfile
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+from process_watchdog import run_bounded
 
 # The repo-local venv, not an absolute path outside the clone. The previous
 # value pointed at `~/.venv-tok/bin/python`, which does not exist here any
@@ -27,19 +30,29 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 _VENV = REPO / ".venv-ptc" / "bin" / "python"
 PY = str(_VENV) if _VENV.exists() else sys.executable
 ENV = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_DISABLE_PROGRESS_BARS": "1"}
+SUITE_TIMEOUT = 300.0
 
 
 def fresh() -> pathlib.Path:
     d = pathlib.Path(tempfile.mkdtemp(prefix="mut2."))
     shutil.copytree(REPO / "step2", d / "step2", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copy(REPO / "process_watchdog.py", d / "process_watchdog.py")
     return d
 
 
 def run(d: pathlib.Path):
-    return subprocess.run(
-        [PY, "-m", "pytest", "step2/", "-q", "--no-header", "-p", "no:cacheprovider"],
-        cwd=d, capture_output=True, text=True, env={**ENV, "PYTHONPATH": str(d / "step2")},
-    )
+    argv = [PY, "-m", "pytest", "step2/", "-q", "--no-header", "-p", "no:cacheprovider"]
+    try:
+        return run_bounded(
+            argv, cwd=d, timeout=SUITE_TIMEOUT,
+            env={**ENV, "PYTHONPATH": str(d / "step2")},
+        )
+    except subprocess.TimeoutExpired as exc:
+        notes = "".join(f"\nWATCHDOG: {note}\n" for note in getattr(exc, "__notes__", ()))
+        return subprocess.CompletedProcess(
+            argv, 124, (exc.stdout or "") + f"\nHUNG: suite exceeded {SUITE_TIMEOUT}s\n",
+            (exc.stderr or "") + notes,
+        )
 
 
 def main() -> int:
@@ -47,12 +60,13 @@ def main() -> int:
     muts = json.load(sys.stdin)
     base = run(fresh())
     if base.returncode:
-        print("FRESH BASELINE NOT GREEN:\n" + base.stdout[-1500:])
+        print("FRESH BASELINE NOT GREEN:\n" + (base.stdout + base.stderr)[-1500:])
         return 2
     print("baseline:", base.stdout.strip().splitlines()[-1], "\n")
     print(f"{'mutation':38} | verdict")
     print("-" * 74)
     survivors = []
+    invalid = []
     for name, old, new in muts:
         d = fresh()
         f = d / "step2" / target
@@ -65,11 +79,20 @@ def main() -> int:
         r = run(d)
         if r.returncode == 0:
             survivors.append(name)
+            verdict = "*** SURVIVED ***"
+        elif r.returncode == 1:
+            verdict = "died"
+        else:
+            invalid.append(name)
+            print(f"{name:38} | INVALID pytest exit {r.returncode}")
+            print((r.stdout + r.stderr)[-1500:])
+            continue
         killed = [l.split("::")[-1].split()[0] for l in r.stdout.splitlines() if l.startswith("FAILED")]
-        print(f"{name:38} | {'died' if r.returncode else '*** SURVIVED ***':16} {killed[0] if killed else ''}")
+        print(f"{name:38} | {verdict:16} {killed[0] if killed else ''}")
     print("-" * 74)
     print("survivors:", survivors if survivors else "none")
-    return 1 if survivors else 0
+    print("invalid:", invalid if invalid else "none")
+    return 2 if invalid else (1 if survivors else 0)
 
 
 if __name__ == "__main__":

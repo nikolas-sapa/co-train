@@ -50,6 +50,7 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from ptc.runtime import SAFE_BUILTINS, Catalog, ProgramRejected
+from ptc.sqlite_safety import protect_connection
 from ptc.sql_runtime import (
     MAX_ROWS,
     PRIMITIVE_REASONS,
@@ -127,7 +128,7 @@ class TaskView:
 
 
 def adapt_task(task: Any) -> TaskView:
-    """The ONLY coupling between this module and `bench/**`.
+    """The only coupling between this module and bench task representations.
 
     Duck-typed on purpose. Importing `bench.task.SqlTask` would make `ptc`
     unimportable wherever `bench` is absent and would pin this module to that
@@ -160,17 +161,19 @@ def adapt_task(task: Any) -> TaskView:
 # ------------------------------------------------------------------------------------
 
 def connect_readonly(db_path: str) -> sqlite3.Connection:
-    """Open the task database read-only.
+    """Open the task database read-only and guard SQL-driven external file access.
 
     `mode=ro` rather than trusting the query text: a channel documented as read-only
     that is enforced by a prompt is enforced by nothing, and a task database mutated by
-    one rollout is a task the next rollout answers against different data. The bash
-    arm's wrapper passes sqlite3's own `-readonly`, so the guarantee is the same on both
-    arms and comes from sqlite in both cases, not from a regex over the query.
+    one rollout is a task the next rollout answers against different data. The shared
+    authorizer additionally denies ATTACH (including VACUUM INTO) and known external
+    file/extension functions. The bash wrapper uses `-readonly -safe`. Neither action
+    is an OS sandbox or restricts the wider bash shell or ordinary SQLite temporary IO.
     """
     if not Path(db_path).is_file():
         raise FileNotFoundError(f"no sqlite file at {db_path}")
-    return sqlite3.connect(f"file:{Path(db_path).as_posix()}?mode=ro", uri=True)
+    conn = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
+    return protect_connection(conn)
 
 
 def schema_text(db_path: str) -> str:
@@ -241,7 +244,7 @@ def wrapper_script(db_path: str, max_rows: int = MAX_ROWS) -> str:
 
     **Why a wrapper and not bare `sqlite3 <db> "<query>"`.** The brief's command form is
     preserved -- it is the last line of this script, verbatim, with sqlite3's own
-    `-readonly` and `-list -header` -- but reached bare it is an *uncapped* channel. The
+    `-readonly -safe` and `-list -header` -- but reached bare it is an *uncapped* channel. The
     PTC arm refuses at `MAX_ROWS`; an arm whose observation is instead truncated by a
     context limit it is never told about has more information on some tasks and less on
     others, and neither arm would know it happened. That is defect 5 inverted, so the
@@ -276,12 +279,12 @@ def wrapper_script(db_path: str, max_rows: int = MAX_ROWS) -> str:
         "fi",
         "# Matches bench.score.extract_sql, and lets the COUNT probe wrap the query.",
         "Q=$(printf '%s' \"$1\" | sed -e 's/[[:space:];]*$//')",
-        'n=$(sqlite3 -readonly "$DB" "SELECT COUNT(*) FROM ($Q)" 2>/dev/null) || n=""',
+        'n=$(sqlite3 -readonly -safe "$DB" "SELECT COUNT(*) FROM ($Q)" 2>/dev/null) || n=""',
         'case "$n" in',
         "  '' | *[!0-9]* ) ;;   # not wrappable as a subquery: fall through to the guard",
         '  * ) if [ "$n" -gt "$MAX" ]; then printf \'%s\\n\' "$REFUSAL" >&2; exit 1; fi ;;',
         "esac",
-        'out=$(sqlite3 -readonly -list -header "$DB" "$Q" 2>&1) || {',
+        'out=$(sqlite3 -readonly -safe -list -header "$DB" "$Q" 2>&1) || {',
         "  printf '%s\\n' \"$out\" >&2",
         "  exit 1",
         "}",
@@ -513,9 +516,8 @@ def sql_catalog(db_path: str, max_rows: int = MAX_ROWS,
         **SQL_PRIMITIVES,
     }
     if observe is not None:
-        from ptc.harness import OBSERVE
-
-        tools[OBSERVE] = observe
+        # Shadow Python's builtin without importing the harness frameworks.
+        tools["print"] = observe
     return Catalog(tools=tools)
 
 

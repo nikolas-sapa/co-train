@@ -1,0 +1,83 @@
+{
+  "date": "2026-10-23",
+  "evidence": "Fresh official versioned PyPI JSON reads, not package installation or ABI verification",
+  "install_ready": false,
+  "frozen_contract_changed": false,
+  "candidate_core_only": {
+    "unsloth": "2026.10.3",
+    "unsloth-zoo": "2026.10.3",
+    "trl": "1.13.0",
+    "transformers": "5.17.0"
+  },
+  "critical_declared_constraints": {
+    "unsloth": {
+      "python": "<3.15,>=3.9",
+      "unsloth_zoo": ">=2026.10.3",
+      "torch": "<2.15.0,>=2.4.0",
+      "datasets": "!=4.0.*,!=4.1.0,!=4.4.*,!=4.5.0,<5.0.0,>=3.4.1",
+      "accelerate": ">=0.34.1",
+      "peft": "!=0.11.0,>=0.18.0",
+      "transformers": "!=4.53.0,!=4.54.0,!=4.55.0,!=4.55.1,!=4.57.0,!=4.57.4,!=4.57.5,!=5.0.0,!=5.1.0,<=5.17.0,>=4.52.4",
+      "trl": "!=0.19.0,<=1.13.0,>=0.18.2"
+    },
+    "trl": {
+      "python": ">=3.10",
+      "transformers_general_package_floor": ">=4.56.2",
+      "accelerate": ">=1.4.0",
+      "datasets": ">=4.7.0",
+      "vllm_extra": "<=0.28.0,>=0.19.1"
+    },
+    "transformers": {
+      "python": ">=3.10.0",
+      "huggingface-hub": "<2.0,>=1.5.0",
+      "tokenizers": "<0.24.0,>=0.23.1",
+      "safetensors": ">=0.8.0"
+    },
+    "unsloth_zoo": {
+      "python": "<3.15,>=3.9",
+      "datasets": "!=4.0.*,!=4.1.0,!=4.4.*,!=4.5.0,<5.0.0,>=3.4.1",
+      "transformers_ceiling": "<=5.17.0",
+      "darwin_arm64_note": "Uses separately marked MLX dependencies, not evidence for the specified Linux CUDA native-GRPO path"
+    },
+    "vllm_0.23.0": {
+      "python": "<3.15,>=3.10",
+      "torch": "==2.11.0",
+      "torchaudio": "==2.11.0",
+      "torchvision": "==0.26.0",
+      "flashinfer_python": "==0.6.12",
+      "flashinfer_cubin": "==0.6.12"
+    },
+    "torch_2.11.0_pypi_linux_build": {
+      "cuda_toolkit": "13.0.2",
+      "triton": "3.6.0",
+      "note": "Version equality does not establish CUDA-build interchangeability with historical cu128/cu129 packages"
+    },
+    "xformers_0.0.35": {"torch": ">=2.10"}
+  },
+  "official_metadata_urls": [
+    "https://pypi.org/pypi/unsloth/2026.10.3/json",
+    "https://pypi.org/pypi/unsloth_zoo/2026.10.3/json",
+    "https://pypi.org/pypi/trl/1.13.0/json",
+    "https://pypi.org/pypi/transformers/5.17.0/json",
+    "https://pypi.org/pypi/vllm/0.23.0/json",
+    "https://pypi.org/pypi/torch/2.11.0/json",
+    "https://pypi.org/pypi/xformers/0.0.35/json"
+  ],
+  "observed_wheel_sha256_not_downloaded": {
+    "unsloth-2026.10.3-py3-none-any.whl": "495eeb1d310466a8e1cbe4329e76749452ef97efc6cd0753c57ecc28af635c63",
+    "unsloth_zoo-2026.10.3-py3-none-any.whl": "3a6e1d2ab6fa04402fd08e72293e53e976922e6f97123cbf382dc8ae6f627f3c",
+    "trl-1.13.0-py3-none-any.whl": "7c7ae0c72e969450221cf4c7cfe69c532c5a83c727204f1c8ced38a9b79134ec",
+    "transformers-5.17.0-py3-none-any.whl": "78ec1ce21579b38dfb83950a0658cd119f87212a2fcfdff478096ce9d6c03801",
+    "vllm-0.23.0-2-cp38-abi3-manylinux_2_28_x86_64.whl": "872aeb7c36a1ea942216af067ce870ffdf960804e829367e1b4eb36d4831c03c",
+    "vllm-0.23.0-cp38-abi3-manylinux_2_28_x86_64.whl": "71eae985c79ddaa999328cc56d206a1e9b785e079fc6da9e2359ec56ef1c842a",
+    "torch-2.11.0-cp312-cp312-manylinux_2_28_x86_64.whl": "0f68f4ac6d95d12e896c3b7a912b5871619542ec54d3649cf48cc1edd4dd2756"
+  },
+  "scope_limits": [
+    "Critical constraints selected from complete metadata responses, not a full dependency graph or lockfile",
+    "Native environment Transformers>=5.2 is a source-level optional-feature requirement, not TRL's general metadata floor",
+    "Remaining transitive dependencies, released Unsloth patch behavior, CUDA/driver/kernel ABI and hardware fit unresolved",
+    "Local Darwin arm64 environment has Transformers5.18.0 and datasets5.0.1, both outside selected Unsloth metadata bounds",
+    "Local environment lacks torch, trl, unsloth, unsloth_zoo, vllm, accelerate and peft",
+    "No native model sampling, gradients, optimizer or checkpoint round trip verified"
+  ]
+}

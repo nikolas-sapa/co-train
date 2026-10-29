@@ -8,9 +8,10 @@
 
     ~/scratch/verifiers-spike/.venv/bin/python ptc/mutate.py ledger/taskset.py < muts.json
 
-The package is the first path segment; only that package is copied and only its tests
-run. Parameterised rather than copied a third time -- `step2/mutate.py` already exists
-as a sibling because step2 is another session's, and two copies is the limit.
+The package is the first path segment; it and its sibling dependencies are copied,
+but only its tests run. Parameterised rather than copied a third time --
+`step2/mutate.py` already exists as a sibling because step2 is another session's,
+and two copies is the limit.
 
 Same discipline as `step2/mutate.py`, and deliberately a sibling rather than an
 import: `step2/` is owned by another session and this one does not edit it.
@@ -22,26 +23,28 @@ Fresh copy per mutation + PYTHONDONTWRITEBYTECODE=1: a byte-length-identical
 mutation restored within the same second leaves identical mtime AND size, so
 Python would keep executing the cached .pyc.
 """
-import json, os, pathlib, shutil, signal, subprocess, sys, tempfile
+import json, os, pathlib, shutil, subprocess, sys, tempfile
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+from process_watchdog import run_bounded
 ENV = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
 
 
-# Sibling packages the target imports at module scope. `ptc/compare.py` does
-# `from ledger import on_pythonpath`, so a sandbox holding only `ptc/` fails at
-# COLLECTION -- every mutation then reads as dead for the wrong reason, which is a
-# whole suite of bad kills rather than one.
-SIBLINGS = ("ledger",)
+# Packages the targets and their tests import. `ptc/compare.py` needs `ledger`,
+# and the SQL tests need `bench`. Missing either makes collection fail, not a
+# mutant die. Include the target only once when it is one of these packages.
+SIBLINGS = ("ptc", "ledger", "bench")
 
 
 def fresh(pkg: str) -> pathlib.Path:
     d = pathlib.Path(tempfile.mkdtemp(prefix=f"mut.{pkg}."))
-    shutil.copytree(REPO / pkg, d / pkg, ignore=shutil.ignore_patterns("__pycache__"))
-    for sibling in SIBLINGS:
-        if (REPO / sibling).is_dir():
-            shutil.copytree(REPO / sibling, d / sibling,
-                            ignore=shutil.ignore_patterns("__pycache__"))
+    for name in dict.fromkeys((pkg, *SIBLINGS)):
+        shutil.copytree(REPO / name, d / name,
+                        ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copy(REPO / "process_watchdog.py", d / "process_watchdog.py")
+    shutil.copy(REPO / "pytest.ini", d / "pytest.ini")
     return d
 
 
@@ -56,50 +59,20 @@ it certainly did not pass -- but it has to be *recorded* as one rather than wait
 
 
 def run(d: pathlib.Path, pkg: str):
-    """Run one mutated suite, killing the whole process TREE if it overruns.
-
-    `subprocess.run(timeout=...)` kills the direct child only, and killing this script
-    kills neither. Both gaps were real: interrupting a batch that had mutated away
-    `ptc/runtime.py`'s deadline tracer left the suite's own `while True` test spinning,
-    and four orphans were later found at 98% CPU, one of them 511 CPU-minutes in. A
-    mutation harness for an execution bound must not be the thing that runs forever.
-
-    So the child gets its own session and the whole group is signalled.
-    """
+    """Bound the suite and its original process group, including after leader exit."""
     argv = [sys.executable, "-m", "pytest", f"{pkg}/", "-q", "--no-header",
             "-p", "no:cacheprovider"]
-    process = subprocess.Popen(
-        argv, cwd=d, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-        env={**ENV, "PYTHONPATH": str(d)},
-        start_new_session=True,      # its own process group, so killpg reaches pytest's children
-    )
     try:
-        stdout, stderr = process.communicate(timeout=SUITE_TIMEOUT)
-        return subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
-    except subprocess.TimeoutExpired:
-        _terminate_tree(process)
+        return run_bounded(
+            argv, cwd=d, timeout=SUITE_TIMEOUT, env={**ENV, "PYTHONPATH": str(d)},
+        )
+    except subprocess.TimeoutExpired as exc:
+        notes = "".join(f"\nWATCHDOG: {note}\n" for note in getattr(exc, "__notes__", ()))
         return subprocess.CompletedProcess(
-            argv, 124,
-            f"HUNG: suite exceeded {SUITE_TIMEOUT}s\nFAILED (hung)::timeout", "")
-    except BaseException:
-        # Ctrl-C included: leaving a runaway child behind is how the orphans happened.
-        _terminate_tree(process)
-        raise
-
-
-def _terminate_tree(process: subprocess.Popen) -> None:
-    """SIGTERM the group, then SIGKILL what ignores it. A spinning `while True` under a
-    mutated-away tracer does ignore it."""
-    for signum in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.killpg(os.getpgid(process.pid), signum)
-        except (ProcessLookupError, PermissionError):
-            return
-        try:
-            process.wait(timeout=10)
-            return
-        except subprocess.TimeoutExpired:
-            continue
+            argv, 124, (exc.stdout or "") +
+            f"\nHUNG: suite exceeded {SUITE_TIMEOUT}s\nFAILED (hung)::timeout",
+            (exc.stderr or "") + notes,
+        )
 
 
 def main() -> int:
@@ -110,12 +83,13 @@ def main() -> int:
     muts = json.load(sys.stdin)
     base = run(fresh(pkg), pkg)
     if base.returncode:
-        print("FRESH BASELINE NOT GREEN:\n" + base.stdout[-2000:])
+        print("FRESH BASELINE NOT GREEN:\n" + (base.stdout + base.stderr)[-2000:])
         return 2
     print("baseline:", base.stdout.strip().splitlines()[-1], "\n", flush=True)
     print(f"{'mutation':46} | verdict")
     print("-" * 82)
     survivors = []
+    invalid = []
     for name, old, new in muts:
         d = fresh(pkg)
         f = d / pkg / filename
@@ -128,13 +102,27 @@ def main() -> int:
         r = run(d, pkg)
         if r.returncode == 0:
             survivors.append(name)
+            verdict = "*** SURVIVED ***"
+        elif r.returncode == 1:
+            verdict = "died"
+        elif r.returncode == 124:
+            verdict = "died (timeout)"
+            for line in r.stderr.splitlines():
+                if line.startswith("WATCHDOG: "):
+                    print(line, flush=True)
+        else:
+            invalid.append(name)
+            print(f"{name:46} | INVALID pytest exit {r.returncode}", flush=True)
+            print((r.stdout + r.stderr)[-2000:])
+            continue
         killed = [l.split("::")[-1].split()[0] for l in r.stdout.splitlines() if l.startswith("FAILED")]
         n_failed = len(killed)
-        print(f"{name:46} | {'died' if r.returncode else '*** SURVIVED ***':16} "
+        print(f"{name:46} | {verdict:16} "
               f"{f'{n_failed} test(s), e.g. ' + killed[0] if killed else ''}")
     print("-" * 82)
     print("survivors:", survivors if survivors else "none")
-    return 1 if survivors else 0
+    print("invalid:", invalid if invalid else "none")
+    return 2 if invalid else (1 if survivors else 0)
 
 
 if __name__ == "__main__":
