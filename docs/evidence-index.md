@@ -1,15 +1,17 @@
 # Evidence index
 
-Updated 2026-10-29 with qualification, timing and bounded native receipts.
+Updated 2026-10-29 with bounded native file-SDK/Timer acceptance.
 These are recorded results, not fresh test runs from documentation integration.
-Offline mechanics and bounded direct-evaluator native lifecycle are verified.
-Native SDK/adversarial guardian coverage, model improvement and production
-readiness are not established. Historical failed runs remain recorded.
+Offline mechanics, bounded direct-evaluator lifecycle and native file-SDK
+happy-path integration are verified. Full adversarial guardian/kernel coverage,
+model improvement and production readiness are not established.
+Historical failed runs remain recorded.
 
 ## Recorded technical evidence
 
 | Date / scope | Recorded observation | Source | Limitation |
 |---|---|---|---|
+| 2026-10-29, bounded native file-SDK/Timer | Four qualifications and two fresh-process SDK reuses EX=1. Fifteen CLOSED jobs, zero retries/model calls; all phase-native/postproof exits 0. | [Native SDK workflow receipt](2026-10-29-native-sql-skill-workflow.md). | Caller-authored fixture approval, not independent authentication. Callback timings are not a baseline/savings study; full adversarial faults/model benefit remain unproved. |
 | 2026-10-29, qualification failure evidence | Final offline suite: 3,793 passed, one optional Torch skip, two configured deselections, ten warnings, 28 subtests; exit 0 in 725.24s. Independent 28 probes and three sensitivity controls completed. | [Qualification receipt](2026-10-29-sql-qualification-evidence.md). | Post-rename fsync can leave visible UNAPPROVED promotion, durability unknown. Successful return/external approval required; overlapping totals not additive. |
 | 2026-10-29, SQL reuse outer timing | Synchronous callback writes/fsync and failed setup included; independent SQLite SDK exercise has four qualification/one reuse EX=1. | [Timing receipt](2026-10-29-sql-reuse-timing.md). | Caller declares operation/setup completeness. No measured economic, provider or team benefit; unknown billing is not zero. |
 | 2026-10-29, bounded direct-evaluator native lifecycle | Three tests, 19 CLOSED jobs; four qualifications/two fresh-process reuses EX=1; zero retries/model calls. Owned cleanup completed, ten unrelated containers unchanged. | [Native receipt](2026-10-29-bounded-native-acceptance.md). | Not native file-SDK or full adversarial guardian acceptance. Earlier failed trial preserved; no retrospective root-cause claim. |
@@ -29,6 +31,10 @@ readiness are not established. Historical failed runs remain recorded.
 The linked contracts and handoffs are repository documents. Several primary
 logs, manifests and trial receipts live outside Git:
 
+- Native file-SDK/Timer campaign:
+  `~/scratch/co-train-2026-10-29/native-readiness/authorized-sdk-native-cb8a1f43/campaign-external-completion.json`.
+  [Workflow receipt](2026-10-29-native-sql-skill-workflow.md#local-receipts-and-reproducibility-limits)
+  records helper, terminal, external-completion, manifest and approval pins.
 - Final integrated offline validation:
   `~/scratch/co-train-2026-10-29/final-corrected-validation-q6afw45z/validation-receipt.json`.
   [Qualification receipt](2026-10-29-sql-qualification-evidence.md#local-evidence)
@@ -68,7 +74,7 @@ not replaced with a fabricated receipt. Do not upload it as housekeeping.
 | Question | Current boundary | Evidence still needed |
 |---|---|---|
 | Who is the first customer, and what task do they need done? | This repository does not establish a validated buyer or product use case. | Owner-selected customer/use case and dated buyer conversations. |
-| What works in a demonstration? | Offline demo, file SDK, capture comparison and [outer timing](2026-10-29-sql-reuse-timing.md) mechanics verified; later [bounded direct-evaluator native lifecycle](2026-10-29-bounded-native-acceptance.md) passed. | Native file-SDK/full guardian coverage remains open. SDK reuse needs trusted assets/external approval; no provenance, savings or production-readiness claim follows. |
+| What works in a demonstration? | Offline mechanics, bounded direct-evaluator lifecycle and [native file-SDK qualification/fresh-process reuse with Timer](2026-10-29-native-sql-skill-workflow.md) passed. | Full adversarial OOM/timeout/guardian/kernel coverage remains open. Fixture approval is not authenticated customer permission; callback observations establish no savings or production readiness. |
 | Does the model improve? | Separate MLX comparison includes zero; later trial incomplete. | An accepted controlled evaluation under a frozen protocol, with failed runs retained. New experiments require authorization. |
 | Is there traction or willingness to pay? | Not established by technical test counts or local experiments. | Actual user activity, commitments or payments, if obtained. No invented metrics. |
 | What is different from existing work? | Original framing has later related work; [team-reuse economics research](../research/2026-10-29-team-reuse-economics.md) separates machine reuse evidence from unproved human-hour savings. | A precise comparison using [related work](related-work.md), tied to the chosen customer/use case. Research proposals do not authorize trials or establish co-train benefit. |

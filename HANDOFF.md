@@ -6,6 +6,34 @@ The original body remains under [History](#history).
 
 ---
 
+## Current state, 2026-10-29, bounded native file-SDK and Timer acceptance
+
+Read the [native SDK workflow receipt](docs/2026-10-29-native-sql-skill-workflow.md).
+
+- Actual file-SDK qualification and two fresh-process reuses passed natively:
+  four qualifications/two reuses valid EX=1; source and SDK rescore valid EX=0.
+  Separate caller review/pins preceded reuse, not automatic promotion approval.
+  This is caller-authored fixture trust, not authenticated customer permission.
+- New campaign: 15/15 CLOSED jobs (7 PROGRAM, 8 SCORER), matching finalization
+  pairs, zero retries/model calls/incidents. Both phase-native and postproof
+  processes exited 0. Wrong promotion pin dispatched nothing.
+- All 15 owned containers and 75 recorded actors absent; zero active reservations
+  or unclosed blocks. Owned containers deleted normally, five historical DBs
+  moved/preserved before reuse, ten unrelated containers unchanged. VM left up.
+- Actual synchronous SDK Timer spans include writes/rename/fsync, but exclude
+  source generation, bootstrap, fixtures, approval and observation finalization.
+  No baseline/speedup, billing, model benefit or team-hours claim follows.
+- Production unchanged: 142 Python sources/16 native-role files match HEAD.
+  Prior 3,793-pass offline suite, 28 probes and three controls remain separate
+  completed evidence; older direct-evaluator/native receipts below are unchanged.
+- Bounded native SDK happy path is now covered. Full adversarial OOM/timeout/
+  guardian/kernel acceptance and economic/model benefit remain unproved.
+  Fresh native budget exhausted; financial gates closed. This receipt grants
+  no further native/paid/model/deployment permission; standing Git instructions
+  remain unchanged.
+
+---
+
 ## Current state, 2026-10-29, qualification evidence, timing and bounded native lifecycle
 
 Read the [qualification receipt](docs/2026-10-29-sql-qualification-evidence.md),
