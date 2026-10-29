@@ -1,7 +1,7 @@
 # Evidence index
 
-Updated 2026-10-27 for repository organization and YC/Speedrun preparation.
-These are recorded results, not fresh test runs from this cleanup.
+Updated 2026-10-29 with the offline SQL reuse demo receipt.
+These are recorded results, not fresh test runs from documentation integration.
 The project has working experimental mechanics and unresolved acceptance
 failures. Model improvement and production readiness are not established.
 
@@ -9,6 +9,7 @@ failures. Model improvement and production readiness are not established.
 
 | Date / scope | Recorded observation | Source | Limitation |
 |---|---|---|---|
+| 2026-10-29, portable offline SQL reuse | Two independently executed fixture demos, each four EX=1 qualifications and two fresh-process EX=1 reuses. Complete configured offline suite: 3,682 passed, one optional Torch skip, two existing tokenizer deselections. | [Demo command and verification receipt](2026-10-29-sql-reuse-demo.md). | Standard-library fixture mechanics, synthetic container metadata in process tests. No new native acceptance, model benefit or independently authenticated approval. |
 | Untrained `ledger` report, checkpoint reviewed 2026-10-27 | Run 2h: PTC 14/14, bash 12/14. | [Untrained results](results-untrained.md), [trace provenance](trace-provenance.md), [deviations](deviations.md). | Retired taskset, n=14, not statistically separable. Cost estimates have provenance/correction limits; no general customer-savings claim. |
 | 2026-10-24, caller-authored SQL skills | Recorded qualification and fresh-process reuse of a supplied program. | [HANDOFF, executable-skills checkpoint](../HANDOFF.md), [skill contract](../spec/sql-executable-skills.md). | Offline mechanics, not model-generated skill discovery or scientific generalization. Does not override the later real lifecycle failure. |
 | 2026-10-25, SQL source checkpoint | 3,403 offline passes; one optional Torch skip, two tokenizer deselections, ten existing fork warnings. | [SQL handoff, what is verified](../spec/sql-skill-pilot-handoff.md#what-is-verified). | Historical source-bound receipt, not a fresh run or full kernel acceptance. Counts overlap earlier suites; never add them together. |
@@ -22,6 +23,10 @@ failures. Model improvement and production readiness are not established.
 The linked contracts and handoffs are repository documents. Several primary
 logs, manifests and trial receipts live outside Git:
 
+- SQL reuse demo validation:
+  `/Users/nikolassapalidis/scratch/co-train-2026-10-29/independent-validation/validation-receipt.json`.
+  The [durable summary](2026-10-29-sql-reuse-demo.md) records verification and
+  limitations. Original scratch receipts are not portable; the runnable demo is.
 - SQL: `~/scratch/co-train-completion-2026-10-24/`. Exact receipt directories,
   hashes and consumed permissions are listed in the
   [SQL handoff](../spec/sql-skill-pilot-handoff.md#evidence-to-inspect-not-replay).
@@ -30,9 +35,10 @@ logs, manifests and trial receipts live outside Git:
   saved in local commit `8c877fd`. It identifies seven sealed evidence roots,
   totaling 568 entries, and their manifest hashes.
 
-A clone alone cannot reproduce these acceptance claims. This cleanup read the
-handoffs; it did not independently verify the primary receipt hashes, replay
-results or rerun tests. Missing local evidence must be reported as unavailable,
+A clone alone does not contain the original acceptance evidence. The 2026-10-27
+cleanup read handoffs without verifying primary receipt hashes or rerunning
+tests; the 2026-10-29 summary records separate independent execution validation.
+Documentation integration did not rerun it. Missing local evidence must be reported as unavailable,
 not replaced with a fabricated receipt. Do not upload it as housekeeping.
 
 ## Application-preparation gaps
@@ -40,7 +46,7 @@ not replaced with a fabricated receipt. Do not upload it as housekeeping.
 | Question | Current boundary | Evidence still needed |
 |---|---|---|
 | Who is the first customer, and what task do they need done? | This repository does not establish a validated buyer or product use case. | Owner-selected customer/use case and dated buyer conversations. |
-| What works in a demonstration? | Offline skill mechanics exist; the latest real record lifecycle failed. | A bounded, reproducible demo with its environment and limitations disclosed. A fixture demo must be labeled as such. |
+| What works in a demonstration? | [Portable offline fixture demo](2026-10-29-sql-reuse-demo.md) now runs; the latest real record lifecycle failed. | Native lifecycle acceptance remains open and requires separate authorization. Fixture success does not establish production readiness. |
 | Does the model improve? | Separate MLX comparison includes zero; later trial incomplete. | An accepted controlled evaluation under a frozen protocol, with failed runs retained. New experiments require authorization. |
 | Is there traction or willingness to pay? | Not established by technical test counts or local experiments. | Actual user activity, commitments or payments, if obtained. No invented metrics. |
 | What is different from existing work? | Original framing has later related work. | A precise comparison using [related work](related-work.md), tied to the chosen customer/use case. |

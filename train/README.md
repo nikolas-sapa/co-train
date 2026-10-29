@@ -175,6 +175,41 @@ validation was separate. The historical 2,222-pass, one-failure run remains
 history, not a reconstructed root cause. See [current handoff](../HANDOFF.md)
 for the raw full-suite receipt, audit scope and remaining research gates.
 
+### Portable offline mechanics demo
+
+From the repository root, using an existing compatible Python (no install):
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python -B -m train.sql_skill_demo \
+  --work-dir "$HOME/scratch/co-train-2026-10-29/demo-run-1"
+# Repeat with a different, nonexistent --work-dir for an independent run.
+```
+
+`sql_skill_demo.py` reproduces the existing caller-authored catalog-discovery and
+identifier-quoting fixture acceptance through unchanged capture/qualification/reuse
+APIs. It captures a valid EX=0 source, qualifies once on each of four differently
+named 0/1/3/7-row tables, and checks that a wrong trusted promotion pin dispatches
+nothing. It then moves origin/qualification DBs out of their recorded paths
+(retaining files, not deleting them) and reuses the serialized candidate/receipt
+on 11/13-row tables in **two separate fresh Python processes**, one dispatch each.
+All six successful evaluations require valid EX=1.
+
+The new directory retains source/qualification/reuse captures, candidate,
+promotion, host-only fixture inputs and `report.json`. Existing directories reject
+without overwriting. Python socket audit guards deny network/DNS/loopback in the
+demo and both known children; this is not OS confinement or arbitrary-child
+telemetry. No models, API calls, dependency downloads or training are needed.
+
+**Fixture mechanics only:** this deliberately selects the existing in-process
+backend (`executor=None`), not native/container execution or pilot authorization.
+It adds no runtime adapter and bypasses no production gate. The example locally
+self-approves a receipt; real approval still belongs to an independently trusted
+caller. Hashes are not authentication. The program is hand-authored, the schemas
+synthetic: this is not model learning, scientific generalization, production
+sandbox acceptance or evidence that the native lifecycle blocker is resolved.
+`train/test_sql_skill_demo.py` checks two consecutive runs and verifies its
+bad-pin assertion catches an in-memory approval-guard bypass.
+
 ## Run order
 
 ```bash

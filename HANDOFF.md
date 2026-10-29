@@ -6,6 +6,33 @@ The original body remains under [History](#history).
 
 ---
 
+## Current state, 2026-10-29, portable offline SQL reuse
+
+Read the [demo and verification receipt](docs/2026-10-29-sql-reuse-demo.md)
+for the root-directory run command, local evidence and acceptance limits.
+
+- Portable standard-library demo: caller-authored SQL program, four EX=1
+  qualifications, then two distinct fresh-process EX=1 reuses after the five
+  source/qualification DB paths become unavailable. Wrong promotion pin
+  dispatches nothing. Independent system-Python execution passed twice.
+- Complete configured offline suite: 3,682 passed, one optional missing-Torch
+  skip, two existing tokenizer deselections, exit 0 in 702.86s. All original
+  678 runtime IDs retained; now 701 runtime cases and 299 skills/demo cases.
+  Independent Python/general/security static reviews found no actionable issues.
+- Four passing controls became intended assertion failures under separate
+  pin/admission/drain/digest mutations. Offline process/IPC fixtures use
+  synthetic container metadata; no production defect was reproduced.
+  Production and protected budget/scorer files remain unchanged.
+- No new native/container/kernel acceptance or full guardian recovery proof.
+  No automatic model discovery, learning/scientific benefit or independently
+  authenticated approval was demonstrated. Original receipts are local scratch,
+  not portable evidence; the runnable fixture demo itself is portable.
+- Financial gate stays closed; earlier one-shot permissions remain consumed.
+  No new native trial, model call, push or deployment is authorized by this
+  checkpoint or by autonomous-team instructions.
+
+---
+
 ## Current state, 2026-10-28, offline maintenance
 
 Read the [maintenance receipt](docs/2026-10-27-maintenance.md) for executed
