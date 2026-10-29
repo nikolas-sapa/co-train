@@ -6,6 +6,34 @@ The original body remains under [History](#history).
 
 ---
 
+## Current state, 2026-10-29, read-only SQL capture comparison
+
+Read the [comparison receipt](docs/2026-10-29-sql-capture-comparison.md).
+
+- Typed comparison retains every independently planned case, including missing
+  both arms. Missing, malformed, blocked-read, invalid-gold and infrastructure
+  outcomes stay distinct; incomplete coverage or incompatible bindings withhold
+  aggregates. Complete admissible pairs use unchanged `paired(treatment, baseline)`.
+  No DB opening, fresh execution, scoring, writes or network during analysis.
+- Final corrected-byte offline suite: 3,765 passed, one optional missing-Torch
+  skip, two configured tokenizer deselections, 10 warnings, exit 0 in 768.39s.
+  All 3,718 previous SDK selected IDs retained, plus 48 comparison cases.
+  Comparison 48/48 and focused 1,036/1,036 passed twice; counts overlap.
+  Two independent mutants fail intended assertions with green baselines/restores.
+- Security review's blocked-read misclassification fixed after RED (2 fail,
+  46 pass), then GREEN (48 pass). Python/security re-review closed; general
+  review clean. Separate Devin CLI SWE-2 High static challenge found no issues;
+  it did not execute tests and is not runtime validation.
+- Illustrative six-pair test: baseline 4/6, treatment 3/6, delta -1/6,
+  CI [-2/3,1/3], p=1. No model benefit, significance or savings claim.
+  Billing, tokens, request latency and approved-reuse attribution unavailable;
+  caller arm declarations are not authenticated provenance.
+- Existing estimator/evaluator/runtime/budget/scorer unchanged. Native/kernel/
+  guardian acceptance and model benefit remain unproved. Financial gate stays
+  closed; consumed permissions and existing native/paid/push gates still apply.
+
+---
+
 ## Current state, 2026-10-29, caller-owned SQL skill SDK
 
 Read the [SDK verification receipt](docs/2026-10-29-sql-skill-workflow.md).

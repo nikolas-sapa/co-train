@@ -107,6 +107,25 @@ recording remains unchanged. Capture alone supplies no provider traces, exact
 tokens, model-authorship evidence, learning or training. See the
 [capture contract](../spec/sql-execution-capture.md).
 
+### Offline comparison of caller-owned captures
+
+With independently planned case IDs and caller-owned absolute capture paths:
+
+```python
+from train.sql_capture_comparison import compare_capture_files, format_comparison
+
+comparison = compare_capture_files(planned_case_ids, baseline_paths, treatment_paths)
+print(format_comparison(comparison))
+```
+
+Mappings declare arms, not authenticated provenance or approved reuse. Every
+planned case stays in the denominator, including cases missing from both arms.
+Only complete valid, binding-compatible evidence reaches the existing paired
+estimator (treatment minus baseline). No DB opens, rescoring or writes.
+Billing, token usage, model-request latency and approved-reuse attribution
+remain unavailable. Reports omit raw capture text and paths; caller case IDs
+must contain no secrets/PII. See the [comparison contract](../spec/sql-capture-comparison.md).
+
 ## Opt-in executable SQL skills
 
 The [executable-skills contract](../spec/sql-executable-skills.md) adds

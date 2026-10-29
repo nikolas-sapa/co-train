@@ -1,6 +1,6 @@
 # Evidence index
 
-Updated 2026-10-29 with the caller-owned SQL skill SDK and offline demo receipts.
+Updated 2026-10-29 with capture comparison, caller-owned SDK and demo receipts.
 These are recorded results, not fresh test runs from documentation integration.
 The project has working experimental mechanics and unresolved acceptance
 failures. Model improvement and production readiness are not established.
@@ -9,6 +9,7 @@ failures. Model improvement and production readiness are not established.
 
 | Date / scope | Recorded observation | Source | Limitation |
 |---|---|---|---|
+| 2026-10-29, read-only capture comparison | Final corrected-byte suite: 3,765 passed, one optional Torch skip, two configured tokenizer deselections. All prior SDK IDs retained plus 48 comparison cases. | [Comparison verification receipt](2026-10-29-sql-capture-comparison.md). | Caller arms are not authenticated provenance or approved-reuse attribution. Illustrative paired test is not model benefit, significance or savings. Counts overlap earlier suites. |
 | 2026-10-29, caller-owned SQL skill SDK | 3,717 offline passes, one optional Torch skip, two existing tokenizer deselections. Two SQLite families: 8/8 qualifications and 4/4 reuse EX=1; separate-process reuse 2/2. | [SDK verification receipt](2026-10-29-sql-skill-workflow.md). | Qualification is UNAPPROVED; trusted assets, external pins and exact approval IDs required. No native/guardian acceptance or model benefit. Counts overlap earlier suites. |
 | 2026-10-29, portable offline SQL reuse | Two independently executed fixture demos, each four EX=1 qualifications and two fresh-process EX=1 reuses. Complete configured offline suite: 3,682 passed, one optional Torch skip, two existing tokenizer deselections. | [Demo command and verification receipt](2026-10-29-sql-reuse-demo.md). | Standard-library fixture mechanics, synthetic container metadata in process tests. No new native acceptance, model benefit or independently authenticated approval. |
 | Untrained `ledger` report, checkpoint reviewed 2026-10-27 | Run 2h: PTC 14/14, bash 12/14. | [Untrained results](results-untrained.md), [trace provenance](trace-provenance.md), [deviations](deviations.md). | Retired taskset, n=14, not statistically separable. Cost estimates have provenance/correction limits; no general customer-savings claim. |
@@ -24,6 +25,10 @@ failures. Model improvement and production readiness are not established.
 The linked contracts and handoffs are repository documents. Several primary
 logs, manifests and trial receipts live outside Git:
 
+- Capture comparison final validation:
+  `/Users/nikolassapalidis/scratch/co-train-2026-10-29/comparison/independent-final-validation/validation-receipt.json`.
+  [Summary](2026-10-29-sql-capture-comparison.md) distinguishes corrected-byte
+  acceptance from older prefix evidence and separate Devin static review.
 - SQL skill SDK validation:
   `/Users/nikolassapalidis/scratch/co-train-2026-10-29/workflow/independent-validation/validation-receipt.json`.
   The [SDK summary](2026-10-29-sql-skill-workflow.md) separates reproducible
@@ -51,7 +56,7 @@ not replaced with a fabricated receipt. Do not upload it as housekeeping.
 | Question | Current boundary | Evidence still needed |
 |---|---|---|
 | Who is the first customer, and what task do they need done? | This repository does not establish a validated buyer or product use case. | Owner-selected customer/use case and dated buyer conversations. |
-| What works in a demonstration? | [Offline fixture demo](2026-10-29-sql-reuse-demo.md) and [caller-owned SDK](2026-10-29-sql-skill-workflow.md) mechanics verified; latest real record lifecycle failed. | Native lifecycle acceptance remains open and requires separate authorization. SDK reuse needs trusted caller assets and external approval; offline success does not establish production readiness. |
+| What works in a demonstration? | [Offline demo](2026-10-29-sql-reuse-demo.md), [file SDK](2026-10-29-sql-skill-workflow.md) and [read-only comparison](2026-10-29-sql-capture-comparison.md) mechanics verified; latest real record lifecycle failed. | Native lifecycle acceptance remains open and requires separate authorization. SDK reuse needs trusted assets/external approval; comparison cannot establish provenance, reuse attribution or savings. Offline success is not production readiness. |
 | Does the model improve? | Separate MLX comparison includes zero; later trial incomplete. | An accepted controlled evaluation under a frozen protocol, with failed runs retained. New experiments require authorization. |
 | Is there traction or willingness to pay? | Not established by technical test counts or local experiments. | Actual user activity, commitments or payments, if obtained. No invented metrics. |
 | What is different from existing work? | Original framing has later related work. | A precise comparison using [related work](related-work.md), tied to the chosen customer/use case. |
