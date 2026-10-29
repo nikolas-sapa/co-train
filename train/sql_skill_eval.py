@@ -198,7 +198,10 @@ def promote_candidate(
     qualification_cases: tuple[SkillCase, ...], ids: evidence.EpisodeIds,
     allow_execution=False, executor: PilotExecutor | None = None,
 ) -> tuple[skills.SkillPromotion | None, tuple[capture.SqlCapture, ...]]:
-    """Rescore source, admit four external cases, then actually rerun each once."""
+    """Rescore source, admit four external cases, then rerun each once.
+
+    Unexpected errors retain obtained qualification_captures on the same exception.
+    """
     _opt_in(allow_execution)
     candidate_bytes = skills.encode_candidate(candidate)
     evidence._validate_ids(ids)
@@ -213,37 +216,43 @@ def promote_candidate(
     binding = _current_binding(admitted[0][0].task, executor)
     captures = []
     references = []
-    for case, fingerprint, digest in admitted:
-        if _current_binding(case.task, executor) != binding:
-            raise ValueError("workflow binding changed before qualification")
-        try:
-            actual = _execute(candidate, case, expected_db_sha256=digest, executor=executor)
-        except capture.CaptureExecutionAborted as exc:
-            captures.append(exc.capture)
-            return None, tuple(captures)
-        captures.append(actual)
-        if (
-            actual.terminal_label != "final_submitted"
-            or actual.result.valid is not True or actual.result.score != 1
-        ):
-            return None, tuple(captures)
-        if (
-            actual.task_fingerprint != fingerprint or actual.db_sha256 != digest
-            or actual.instrument != binding.instrument
-            or actual.execution_binding != binding.execution_binding
-        ):
-            raise ValueError("qualification capture differs from admitted task/runtime")
-        references.append(skills.QualificationRef(
-            case.role, case.ids, actual.task_id, actual.task_fingerprint,
-            actual.db_sha256, skills._sha(capture.encode_capture(actual)), actual.result,
-        ))
-    if _current_binding(admitted[0][0].task, executor) != binding:
-        raise ValueError("workflow binding changed during qualification")
-    promotion = skills.SkillPromotion(
-        skills.SCHEMA_VERSION if executor is None else 2, skills._sha(candidate_bytes), candidate.scope,
-        candidate.source, ids, binding, tuple(references),
-    )
-    skills.encode_promotion(promotion)
+    try:
+        for case, fingerprint, digest in admitted:
+            if _current_binding(case.task, executor) != binding:
+                raise ValueError("workflow binding changed before qualification")
+            try:
+                actual = _execute(candidate, case, expected_db_sha256=digest, executor=executor)
+            except capture.CaptureExecutionAborted as exc:
+                captures.append(exc.capture)
+                return None, tuple(captures)
+            captures.append(actual)
+            if (
+                actual.terminal_label != "final_submitted"
+                or actual.result.valid is not True or actual.result.score != 1
+            ):
+                return None, tuple(captures)
+            if (
+                actual.task_fingerprint != fingerprint or actual.db_sha256 != digest
+                or actual.instrument != binding.instrument
+                or actual.execution_binding != binding.execution_binding
+            ):
+                raise ValueError("qualification capture differs from admitted task/runtime")
+            references.append(skills.QualificationRef(
+                case.role, case.ids, actual.task_id, actual.task_fingerprint,
+                actual.db_sha256, skills._sha(capture.encode_capture(actual)), actual.result,
+            ))
+        if _current_binding(admitted[0][0].task, executor) != binding:
+            raise ValueError("workflow binding changed during qualification")
+        promotion = skills.SkillPromotion(
+            skills.SCHEMA_VERSION if executor is None else 2, skills._sha(candidate_bytes), candidate.scope,
+            candidate.source, ids, binding, tuple(references),
+        )
+        skills.encode_promotion(promotion)
+    except Exception as exc:
+        # Preserve failure identity/cause and only evidence already obtained.
+        # In particular, never synthesize the current unsealed attempt.
+        exc.qualification_captures = tuple(captures)
+        raise
     return promotion, tuple(captures)
 
 

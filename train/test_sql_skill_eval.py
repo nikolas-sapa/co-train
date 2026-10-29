@@ -1032,3 +1032,36 @@ def test_dbpin_all_returned_and_exception_capture_hashes_guarded(tmp_path, monke
         pass
     assert rejected, "dbpin returned capture sentry: foreign hash accepted or propagated"
     assert all(c[2]["db_sha256"] == expected for c in calls)
+
+
+@pytest.mark.parametrize("binding_call,completed", ((3, 1), (6, 4)))
+def test_binding_failure_keeps_obtained_captures_without_authorizing_promotion(
+    tmp_path, monkeypatch, binding_call, completed,
+):
+    module, evaluator = api(), api("sql_skill_eval")
+    state = world(tmp_path, module, evaluator)
+    counts = sentries(monkeypatch)
+    binding, execute = evaluator._current_binding, evaluator._execute
+    bindings, obtained = [], []
+
+    def drift(*args, **kwargs):
+        actual = binding(*args, **kwargs)
+        bindings.append(actual)
+        if len(bindings) == binding_call:
+            return dataclasses.replace(actual, source_sha256="f" * 64)
+        return actual
+
+    def observe(*args, **kwargs):
+        actual = execute(*args, **kwargs)
+        obtained.append(actual)
+        return actual
+
+    monkeypatch.setattr(evaluator, "_current_binding", drift)
+    monkeypatch.setattr(evaluator, "_execute", observe)
+    with pytest.raises(ValueError, match="workflow binding changed") as raised:
+        promote(module, evaluator, state)
+    assert counts["dispatch"] == completed and counts["score"] == completed + 1
+    assert len(obtained) == completed
+    assert all(c.result.valid is True and c.result.score == 1 for c in obtained)
+    assert raised.value.qualification_captures == tuple(obtained)
+    assert tuple(c.ids for c in obtained) == tuple(c.ids for c in state.cases[:completed])

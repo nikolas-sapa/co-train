@@ -6,6 +6,37 @@ The original body remains under [History](#history).
 
 ---
 
+## Current state, 2026-10-29, qualification evidence, timing and bounded native lifecycle
+
+Read the [qualification receipt](docs/2026-10-29-sql-qualification-evidence.md),
+[outer timing receipt](docs/2026-10-29-sql-reuse-timing.md) and
+[bounded native receipt](docs/2026-10-29-bounded-native-acceptance.md).
+
+- Final independent offline acceptance: 3,793 passed, zero failed, one optional
+  missing-Torch skip, two configured tokenizer deselections, ten warnings,
+  28 passing subtests, exit 0 in 725.24s. All 260 source bindings unchanged
+  before this docs-only integration. Independent probes: 28/28; three intended
+  assertion RED controls and restored GREEN. Counts overlap, never add them.
+- Qualification preserves completed ordered captures on ordinary exceptions.
+  Post-rename final fsync can leave a visible UNAPPROVED promotion with unknown
+  durability; successful return and external review/pins are still required.
+- Timing includes synchronous callback writes/fsync and failed setup. Callback
+  and setup completeness are caller trust. Scenarios are not adoption forecasts;
+  model/provider/customer/team end-to-end time and economics remain unproved.
+- Retained history: interruption, then 3,792 passed/one isolated-bench failure.
+  The unchanged SDK test moved to train (all 11 assertions retained), leaving
+  19 pure bench tests. Corrected full pass follows; no test was removed.
+- Separately completed direct-evaluator native trial: three tests, 19 CLOSED
+  jobs (10 PROGRAM, 9 SCORER), four qualifications/two fresh reuses EX=1,
+  zero model calls/retries. Owned containers deleted normally; five historical
+  DBs preserved at moved paths; ten unrelated containers unchanged.
+- Native SDK/full adversarial guardian acceptance and model/economic/team
+  benefit remain unproved. See [reuse economics research](research/2026-10-29-team-reuse-economics.md).
+  Financial gate stays closed; consumed permissions and separate standing Git
+  instructions remain unchanged. Historical receipts below are preserved.
+
+---
+
 ## Current state, 2026-10-29, read-only SQL capture comparison
 
 Read the [comparison receipt](docs/2026-10-29-sql-capture-comparison.md).

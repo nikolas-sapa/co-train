@@ -198,6 +198,20 @@ promotion; typed exception-carried captures are retained before re-raising.
 Exceptions without evidence never generate a fabricated capture. Storage
 failures propagate and may leave partial evidence, not a completed receipt.
 
+Optional outer timing lives in `bench.sql_reuse_timing`: use
+`timer = Timer()` and `timer.run("reuse", trusted_caller_operation, allow_execution=True)`,
+then inspect `timer.observations`. The callback owns SDK opt-in, executor and
+external approval; the timer selects none. Its synchronous wall span includes
+callback reads, execution, scoring and final writes/fsync, but excludes outside
+preparation and observation append. `analyze` requires separate planned case IDs,
+valid comparable full arms and every setup attempt, including failures;
+`setup_complete` is a trusted caller declaration, not proof. Missing evidence
+stays unknown, never zero. Exact nanosecond amortization scenarios are not
+adoption forecasts or measured benefit; break-even equality means zero net
+savings. Billing, tokens, human review, CPU, provider latency, retrieval,
+semantic search and team discovery remain unavailable. This is not customer or
+team end-to-end timing. See the [timing contract](../spec/sql-reuse-timing.md).
+
 Programs are limited to 65,536 UTF-8 bytes; separate canonical frozen artifacts
 are limited to 8 MiB. No registry or automatic writes. The existing budget
 counts eight PTC submissions, not internal SQL calls. Five-second tracing and

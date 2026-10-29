@@ -68,6 +68,15 @@ def _exception_capture(output_dir: Path, exc: capture.CaptureError) -> None:
                      capture.encode_capture(exc.capture))
 
 
+def _qualification_captures(output_dir: Path, actual: tuple[capture.SqlCapture, ...]) -> tuple[Path, ...]:
+    paths = []
+    for n, item in enumerate(actual, 1):
+        path = output_dir / f"qualification-{n}.json"
+        assets.write_new(path, capture.encode_capture(item))
+        paths.append(path)
+    return tuple(paths)
+
+
 def create_candidate_file(
     source_capture: capture.SqlCapture, *, source_task: SqlTask,
     source_ids: evidence.EpisodeIds, skill_id: str, program: str,
@@ -113,14 +122,12 @@ def qualify_candidate_files(
             source_case=source_case, qualification_cases=qualification_cases,
             ids=ids, allow_execution=allow_execution, executor=executor,
         )
-    except capture.CaptureError as exc:
-        _exception_capture(output_dir, exc)
+    except Exception as exc:
+        _qualification_captures(output_dir, getattr(exc, "qualification_captures", ()))
+        if isinstance(exc, capture.CaptureError):
+            _exception_capture(output_dir, exc)
         raise
-    paths = []
-    for n, item in enumerate(actual, 1):
-        path = output_dir / f"qualification-{n}.json"
-        assets.write_new(path, capture.encode_capture(item))
-        paths.append(path)
+    paths = _qualification_captures(output_dir, actual)
     promotion_path = None
     if promotion is not None:
         # All captures must persist first. Pending files are never authority.
@@ -130,7 +137,7 @@ def qualify_candidate_files(
         # This exclusively created, trusted directory has no other writers.
         os.rename(pending, promotion_path)
         assets.fsync_dir(output_dir)
-    return QualificationFiles(tuple(paths), promotion_path)
+    return QualificationFiles(paths, promotion_path)
 
 
 def reuse_approved_files(

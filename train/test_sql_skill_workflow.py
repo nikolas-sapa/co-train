@@ -68,13 +68,13 @@ def membership_task(directory, label, seed):
     )
 
 
-def world(directory, family="payments", *, fail_second=False):
+def world(directory, family="payments", *, fail_second=False, executor=None):
     module = api()
     build = payment_task if family == "payments" else membership_task
     source_task = build(directory, family + "-source", 2)
     source_ids = ids("source", family=family)
     source = capture.start_capture(
-        source_task, ids=source_ids, allow_execution=True,
+        source_task, ids=source_ids, allow_execution=True, executor=executor,
     ).finish("SELECT -999")
     assert source.result.valid is True and source.result.score == 0
     program = "print(" + repr("FINAL_SQL:" + source_task.gold_sql) + ")"
@@ -185,6 +185,163 @@ def test_qualification_two_failure_retains_two_captures_without_promotion(tmp_pa
     assert result.promotion_path is None, "failed qualification must never publish promotion"
     assert not (tmp_path / "qualification" / "promotion.json").exists()
     assert len(list((tmp_path / "qualification").iterdir())) == 2
+
+
+def second_database_drift(tmp_path, monkeypatch):
+    """Real program/scorer/capture path; only mutate the second SQLite snapshot."""
+    from ptc import sql_arms
+
+    state = world(tmp_path)
+    counts = sentries(monkeypatch)
+    run = sql_arms.ArmPair.run
+    finish, step = capture._CaptureSession.finish, capture._CaptureSession.step
+    obtained, errors = [], []
+
+    def observe(session, answer):
+        actual = finish(session, answer)
+        obtained.append(actual)
+        return actual
+
+    def observe_error(session, code):
+        try:
+            return step(session, code)
+        except ValueError as exc:
+            errors.append(exc)
+            raise
+
+    def drift(pair, *args, **kwargs):
+        result = run(pair, *args, **kwargs)
+        if counts["program"] == 2:
+            with sqlite3.connect(state.cases[1].task.db_path) as db:
+                db.execute("INSERT INTO payments VALUES (100)")
+        return result
+
+    monkeypatch.setattr(sql_arms.ArmPair, "run", drift)
+    monkeypatch.setattr(capture._CaptureSession, "finish", observe)
+    monkeypatch.setattr(capture._CaptureSession, "step", observe_error)
+    return state, counts, obtained, errors
+
+
+@pytest.mark.parametrize("operation", ("evaluator", "files"))
+def test_second_database_drift_retains_exact_completed_capture(tmp_path, monkeypatch, operation):
+    state, counts, obtained, errors = second_database_drift(tmp_path, monkeypatch)
+    out = tmp_path / "qualification"
+    with pytest.raises(ValueError, match="database") as raised:
+        if operation == "files":
+            qualify(state, out)
+        else:
+            evaluator.promote_candidate(
+                skills.decode_candidate(assets.read_file(state.candidate_path)),
+                source_capture=state.source,
+                expected_source_capture_sha256=state.source_pin,
+                source_case=state.source_case, qualification_cases=state.cases,
+                ids=state.approval_ids, allow_execution=True,
+            )
+    assert counts == dict(program=2, score=2), "must stop before third/fourth or retry"
+    assert len(obtained) == 1
+    assert obtained[0].result.valid is True and obtained[0].result.score == 1
+    assert raised.value is errors[0], "original exception instance/type must survive"
+    assert not isinstance(raised.value, capture.CaptureError)
+    assert getattr(raised.value, "qualification_captures", ()) == tuple(obtained), (
+        "qualification evidence sentry: completed prefix lost"
+    )
+    if operation == "files":
+        assert sorted(p.name for p in out.iterdir()) == ["qualification-1.json"]
+        assert assets.read_file(out / "qualification-1.json") == capture.encode_capture(obtained[0])
+
+
+def test_exception_prefix_write_failure_is_loud_and_chains_original(tmp_path, monkeypatch):
+    state, counts, obtained, errors = second_database_drift(tmp_path, monkeypatch)
+    write = assets.write_new
+
+    def fail(path, raw):
+        if path.name == "qualification-1.json":
+            raise OSError("prefix storage failure")
+        return write(path, raw)
+
+    monkeypatch.setattr(assets, "write_new", fail)
+    out = tmp_path / "qualification"
+    with pytest.raises(OSError, match="prefix storage failure") as raised:
+        qualify(state, out)
+    assert raised.value.__context__ is errors[0]
+    assert errors[0].qualification_captures == tuple(obtained)
+    assert counts == dict(program=2, score=2)
+    assert list(out.iterdir()) == [], "no published promotion or claimed persistence"
+
+
+def test_source_rescore_failure_has_no_qualification_evidence(tmp_path, monkeypatch):
+    state = world(tmp_path)
+    counts = sentries(monkeypatch)
+    cause = OSError("scorer unavailable")
+    failure = RuntimeError("source rescore failure")
+
+    def fail(*args, **kwargs):
+        counts["score"] += 1
+        raise failure from cause
+
+    monkeypatch.setattr(evidence, "execution_accuracy", fail)
+    out = tmp_path / "qualification"
+    with pytest.raises(RuntimeError, match="source rescore failure") as raised:
+        qualify(state, out)
+    assert raised.value is failure and failure.__cause__ is cause
+    assert getattr(failure, "qualification_captures", ()) == ()
+    assert counts == dict(program=0, score=1)
+    assert list(out.iterdir()) == []
+
+
+def test_second_typed_program_transport_abort_persists_both_actual_captures(tmp_path, monkeypatch):
+    """Test-only host runtime shim, real SQLite/program/scorer, NOT native acceptance."""
+    from ptc import sql_arms, sql_isolation as isolation
+    from train.test_sql_capture import (
+        isolation_executor, isolation_program_receipt, isolation_score_receipt,
+    )
+
+    executor = isolation_executor(tmp_path)
+    dispatched, obtained = [], []
+
+    def program(self, code, **kwargs):
+        dispatched.append(kwargs["db_path"])
+        if len(dispatched) == 2:
+            raise OSError("deterministic second PROGRAM transport failure")
+        case = next(c for c in state.cases if c.task.db_path == kwargs["db_path"])
+        observation = sql_arms.build_sql_arms(case.task).run("ptc", code)
+        return isolation.ProgramOutcome(
+            observation, None, isolation_program_receipt(code, kwargs),
+        )
+
+    def scorer(self, sql, task, **kwargs):
+        result = evidence._score(sql, task, kwargs["instrument"])
+        return isolation.ScoreOutcome(result, None, isolation_score_receipt(sql, task, kwargs))
+
+    monkeypatch.setattr(isolation.PilotExecutor, "run_program", program)
+    monkeypatch.setattr(isolation.PilotExecutor, "score_sql", scorer)
+    state = world(tmp_path, executor=executor)
+    execute = evaluator._execute
+
+    def observe(*args, **kwargs):
+        try:
+            actual = execute(*args, **kwargs)
+        except capture.CaptureExecutionAborted as exc:
+            obtained.append(exc.capture)
+            raise
+        obtained.append(actual)
+        return actual
+
+    monkeypatch.setattr(evaluator, "_execute", observe)
+    out = tmp_path / "qualification"
+    result = qualify(state, out, executor=executor)
+    assert dispatched == [c.task.db_path for c in state.cases[:2]]
+    assert len(obtained) == len(result.capture_paths) == 2
+    assert obtained[0].result.valid is True and obtained[0].result.score == 1
+    assert obtained[1].terminal_label == "execution_aborted" and obtained[1].result is None
+    assert obtained[1].execution_abort == isolation.AbortInfo("program", "transport")
+    assert obtained[1].runtime_receipts == (), "transport fault supplies no fabricated receipt"
+    assert tuple(c.ids for c in obtained) == tuple(c.ids for c in state.cases[:2])
+    assert [assets.read_file(p) for p in result.capture_paths] == [
+        capture.encode_capture(c) for c in obtained
+    ]
+    assert result.promotion_path is None
+    assert sorted(p.name for p in out.iterdir()) == ["qualification-1.json", "qualification-2.json"]
 
 
 @pytest.mark.parametrize("bad", ("pin", "ids", "candidate", "optin"))
@@ -326,6 +483,48 @@ def test_pending_receipt_write_failure_never_publishes_promotion(tmp_path, monke
     assert len(list((tmp_path / "qualification").glob("qualification-*.json"))) == 4
     assert (tmp_path / "qualification" / ".promotion.pending").stat().st_size == 100
     assert not (tmp_path / "qualification" / "promotion.json").exists()
+
+
+def test_final_directory_fsync_failure_leaves_visible_unapproved_receipt(tmp_path, monkeypatch):
+    state = world(tmp_path)
+    counts = sentries(monkeypatch)
+    out = tmp_path / "qualification"
+    failure = OSError("final directory fsync failed after promotion rename")
+    sync = assets.fsync_dir
+    final_syncs = []
+
+    def fail_final(path):
+        if path == out and (out / "promotion.json").exists():
+            assert not (out / ".promotion.pending").exists()
+            final_syncs.append(path)
+            raise failure
+        return sync(path)
+
+    def no_reuse(*args, **kwargs):
+        pytest.fail("qualification must not automatically reuse or approve a receipt")
+
+    monkeypatch.setattr(assets, "fsync_dir", fail_final)
+    monkeypatch.setattr(evaluator, "reuse_promoted", no_reuse)
+    with pytest.raises(OSError, match="final directory fsync failed") as raised:
+        qualify(state, out)
+    assert raised.value is failure
+    assert final_syncs == [out], "fault must occur only at the post-rename directory sync"
+    assert counts == dict(program=4, score=5)
+    paths = tuple(out / f"qualification-{n}.json" for n in range(1, 5))
+    actual = tuple(capture.decode_capture(assets.read_file(path)) for path in paths)
+    assert all(c.result.valid is True and c.result.score == 1 for c in actual)
+    assert tuple(c.ids for c in actual) == tuple(case.ids for case in state.cases)
+    raw = assets.read_file(out / "promotion.json")
+    promotion = skills.decode_promotion(raw)
+    assert skills.encode_promotion(promotion) == raw
+    assert tuple(ref.capture_sha256 for ref in promotion.qualifications) == tuple(
+        hashlib.sha256(assets.read_file(path)).hexdigest() for path in paths
+    )
+    assert sorted(p.name for p in out.iterdir()) == [
+        "promotion.json", *(path.name for path in paths),
+    ]
+    # The raised call returned no successful/durable qualification or approval,
+    # even though rename made a complete UNAPPROVED receipt visible.
 
 
 @pytest.mark.parametrize("operation", ("qualify", "reuse"))

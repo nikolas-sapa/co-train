@@ -26,6 +26,27 @@ authored test families, not demo fixtures:
    must independently fail the intended assertion, not import/setup/source
    binding. Run red then restore green. Focused old and new regressions have
    zero new exclusions/skips.
+7. A real SQLite qualification-one EX=1 followed by qualification-two database
+   drift must raise the original `ValueError`, retain exactly the one completed
+   capture byte-for-byte, submit exactly two programs, and publish zero promotion
+   artifacts. The rejected second attempt has no sealed capture to invent.
+8. A second PROGRAM transport fault through the existing typed abort path must
+   retain both actual captures in order, with exactly two submissions and zero
+   promotion artifacts. A source-rescore fault before any PROGRAM retains zero
+   qualification captures. A prefix-evidence persistence fault raises loudly,
+   with the original evaluator failure in its exception context and zero
+   published promotion.
+9. Suppressing completed-prefix exception metadata must fail the intended
+   evidence-retention assertion; restore and rerun green. Existing test IDs,
+   source/pin/ID/binding gates, artifact codecs and approval semantics stay intact.
+   Binding drift before case two or after case four must still reject, retaining
+   exactly one or four actual captures respectively, with no extra submissions.
+10. After four real SQLite EX=1 qualifications, fault only the final directory
+    fsync after promotion rename: raise the same `OSError`, retain four valid
+    captures and a canonical UNAPPROVED `promotion.json`, and leave no pending
+    receipt. Exactly four program submissions and five scores, no automatic
+    reuse or approval. Baseline must pass; swallowing that final sync error must
+    fail the missing-exception assertion, then restore green.
 
 ## Frozen API
 
@@ -77,8 +98,31 @@ and staged receipt write succeeds. Pending/partial files and any directory
 left on failure are evidence, not successful qualification or approval.
 No cleanup or overwrites. A write failure propagates; evidence persistence is
 best effort only when storage itself fails. Exceptions without capture evidence
-propagate without fabrication. An unexpected evaluator exception can expose only
-its own carried capture, not inaccessible internal earlier captures.
+propagate without fabrication.
+
+Capture-write and staged-receipt-write failures occur before publication and
+leave no `promotion.json`. The final directory fsync runs **after** rename:
+its failure propagates but can leave a complete canonical UNAPPROVED
+`promotion.json` visible, with `.promotion.pending` absent. Durability is unknown;
+file existence proves neither a successful API return nor durable qualification.
+There is no rollback or deletion. The caller must require a successful
+qualification API return and external review/approval with a retained pin before
+using a receipt; a file left by a failed call is not returned success or approval.
+
+For unexpected ordinary exceptions during qualification or receipt construction,
+`promote_candidate` attaches `qualification_captures: tuple[SqlCapture, ...]`
+containing only the captures it actually obtained, in attempt order, then
+re-raises the same exception instance. There is no new exception class or
+serialized schema. Existing typed PROGRAM aborts still return `(None, captures)`;
+source admission/rescore failures still propagate before any qualification.
+The file workflow persists attached captures as `qualification-N.json` before
+re-raising. Existing `CaptureError.capture` evidence remains separately written
+as `exception-capture.json`, never relabelled as a successful qualification.
+It does not synthesize a capture for an attempt that failed before sealing.
+Exception type, cause and `CaptureError` catch compatibility remain unchanged.
+Storage errors propagate instead of claiming persistence. When persisting
+exception-carried evidence fails, their exception context retains the original
+evaluator error.
 
 ## Qualification is not approval
 
