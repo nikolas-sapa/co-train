@@ -1,3 +1,26 @@
+# Current feature checkpoint, 2026-10-30: stage 4 reporting
+
+This checkpoint supersedes the older “complete structured reporting” gap below.
+The entire prior HANDOFF body follows unchanged as dated history.
+
+- Stage 4 stays PARTIAL: opt-in in-process PTC catalog and actual shell-runner
+  structured reporting now work, with a controlled real-SQLite shortcut fixture.
+  See [usage, bounds and evidence](docs/2026-10-30-agent-defect-escalation.md)
+  and [opt-in parity](docs/harness-parity.md#opt-in-defect-reporting-2026-10-30).
+- Parent-recorded validation: 848 targeted passes, no skips; 639 keyword
+  deselections in the selected isolation/SDK run. Two in-memory controls went
+  RED and restored GREEN. No post-feature full suite; older 3,803-pass evidence
+  is earlier source. This docs worker reran no tests.
+- Next: production verifiers bash routing, isolated-wire reporting and
+  capture/SqlEpisode configuration binding, then TRL integration before live
+  experiments. Reports are untrusted allegations; shell markers are forgeable.
+- Priority remains 4 -> 5 -> 6. Current BIRD paired baseline remains absent;
+  stage 6 is blocked. SQL-native acceptance is not a stage 4 prerequisite.
+- Base HEAD is `91336c8`; changed `ptc/sql_arms.py` bytes make historical pins
+  stale. Do not repin/replay receipts. No new experiment or spending authority.
+
+---
+
 # Current project priorities, 2026-10-30
 
 ## Original research milestones: 4 -> 5 -> 6

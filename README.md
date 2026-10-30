@@ -13,9 +13,12 @@ engineering evidence, not completion of those research milestones.
 
 | Stage | Current status and existing work | Remaining gap / next priority |
 |---|---|---|
-| 4: environment + escalation channel | **PARTIAL.** [SQL arms](ptc/sql_arms.py), [restricted runtime](ptc/sql_runtime.py), [isolation](ptc/sql_isolation.py) and [independent final/gold scoring](bench/score.py) exist. | Finish the structured agent defect-escalation/verifier-QA channel and demonstrate one instrumented rule-legal shortcut with deterministic telemetry. Test the reporting route; process-signal escalation is not that channel. |
+| 4: environment + escalation channel | **PARTIAL.** Opt-in in-process PTC catalog and actual shell-runner defect reporting are implemented and tested, including a controlled real-SQLite shortcut fixture. Runtime, isolation and independent scoring pieces exist. | Complete production verifiers bash routing, isolated-wire reporting, capture/SqlEpisode configuration binding and TRL integration before live experiments. Core reporting is no longer wholly missing; shell telemetry remains forgeable. |
 | 5: two harnesses, measure untrained first | **PARTIAL.** Both bash/PTC SQL harnesses exist behind the [parity contract](docs/harness-parity.md). The [retired `ledger` premise check](docs/results-untrained.md) ran and did not reproduce the published gap. | A paired untrained baseline on the current BIRD taskset/frontier is missing. Match information, tools, budgets and metric before training; retain every planned task and distinguish error categories/invalid gold. |
 | 6: co-train, then cross-harness evaluation | **BLOCKED, not complete.** [Training guards](train/guards.py) require the absent `bench/frontier/manifest.json`; the [main CLI](train/grpo_ptc.py) still raises `NotImplementedError` after real preflight. | Legitimate frontier measurements, compatible stack and completed/verified CLI integration must satisfy the existing gates before preregistered training and cross-harness evaluation. Separate MLX updates do not establish this result. |
+
+See [stage 4 reporting usage and evidence](docs/2026-10-30-agent-defect-escalation.md):
+848 parent-recorded targeted passes, not a post-feature full-suite run.
 
 The [frontier measurement source](bench/frontier/probe.py) and
 [taskset contract](docs/bench-taskset.md) describe baseline preparation, not a
