@@ -1,3 +1,20 @@
+# Current status and next actions, 2026-10-30
+
+Base `ae2323d`. Docs-only milestone table for the 4 -> 5 -> 6 sequence. Every
+prior HANDOFF byte follows unchanged below.
+
+| Stage | Status | Next action |
+|---|---|---|
+| 4: environment + escalation | **PARTIAL.** Opt-in collector, real PTC/shell arms, deterministic SQLite shortcut fixture and constructor-only `PTCHarness.launch` `qa_factory` implemented: shared semantics/quotas, scoped channels, collision refusal, weak tracking. Proof at `ae2323d`: 813 targeted passes (14 lifecycle + 799 existing), two real RED/restored controls; not a full suite or native proof. See [escalation note](docs/2026-10-30-agent-defect-escalation.md) and [launch contract](spec/agent-defect-escalation-harness.md). | Production Bash verifier routing and framework/CLI/config activation of the implemented PTC launch route, with no lost reports or errors; isolated report transport, sealed capture/SqlEpisode binding and TRL. Bounded report-config, source-bound evidence; shell markers stay forgeable. |
+| 5: paired untrained baseline | **PARTIAL.** [A8](docs/pre-registration.md) signed; `bench/frontier/manifest.json` absent; historical v9/v10 aggregates are not eligible rates. See [readiness note](docs/2026-10-30-baseline-readiness.md). | Exact seeded task-ID draw -> local gold validation + exclusion ledger + provenance (proposed, not executed) -> real frontier generation adapter and BIRD paired driver -> explicitly authorized frozen-policy per-task measurement. |
+| 6: co-training + harness swap | **BLOCKED.** Native main CLI still refuses after preflight; no gate bypass or relaxation. See [native constraints](spec/native-training.md). | Legitimate frontier manifest plus frontier/stack/template/CLI gates, then the actual preregistered holdout with three-seed and harness-swap evidence. |
+
+Optional SQL-native SDK acceptance stays off the critical path; consumed native
+budgets never replay. Separate MLX updates are partial work, not stage-6 proof.
+This update adds no install, model, native, training or paid authority.
+
+---
+
 # Current feature checkpoint, 2026-10-30: PTC launch reporting
 
 The follow-on to `1ded101` adds constructor-only `qa_factory` to the real

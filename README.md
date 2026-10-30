@@ -13,12 +13,14 @@ engineering evidence, not completion of those research milestones.
 
 | Stage | Current status and existing work | Remaining gap / next priority |
 |---|---|---|
-| 4: environment + escalation channel | **PARTIAL.** Opt-in reporting reaches the in-process PTC catalog, `PTCHarness.launch` and actual shell runner, including a controlled real-SQLite shortcut fixture. Runtime, isolation and independent scoring pieces exist. | Complete production verifiers bash routing, isolated-wire reporting, capture/SqlEpisode configuration binding and TRL integration before live experiments. Launch activation is constructor-only, not a CLI/config flag; shell telemetry remains forgeable. |
-| 5: two harnesses, measure untrained first | **PARTIAL.** Both bash/PTC SQL harnesses exist behind the [parity contract](docs/harness-parity.md). The [retired `ledger` premise check](docs/results-untrained.md) ran and did not reproduce the published gap. | A paired untrained baseline on the current BIRD taskset/frontier is missing. Match information, tools, budgets and metric before training; retain every planned task and distinguish error categories/invalid gold. |
-| 6: co-train, then cross-harness evaluation | **BLOCKED, not complete.** [Training guards](train/guards.py) require the absent `bench/frontier/manifest.json`; the [main CLI](train/grpo_ptc.py) still raises `NotImplementedError` after real preflight. | Legitimate frontier measurements, compatible stack and completed/verified CLI integration must satisfy the existing gates before preregistered training and cross-harness evaluation. Separate MLX updates do not establish this result. |
+| 4: environment + escalation channel | **PARTIAL.** Opt-in reporting is implemented in the in-process PTC catalog and the actual shell runner, plus constructor-only `qa_factory` on `PTCHarness.launch`; a controlled real-SQLite shortcut fixture exists. See the [escalation evidence](docs/2026-10-30-agent-defect-escalation.md). | Wire the remaining pieces before live experiments: production verifiers-bash routing, isolated transport/wire reporting, sealed capture and SqlEpisode configuration binding, and TRL training integration. Launch activation is constructor-only, not a CLI/config flag; shell telemetry remains forgeable. |
+| 5: two harnesses, measure untrained first | **PARTIAL.** Both bash/PTC SQL harnesses exist behind the [parity contract](docs/harness-parity.md). The [retired `ledger` premise check](docs/results-untrained.md) ran and did not reproduce the published gap. The paired untrained baseline on the current BIRD taskset/frontier is **missing, not zero**. | Next actionable order per [stage-5 readiness](docs/2026-10-30-baseline-readiness.md): offline exact draw (`bench.suite.select` seed/counts), `validate_golds()` under recorded bounds, then draw provenance — before any authorized matched-G baseline rollouts. Match information, tools, budgets and metric before training; retain every planned task and distinguish error categories/invalid gold. |
+| 6: co-train, then cross-harness evaluation | **BLOCKED, not complete.** [Training guards](train/guards.py) require the absent `bench/frontier/manifest.json`; the [main CLI](train/grpo_ptc.py) still raises `NotImplementedError` after real preflight. | Satisfy the existing gates unchanged — legitimate frontier measurements (a real manifest), compatible stack/template and completed/verified CLI integration — before preregistered training and cross-harness evaluation. Separate MLX updates do not establish this result. |
 
 See [stage 4 reporting usage and evidence](docs/2026-10-30-agent-defect-escalation.md):
-targeted results are recorded separately for each increment, not a post-feature full-suite run.
+at `ae2323d` the recorded evidence is 813 targeted passes (14 launch-lifecycle
+tests plus 799 existing), two controls that went RED and were restored, and no
+full-suite rerun — increments are recorded separately, not as a post-feature suite.
 
 The [frontier measurement source](bench/frontier/probe.py) and
 [taskset contract](docs/bench-taskset.md) describe baseline preparation, not a
@@ -131,11 +133,34 @@ index above distinguish current work from the dated research below.
 | **Has anyone already answered this?** | **`docs/related-work.md`** — verified arXiv IDs, ProgAgent read in full against H1-H5 and N1, and the one cell still open. |
 | **Did the training loop run on free hardware?** | `step2/results/README.md` for the verdict, `step2/README.md` for the detail. |
 
+```mermaid
+flowchart LR
+    subgraph PUB["Published reference: TAC / Opus-4.8 (source paper Table 1)"]
+        direction TB
+        PB["bash: 69.4%"]
+        PP["PTC: 52.9%"]
+        PG["published bash lead: +16.5 pp"]
+        PB --- PG
+        PP --- PG
+    end
+    subgraph NOW["This repository: small model on BIRD-SQL dev"]
+        direction TB
+        SU["untrained: paired baseline MISSING"]
+        SC["co-trained comparison: BLOCKED"]
+        SS["swapped harness: NOT MEASURED"]
+        SU --> SC --> SS
+    end
+
+    classDef accent fill:#006bff,stroke:#006bff,color:#ffffff;
+    class PG accent;
 ```
-                 untrained          co-trained          swapped harness
-   bash            69.4  ──┐          ?                   ?
-   PTC             52.9  ──┴─ +16.5pp, the gap to reverse
-```
+
+*Published motivation only, different cohorts: the 69.4/52.9/+16.5 pp cells are the
+external TAC / Opus-4.8 reference recomputed from the source paper's Table 1
+([pre-registration §3](docs/pre-registration.md)), not this repository's BIRD
+baseline. The retired `ledger` premise check ran and did not reproduce the ordering;
+the current BIRD paired baseline is still missing, so the untrained, co-trained and
+swapped cells here are unmeasured — never zeros.*
 
 Range to reverse is **+6.8 to +22.0 pp** across four published arms, one of which is not
 statistically significant. Under a cost-per-successful-task metric the ordering is **already
@@ -146,16 +171,20 @@ reversed** in one untrained arm — so the metric is chosen before the run, not 
 ## Historical build sequence
 
 This original step sequence and its dated corrections are retained below.
-Use the current orientation above for the separate SQL and MLX checkpoints.
+Rows 1-3 keep their dated historical verdicts as originally recorded. Rows 4-6
+originally read a bare "not started"; they were refreshed 2026-10-30 to match the
+[current milestone table](#current-research-milestones-4-6) and are not a
+remeasurement of the historical claims around them. Use the current orientation
+above for the separate SQL and MLX checkpoints.
 
 | Step | State | Where |
 |---|---|---|
 | **1 — adversarial non-solvers + the gate** | ✅ done, 51 tests | `src/cotrain/`, `tests/` |
 | **2 — prove the loop on free hardware** | ✅ done — **`STEP 2 PASS`, fp16 stable on T4** | `step2/`, result in `step2/results/` |
 | **3 — verifier before environment** | ✅ **built** — BIRD-SQL eval harness + co-training pipeline, probe run, gate shut | `bench/`, `train/` |
-| 4 — environment + escalation channel | not started | — |
-| 5 — two harnesses, measure untrained first | not started | — |
-| 6 — co-train, then cross-harness eval | not started | — |
+| 4 — environment + escalation channel | **PARTIAL** — opt-in reporting in the PTC catalog and real shell runner, plus constructor-only `qa_factory` on `PTCHarness.launch`; production routing, isolated-wire reporting, sealed capture and TRL integration remain | [escalation evidence](docs/2026-10-30-agent-defect-escalation.md), [current table](#current-research-milestones-4-6) |
+| 5 — two harnesses, measure untrained first | **PARTIAL** — both harnesses exist under the parity contract; the BIRD paired untrained baseline is missing, not zero | [baseline readiness](docs/2026-10-30-baseline-readiness.md), [parity contract](docs/harness-parity.md) |
+| 6 — co-train, then cross-harness eval | **BLOCKED** — guards require the absent `bench/frontier/manifest.json`; the main CLI still raises `NotImplementedError` after preflight | [`train/guards.py`](train/guards.py), [`train/grpo_ptc.py`](train/grpo_ptc.py) |
 
 Step 2 is answered: **fp16 GRPO is stable on a Kaggle T4.** 5 steps, `grad_norm` finite and
 positive throughout, `reward_std` > 0 every step, `kl` rising across three orders of magnitude —
