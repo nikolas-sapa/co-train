@@ -35,7 +35,10 @@ from __future__ import annotations
 import json
 import pathlib
 from dataclasses import dataclass, field
-from typing import Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Sequence
+
+if TYPE_CHECKING:
+    from ptc.sql_qa import QaChannel
 
 if __package__ in (None, ""):  # invoked as `python train/<file>.py`, not `-m`
     import pathlib as _pathlib
@@ -157,18 +160,33 @@ def environment_factory(root: pathlib.Path = REPO_ROOT):
 
 
 def sql_environment(
-    task: Any, root: pathlib.Path = REPO_ROOT,
+    task: Any, root: pathlib.Path = REPO_ROOT, *,
+    qa: QaChannel | None = None,
 ) -> tuple[str, PTCEnvironment]:
     """Bind one SqlTask to a fresh environment and its existing PTC-arm prompt.
 
     Only the arm's prompt and the existing single program-tool schema are exposed;
     the gold query is not a model input. Imports stay local so the unbound factory
     and preflight need neither SQL-arm execution nor any training framework.
+
+    Optional `qa` enables the arm's reporting prompt, callback and existing
+    quotas. Supply a fresh caller-owned channel for independent rollout telemetry.
+    The environment references it while alive; persistence stays caller-owned.
+    With `qa=None`, the existing builder call, prompt and catalog are unchanged
+    and the optional QA module is not imported. This seam does not wire TRL
+    rollouts or training.
     """
     from ptc.sql_arms import Budget, build_sql_arms
 
+    if qa is not None:
+        from ptc.sql_qa import QaChannel
+
+        if type(qa) is not QaChannel:
+            raise TypeError("qa must be a concrete QaChannel")
     max_turns = eval_max_turns(root)
-    pair = build_sql_arms(task, budget=Budget(max_turns=max_turns))
+    pair = (build_sql_arms(task, budget=Budget(max_turns=max_turns))
+            if qa is None else
+            build_sql_arms(task, budget=Budget(max_turns=max_turns), qa=qa))
 
     def execute(code: str) -> str:
         return pair.run("ptc", code)

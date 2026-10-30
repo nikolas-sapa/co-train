@@ -1,3 +1,28 @@
+# Task-bound SQL environment reporting, 2026-10-30
+
+Base `0a14352`, feature branch `feat/sql-environment-qa`. Optional keyword-only
+`qa` now reaches the existing arm collector through `sql_environment`; a concrete
+channel is required before environment construction. Default imports, prompt,
+single program tool and submission cap stay unchanged. Use fresh caller-owned
+channels for independent rollouts; this factory does not detect cross-rollout
+reuse or persist reports.
+
+Final affected selection: 1,446 passed in 46.43s (19 new, 1,427 existing), not a
+full suite or native result. Five initial invalid-channel failures were fixed.
+Dropping real forwarding made the enabled-report test RED; restored execution
+passed, with source hashes unchanged. Python review approved source/tests.
+See [usage and evidence](docs/2026-10-30-agent-defect-escalation.md#opt-in-through-the-task-bound-sql-environment)
+and the [test-first contract](spec/agent-defect-escalation-sql-environment.md).
+
+Stage 4 remains PARTIAL: production Bash routing, framework/CLI activation,
+isolated transport, sealed capture/report-config binding and actual TRL rollout
+integration remain. Stages 5/6 stay PARTIAL/BLOCKED. Training gates, scorer,
+capture schemas and native budgets are unchanged. No product-provider call,
+training or native job ran; consumed permissions/old receipts are not replayed.
+All prior checkpoint bytes follow unchanged.
+
+---
+
 # Main integration checkpoint, 2026-10-30
 
 Combined published main `2f1a627` with feature `ffb4d21` using an ordinary
