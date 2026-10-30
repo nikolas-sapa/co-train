@@ -1,3 +1,48 @@
+# Current project priorities, 2026-10-30
+
+## Original research milestones: 4 -> 5 -> 6
+
+The [current research milestone table](README.md#current-research-milestones-4-6)
+replaces the historical “not started” rows as current status. Original stage
+numbering and old verdicts remain historical evidence. Recent SQL reuse and
+acceptance work was scope drift relative to this sequence, not its completion.
+
+| Stage | Status | Next required work |
+|---|---|---|
+| 4: environment + escalation | **PARTIAL.** Runtime, independent scoring and isolation pieces exist. | Complete structured agent defect reporting/verifier-QA and test its route plus one instrumented rule-legal shortcut's deterministic telemetry. Signal/process cleanup escalation is not this feature. |
+| 5: paired untrained harness baseline | **PARTIAL.** Both bash/PTC harnesses exist; the retired `ledger` premise check ran and the published gap did not reproduce. | Measure the current-taskset paired baseline with matched information/tools/budgets/metric, complete planned-task denominator, error categories and gold validity. Preserve the original preregistered negative result. |
+| 6: co-training and harness swap | **BLOCKED, not complete.** Frontier manifest absent; native main CLI still refuses after preflight. | Satisfy legitimate frontier, stack and CLI gates before preregistered training/cross-harness evaluation. MLX sampling/updates are real partial work, not completed holdout/three-seed/harness-swap proof. |
+
+See [harness parity](docs/harness-parity.md),
+[untrained results](docs/results-untrained.md), [frontier measurement source](bench/frontier/probe.py)
+and [native training constraints](spec/native-training.md). No preflight,
+dependency probe or experiment was executed for this status correction.
+Frontier measurement is stage 5 baseline preparation, not a reason to defer
+stage 4 channel work.
+
+The published code checkpoint used for this review is
+`1501f0b62d0979e03aeec11d8b95363132e87eae`. The earlier
+[19-job direct-evaluator](docs/2026-10-29-bounded-native-acceptance.md) and
+[15-job SDK](docs/2026-10-29-native-sql-skill-workflow.md) native proofs remain
+valid bounded historical evidence, with consumed permissions. The portable
+helper's [recorded offline proof](docs/2026-10-30-portable-sql-skill-sdk-acceptance.md)
+is separate; its native phases remain NOT_EXECUTED. Further SQL-native acceptance
+is optional/off-critical-path and must not become an artificial stage 4 gate.
+These engineering receipts do not establish full adversarial/kernel coverage
+or original research milestone completion.
+
+Preflight-only context preparation may exist outside checkout; it is not a
+native campaign or new execution authority. This docs-only update grants no
+native/model/training spend. Future work uses its applicable authorization;
+paid trials need an explicit budget, not agent-session usage. No learned
+benefit, economic savings or traction is established.
+
+Everything below is the complete pre-update HANDOFF body, retained byte-for-byte.
+Its dated current-state labels, profile-preparation statements and old “not
+started” rows describe their recorded sessions, not this priority ordering.
+
+---
+
 # Current handoff, 2026-10-30
 
 ## Current state, closed-fixture portable SQL skill SDK offline acceptance

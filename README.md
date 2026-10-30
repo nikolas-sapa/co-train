@@ -3,25 +3,51 @@
 Co-train tests whether training a small model around a tool interface improves
 task performance, and whether any improvement survives a harness swap.
 
-## Current orientation, 2026-10-28
+## Current orientation, 2026-10-30
 
-Three workstreams have different evidence and blockers:
+Priority is the original research sequence **4 -> 5 -> 6**. Recent SQL
+reuse/acceptance work was scope drift relative to that sequence: useful separate
+engineering evidence, not completion of those research milestones.
 
-| Workstream | Latest recorded boundary | Next step |
+### Current research milestones 4-6
+
+| Stage | Current status and existing work | Remaining gap / next priority |
 |---|---|---|
-| Historical untrained comparison | Retired `ledger` taskset; small-sample result, not a training result. | Read [the report](docs/results-untrained.md) with its provenance limitations. |
-| SQL skill pilot, 2026-10-25 | Coordinated exit/finalization passes offline. Native pair passed, but real record lifecycle failed before reuse. Zero live pilot model calls; financial gate closed. | Review [offline maintenance](docs/2026-10-27-maintenance.md) before any newly authorized native lifecycle acceptance. |
-| Separate local MLX training, 2026-10-25 | Real sampling and weight updates recorded in another worktree. Improvement unproven; three-seed trial stopped, no holdout evaluation ran. | Review [CPU-only RSS diagnosis](docs/2026-10-27-maintenance.md#separate-rss-diagnosis); historical timeout remains unexplained. |
+| 4: environment + escalation channel | **PARTIAL.** [SQL arms](ptc/sql_arms.py), [restricted runtime](ptc/sql_runtime.py), [isolation](ptc/sql_isolation.py) and [independent final/gold scoring](bench/score.py) exist. | Finish the structured agent defect-escalation/verifier-QA channel and demonstrate one instrumented rule-legal shortcut with deterministic telemetry. Test the reporting route; process-signal escalation is not that channel. |
+| 5: two harnesses, measure untrained first | **PARTIAL.** Both bash/PTC SQL harnesses exist behind the [parity contract](docs/harness-parity.md). The [retired `ledger` premise check](docs/results-untrained.md) ran and did not reproduce the published gap. | A paired untrained baseline on the current BIRD taskset/frontier is missing. Match information, tools, budgets and metric before training; retain every planned task and distinguish error categories/invalid gold. |
+| 6: co-train, then cross-harness evaluation | **BLOCKED, not complete.** [Training guards](train/guards.py) require the absent `bench/frontier/manifest.json`; the [main CLI](train/grpo_ptc.py) still raises `NotImplementedError` after real preflight. | Legitimate frontier measurements, compatible stack and completed/verified CLI integration must satisfy the existing gates before preregistered training and cross-harness evaluation. Separate MLX updates do not establish this result. |
 
-Start with the [project map](docs/project-map.md) for reading order and directory
-ownership, then the [evidence index](docs/evidence-index.md) for results,
-limitations and application-preparation gaps. These are navigation documents,
-not a product-readiness claim or permission to run experiments.
+The [frontier measurement source](bench/frontier/probe.py) and
+[taskset contract](docs/bench-taskset.md) describe baseline preparation, not a
+reason to stop stage 4 implementation. Preserve the original preregistered
+negative `ledger` outcome; do not relabel it as current-taskset measurement or
+a new reproduction. Existing preregistration/amendment gates still apply.
 
-The SQL checkpoint is local to `fix/nonfinite-dead-group-monitor`; the MLX
-checkpoint is separate and not merged here. A clone does not include local
-scratch receipts. Recorded checks below were not rerun for this documentation
-cleanup. [HANDOFF.md](HANDOFF.md) retains the detailed SQL chronology.
+The historical “not started” rows below are dated history only. Use the
+[current replacement table](#current-research-milestones-4-6), not those rows,
+for stages 4-6; the original numbering and verdicts for stages 1-3 are retained.
+The [native-training contract](spec/native-training.md) records stack/template
+conflicts, not a fresh runtime check by this documentation update. Its historical
+Mac/CUDA restriction is not a general claim that local MLX training is impossible.
+
+### Separate recorded engineering evidence
+
+| Workstream | Recorded boundary | Relation to the research sequence |
+|---|---|---|
+| SQL acceptance | Published code checkpoint `1501f0b`: earlier [direct-evaluator 19-job](docs/2026-10-29-bounded-native-acceptance.md) and [file-SDK 15-job](docs/2026-10-29-native-sql-skill-workflow.md) native campaigns passed CLOSED. The [portable helper](docs/2026-10-30-portable-sql-skill-sdk-acceptance.md) has recorded offline acceptance; its native phases remain NOT_EXECUTED. | Separate engineering, not stage 4-6 completion or full adversarial/kernel acceptance. Optional portable-native acceptance is off the critical path, not a stage 4 prerequisite. |
+| Separate local MLX | Real sampling and weight updates were recorded in another worktree; no completed holdout/three-seed trial or harness-swap evaluation. See [recorded evidence](docs/evidence-index.md). | Partial training work, not stage 6 proof or measured learned benefit. |
+
+Start with the [project map](docs/project-map.md), then the
+[evidence index](docs/evidence-index.md). [HANDOFF.md](HANDOFF.md) preserves
+dated technical history; a clone does not include original scratch receipts.
+Recorded tests were not rerun for this status update.
+
+This update grants no new experiment, native, model-spending or training
+permission. Old 19/15-job authorizations are consumed, never replayable.
+Preflight-only SQL context preparation is not new execution consent. Future
+work follows its applicable authorization; paid model trials need an explicit
+budget, and agent-session usage is not a product-experiment budget.
+No learned benefit, savings or customer traction follows from these receipts.
 
 ## Historical implementation boundary, 2026-10-23
 
