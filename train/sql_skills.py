@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 
 from bench.score import ExResult
 from bench.task import SqlTask
+from ptc import sql_isolation as isolation
 from train import sql_capture as capture
 from train import sql_episodes as evidence
 
@@ -121,6 +122,7 @@ class SkillBinding:
     instrument: evidence.InstrumentSettings
     source_paths: tuple[str, ...]
     source_sha256: str
+    execution_binding: isolation.ExecutionBinding | None = None
 
     def __post_init__(self):
         _guard(_validate_binding, self)
@@ -137,6 +139,8 @@ def _validate_binding(binding):
     if binding.source_paths != SOURCE_PATHS:
         raise ValueError("workflow source_paths differ from the selected modules")
     evidence._digest(binding.source_sha256, "source_sha256")
+    if binding.execution_binding is not None:
+        isolation.execution_binding_to_dict(binding.execution_binding)
 
 
 @dataclass(frozen=True)
@@ -185,12 +189,14 @@ class SkillPromotion:
 def _validate_promotion(promotion):
     if type(promotion) is not SkillPromotion:
         raise TypeError("promotion must be SkillPromotion")
-    evidence._version(promotion.schema_version)
+    _promotion_version(promotion.schema_version)
     evidence._digest(promotion.candidate_sha256, "candidate_sha256")
     _validate_scope(promotion.scope)
     _validate_source(promotion.source)
     evidence._validate_ids(promotion.ids)
     _validate_binding(promotion.binding)
+    if (promotion.schema_version == 2) != (promotion.binding.execution_binding is not None):
+        raise ValueError("promotion version requires matching isolated binding")
     if _provenance(promotion.ids) != _provenance(promotion.source.ids):
         raise ValueError("promotion ID provenance differs from source")
     if type(promotion.qualifications) is not tuple:
@@ -269,8 +275,15 @@ def _encode(record, validator, format):
     def encode():
         validator(record)
         payload = asdict(record)
+        if type(record) is SkillPromotion:
+            if record.schema_version == 1:
+                del payload["binding"]["execution_binding"]
+            else:
+                payload["binding"]["execution_binding"] = isolation.execution_binding_to_dict(
+                    record.binding.execution_binding,
+                )
         return evidence._json_bytes({
-            "format": format, "schema_version": SCHEMA_VERSION,
+            "format": format, "schema_version": record.schema_version,
             "payload": payload, "sha256": _sha(evidence._json_bytes(payload)),
         })
 
@@ -320,7 +333,12 @@ def _promotion_from(value):
     values["scope"] = _scope_from(values["scope"])
     values["source"] = _source_from(values["source"])
     values["ids"] = _ids_from(values["ids"])
-    binding = evidence._record_object(values["binding"], SkillBinding).copy()
+    _promotion_version(values["schema_version"])
+    names = tuple(f.name for f in fields(SkillBinding)
+                  if values["schema_version"] == 2 or f.name != "execution_binding")
+    binding = evidence._object(values["binding"], names).copy()
+    if values["schema_version"] == 2:
+        binding["execution_binding"] = isolation.execution_binding_from_dict(binding["execution_binding"])
     binding["instrument"] = _instrument_from(binding["instrument"])
     if type(binding["source_paths"]) is not list:
         raise TypeError("workflow source_paths must be a JSON array")
@@ -338,6 +356,11 @@ def _promotion_from(value):
     return SkillPromotion(**values)
 
 
+def _promotion_version(value):
+    if type(value) is not int or value not in (1, 2):
+        raise ValueError("unsupported promotion schema version")
+
+
 def _decode(data, format, constructor):
     def decode():
         if type(data) is not bytes:
@@ -352,9 +375,14 @@ def _decode(data, format, constructor):
         evidence._text(envelope["format"], "format")
         if envelope["format"] != format:
             raise ValueError("unsupported skill artifact format")
-        evidence._version(envelope["schema_version"])
+        if format == PROMOTION_FORMAT:
+            _promotion_version(envelope["schema_version"])
+        else:
+            evidence._version(envelope["schema_version"])
         evidence._digest(envelope["sha256"], "sha256")
         record = constructor(envelope["payload"])
+        if record.schema_version != envelope["schema_version"]:
+            raise ValueError("skill envelope/payload versions differ")
         if envelope["sha256"] != _sha(evidence._json_bytes(envelope["payload"])):
             raise ValueError("skill artifact payload digest mismatch")
         evidence._json_bytes(envelope)

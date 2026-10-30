@@ -107,6 +107,25 @@ recording remains unchanged. Capture alone supplies no provider traces, exact
 tokens, model-authorship evidence, learning or training. See the
 [capture contract](../spec/sql-execution-capture.md).
 
+### Offline comparison of caller-owned captures
+
+With independently planned case IDs and caller-owned absolute capture paths:
+
+```python
+from train.sql_capture_comparison import compare_capture_files, format_comparison
+
+comparison = compare_capture_files(planned_case_ids, baseline_paths, treatment_paths)
+print(format_comparison(comparison))
+```
+
+Mappings declare arms, not authenticated provenance or approved reuse. Every
+planned case stays in the denominator, including cases missing from both arms.
+Only complete valid, binding-compatible evidence reaches the existing paired
+estimator (treatment minus baseline). No DB opens, rescoring or writes.
+Billing, token usage, model-request latency and approved-reuse attribution
+remain unavailable. Reports omit raw capture text and paths; caller case IDs
+must contain no secrets/PII. See the [comparison contract](../spec/sql-capture-comparison.md).
+
 ## Opt-in executable SQL skills
 
 The [executable-skills contract](../spec/sql-executable-skills.md) adds
@@ -155,6 +174,55 @@ need not remain available. Payload self-digests differ from whole-envelope
 pins; neither hashes nor caller IDs authenticate approval or prove independent
 sampling/semantic diversity. The trusted host owns approval, evaluator and assets.
 
+### Caller-owned file workflow
+
+The explicit [portable local-fixture SDK acceptance CLI](../spec/sql-skill-sdk-acceptance.md)
+has ten validated default offline guards, not automatic native execution.
+Its native helper filename avoids default collection; missing required context
+fails before dispatch, never SKIP. The closed-fixture 3,803-pass full result is
+offline only; all new native phases remain NOT_EXECUTED. Native use requires
+integrated-commit review, separate fresh authorization, an approved caller-owned
+profile and post-qualification fixture approval. Operators externally compare
+HEAD/source pins before profile/consent and each phase; the CLI does not check
+Git HEAD. Strict raw FD/thread equality uses no forced GC or separate native
+settled metric; configuration/PREMOVE metadata evidence is caller-side.
+
+`train.sql_skill_workflow` wraps these same APIs with typed caller-owned tasks,
+cases, IDs and absolute artifact paths. See the [file-workflow contract](../spec/sql-skill-workflow.md)
+for signatures and storage rules. `create_candidate_file` writes a canonical
+candidate into a new directory. `qualify_candidate_files` accepts candidate and
+source-capture files, an **external source pin**, source case, exactly four
+qualification cases and approval IDs. It persists returned captures and, only on
+qualification success, an **UNAPPROVED** `promotion.json`.
+`reuse_approved_files` separately requires the caller's externally retained
+whole-promotion-envelope pin and exact approval IDs. Never take either as
+authority from the same envelope. It writes the new capture without reopening
+source/qualification databases.
+
+Execution defaults to disabled; supply literal `allow_execution=True` and the
+caller-selected executor (including `None` for the existing in-process path,
+not an OS sandbox). No runtime selection, source-failure manufacture, automatic
+approval or chained reuse. All writes require an exclusive new directory
+outside checkout. Existing bounded safe-file helpers reject symlinks and
+oversized input. Failed qualifications retain returned captures without a
+promotion; typed exception-carried captures are retained before re-raising.
+Exceptions without evidence never generate a fabricated capture. Storage
+failures propagate and may leave partial evidence, not a completed receipt.
+
+Optional outer timing lives in `bench.sql_reuse_timing`: use
+`timer = Timer()` and `timer.run("reuse", trusted_caller_operation, allow_execution=True)`,
+then inspect `timer.observations`. The callback owns SDK opt-in, executor and
+external approval; the timer selects none. Its synchronous wall span includes
+callback reads, execution, scoring and final writes/fsync, but excludes outside
+preparation and observation append. `analyze` requires separate planned case IDs,
+valid comparable full arms and every setup attempt, including failures;
+`setup_complete` is a trusted caller declaration, not proof. Missing evidence
+stays unknown, never zero. Exact nanosecond amortization scenarios are not
+adoption forecasts or measured benefit; break-even equality means zero net
+savings. Billing, tokens, human review, CPU, provider latency, retrieval,
+semantic search and team discovery remain unavailable. This is not customer or
+team end-to-end timing. See the [timing contract](../spec/sql-reuse-timing.md).
+
 Programs are limited to 65,536 UTF-8 bytes; separate canonical frozen artifacts
 are limited to 8 MiB. No registry or automatic writes. The existing budget
 counts eight PTC submissions, not internal SQL calls. Five-second tracing and
@@ -174,6 +242,41 @@ Independent Python/general/security static reviews found no issues; runtime
 validation was separate. The historical 2,222-pass, one-failure run remains
 history, not a reconstructed root cause. See [current handoff](../HANDOFF.md)
 for the raw full-suite receipt, audit scope and remaining research gates.
+
+### Portable offline mechanics demo
+
+From the repository root, using an existing compatible Python (no install):
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python -B -m train.sql_skill_demo \
+  --work-dir "$HOME/scratch/co-train-2026-10-29/demo-run-1"
+# Repeat with a different, nonexistent --work-dir for an independent run.
+```
+
+`sql_skill_demo.py` reproduces the existing caller-authored catalog-discovery and
+identifier-quoting fixture acceptance through unchanged capture/qualification/reuse
+APIs. It captures a valid EX=0 source, qualifies once on each of four differently
+named 0/1/3/7-row tables, and checks that a wrong trusted promotion pin dispatches
+nothing. It then moves origin/qualification DBs out of their recorded paths
+(retaining files, not deleting them) and reuses the serialized candidate/receipt
+on 11/13-row tables in **two separate fresh Python processes**, one dispatch each.
+All six successful evaluations require valid EX=1.
+
+The new directory retains source/qualification/reuse captures, candidate,
+promotion, host-only fixture inputs and `report.json`. Existing directories reject
+without overwriting. Python socket audit guards deny network/DNS/loopback in the
+demo and both known children; this is not OS confinement or arbitrary-child
+telemetry. No models, API calls, dependency downloads or training are needed.
+
+**Fixture mechanics only:** this deliberately selects the existing in-process
+backend (`executor=None`), not native/container execution or pilot authorization.
+It adds no runtime adapter and bypasses no production gate. The example locally
+self-approves a receipt; real approval still belongs to an independently trusted
+caller. Hashes are not authentication. The program is hand-authored, the schemas
+synthetic: this is not model learning, scientific generalization, production
+sandbox acceptance or evidence that the native lifecycle blocker is resolved.
+`train/test_sql_skill_demo.py` checks two consecutive runs and verifies its
+bad-pin assertion catches an in-memory approval-guard bypass.
 
 ## Run order
 

@@ -1,8 +1,355 @@
+# Main integration checkpoint, 2026-10-30
+
+Combined published main `2f1a627` with feature `ffb4d21` using an ordinary
+history-preserving merge. Main's native-model/runtime policy and frontier
+consistency fixes are retained, not replaced by the feature's older versions.
+Frontier admission remains count-only (currently 59 tasks), with truthful
+retention metadata; band width is diagnostic, not a separate retention floor.
+
+Merged-source validation: 1,731 affected offline tests passed in 189.61 seconds,
+including native/frontier/mutation, reporting, capture, binding and SDK/workflow
+checks. This is not a full-suite or native-experiment result. No model, training
+or native job was launched. Old source pins/receipts are not repinned or replayed.
+Stage status remains 4 PARTIAL, 5 PARTIAL, 6 BLOCKED. Prior checkpoints follow
+unchanged as dated history.
+
+---
+
+# Current status and next actions, 2026-10-30
+
+Base `ae2323d`. Docs-only milestone table for the 4 -> 5 -> 6 sequence. Every
+prior HANDOFF byte follows unchanged below.
+
+| Stage | Status | Next action |
+|---|---|---|
+| 4: environment + escalation | **PARTIAL.** Opt-in collector, real PTC/shell arms, deterministic SQLite shortcut fixture and constructor-only `PTCHarness.launch` `qa_factory` implemented: shared semantics/quotas, scoped channels, collision refusal, weak tracking. Proof at `ae2323d`: 813 targeted passes (14 lifecycle + 799 existing), two real RED/restored controls; not a full suite or native proof. See [escalation note](docs/2026-10-30-agent-defect-escalation.md) and [launch contract](spec/agent-defect-escalation-harness.md). | Production Bash verifier routing and framework/CLI/config activation of the implemented PTC launch route, with no lost reports or errors; isolated report transport, sealed capture/SqlEpisode binding and TRL. Bounded report-config, source-bound evidence; shell markers stay forgeable. |
+| 5: paired untrained baseline | **PARTIAL.** [A8](docs/pre-registration.md) signed; `bench/frontier/manifest.json` absent; historical v9/v10 aggregates are not eligible rates. See [readiness note](docs/2026-10-30-baseline-readiness.md). | Exact seeded task-ID draw -> local gold validation + exclusion ledger + provenance (proposed, not executed) -> real frontier generation adapter and BIRD paired driver -> explicitly authorized frozen-policy per-task measurement. |
+| 6: co-training + harness swap | **BLOCKED.** Native main CLI still refuses after preflight; no gate bypass or relaxation. See [native constraints](spec/native-training.md). | Legitimate frontier manifest plus frontier/stack/template/CLI gates, then the actual preregistered holdout with three-seed and harness-swap evidence. |
+
+Optional SQL-native SDK acceptance stays off the critical path; consumed native
+budgets never replay. Separate MLX updates are partial work, not stage-6 proof.
+This update adds no install, model, native, training or paid authority.
+
+---
+
+# Current feature checkpoint, 2026-10-30: PTC launch reporting
+
+The follow-on to `1ded101` adds constructor-only `qa_factory` to the real
+`PTCHarness.launch` route. Each launch gets a caller-owned channel; local/MCP
+report-tool collisions and live-channel reuse on one harness refuse explicitly.
+Tracking is weak and the registered model tool remains only `run_program`.
+See [launch usage](docs/2026-10-30-agent-defect-escalation.md#opt-in-through-ptcharnesslaunch)
+and the [test-first contract](spec/agent-defect-escalation-harness.md).
+
+Stage 4 remains PARTIAL. CLI/config activation, production bash routing,
+isolated reporting, sealed capture binding and TRL integration are unfinished.
+Priority stays 4 -> 5 -> 6. No experiment/spending authority is added; historical
+pins and native receipts are not reissued. Prior checkpoints follow unchanged.
+
+---
+
+# Current feature checkpoint, 2026-10-30: stage 4 reporting
+
+This checkpoint supersedes the older “complete structured reporting” gap below.
+The entire prior HANDOFF body follows unchanged as dated history.
+
+- Stage 4 stays PARTIAL: opt-in in-process PTC catalog and actual shell-runner
+  structured reporting now work, with a controlled real-SQLite shortcut fixture.
+  See [usage, bounds and evidence](docs/2026-10-30-agent-defect-escalation.md)
+  and [opt-in parity](docs/harness-parity.md#opt-in-defect-reporting-2026-10-30).
+- Parent-recorded validation: 848 targeted passes, no skips; 639 keyword
+  deselections in the selected isolation/SDK run. Two in-memory controls went
+  RED and restored GREEN. No post-feature full suite; older 3,803-pass evidence
+  is earlier source. This docs worker reran no tests.
+- Next: production verifiers bash routing, isolated-wire reporting and
+  capture/SqlEpisode configuration binding, then TRL integration before live
+  experiments. Reports are untrusted allegations; shell markers are forgeable.
+- Priority remains 4 -> 5 -> 6. Current BIRD paired baseline remains absent;
+  stage 6 is blocked. SQL-native acceptance is not a stage 4 prerequisite.
+- Base HEAD is `91336c8`; changed `ptc/sql_arms.py` bytes make historical pins
+  stale. Do not repin/replay receipts. No new experiment or spending authority.
+
+---
+
+# Current project priorities, 2026-10-30
+
+## Original research milestones: 4 -> 5 -> 6
+
+The [current research milestone table](README.md#current-research-milestones-4-6)
+replaces the historical “not started” rows as current status. Original stage
+numbering and old verdicts remain historical evidence. Recent SQL reuse and
+acceptance work was scope drift relative to this sequence, not its completion.
+
+| Stage | Status | Next required work |
+|---|---|---|
+| 4: environment + escalation | **PARTIAL.** Runtime, independent scoring and isolation pieces exist. | Complete structured agent defect reporting/verifier-QA and test its route plus one instrumented rule-legal shortcut's deterministic telemetry. Signal/process cleanup escalation is not this feature. |
+| 5: paired untrained harness baseline | **PARTIAL.** Both bash/PTC harnesses exist; the retired `ledger` premise check ran and the published gap did not reproduce. | Measure the current-taskset paired baseline with matched information/tools/budgets/metric, complete planned-task denominator, error categories and gold validity. Preserve the original preregistered negative result. |
+| 6: co-training and harness swap | **BLOCKED, not complete.** Frontier manifest absent; native main CLI still refuses after preflight. | Satisfy legitimate frontier, stack and CLI gates before preregistered training/cross-harness evaluation. MLX sampling/updates are real partial work, not completed holdout/three-seed/harness-swap proof. |
+
+See [harness parity](docs/harness-parity.md),
+[untrained results](docs/results-untrained.md), [frontier measurement source](bench/frontier/probe.py)
+and [native training constraints](spec/native-training.md). No preflight,
+dependency probe or experiment was executed for this status correction.
+Frontier measurement is stage 5 baseline preparation, not a reason to defer
+stage 4 channel work.
+
+The published code checkpoint used for this review is
+`1501f0b62d0979e03aeec11d8b95363132e87eae`. The earlier
+[19-job direct-evaluator](docs/2026-10-29-bounded-native-acceptance.md) and
+[15-job SDK](docs/2026-10-29-native-sql-skill-workflow.md) native proofs remain
+valid bounded historical evidence, with consumed permissions. The portable
+helper's [recorded offline proof](docs/2026-10-30-portable-sql-skill-sdk-acceptance.md)
+is separate; its native phases remain NOT_EXECUTED. Further SQL-native acceptance
+is optional/off-critical-path and must not become an artificial stage 4 gate.
+These engineering receipts do not establish full adversarial/kernel coverage
+or original research milestone completion.
+
+Preflight-only context preparation may exist outside checkout; it is not a
+native campaign or new execution authority. This docs-only update grants no
+native/model/training spend. Future work uses its applicable authorization;
+paid trials need an explicit budget, not agent-session usage. No learned
+benefit, economic savings or traction is established.
+
+Everything below is the complete pre-update HANDOFF body, retained byte-for-byte.
+Its dated current-state labels, profile-preparation statements and old “not
+started” rows describe their recorded sessions, not this priority ordering.
+
+---
+
+# Current handoff, 2026-10-30
+
+## Current state, closed-fixture portable SQL skill SDK offline acceptance
+
+Read the [portable SDK verification receipt](docs/2026-10-30-portable-sql-skill-sdk-acceptance.md)
+and [usage/contract guide](spec/sql-skill-sdk-acceptance.md). This section
+supersedes earlier current-state checkpoints; the full original HANDOFF follows
+byte-for-byte below.
+
+- Final closed-fixture offline acceptance: 3,803 passed, zero failed, one optional
+  missing-Torch skip, two existing tokenizer deselections, ten warnings and
+  28 subtests; exit 0 in 741.59s. All 3,794 prior selected IDs retained, plus ten
+  new default offline guards. All 268 bound files stayed frozen during that
+  full run. This five-doc refresh is separately checked, not another full run.
+- Independent 30 probes passed, including real non-native SQLite/file SDK source
+  EX=0, four qualifications and one reuse EX=1. Seven real fixture tasks had
+  raw FD delta 0, seven explicit closes and zero live connection weakrefs before
+  GC, which was forbidden until after assertions (recorded FD baseline 11).
+  Five call-phase REDs each restored ten guards GREEN. Counts are not additive.
+- Portable-owned `_fixture_task` closes the SQLite connection before return;
+  legacy `_task` is unchanged. Legacy-alias RED retained one FD before cleanup,
+  not a demonstrated old native failure. Capture-dependency union including
+  `train/grpo_ptc.py` remains guarded. Final Python/security reviews approved.
+- Validation used base HEAD `c1dfb85476f77e817ec57adb3b015a74b690b816` with the
+  two code files then uncommitted. Exact validated code/evidence hashes are in
+  the linked receipt.
+  After this refresh only five doc hashes change from the 268-file snapshot;
+  263 other files, both code pins, 31 controller sources, 16 native-role files
+  and four protected paths remain unchanged. Earlier 3,802/29/four-control
+  proof is retained as pre-fixture-close history, not current-byte acceptance.
+- Native qualification and both fresh-interpreter reuses: NOT_EXECUTED.
+  Parent owns integrated-commit review, commit/push and later fresh 15-job
+  authorization. No profile, consent, permission or claims created here.
+  Before profile/consent and each phase, operator must externally compare actual
+  HEAD and reviewed source pins. CLI `reviewed_revision` is format-only;
+  file/profile pins are checked. Strict raw FD/thread equality must pass without
+  forced GC; separate settled measurements belong to offline validation only.
+- Caller collects approved unrelated configuration and PREMOVE inode/mode/mtime
+  evidence outside the CLI; helper scope is IDs/state and DB hash/path/move
+  proof, not all-host/private-workload clearance. Missing context fails, never
+  skips. Consumed 15/19-job native authority cannot be replayed; old scratch-helper
+  native success remains legitimate separate bounded evidence.
+- New receipt records one resolved scratch pre-collection tuple/list comparison
+  incident, not zero incidents. No new native/provider/model or infrastructure
+  work. Two source-generation jobs are outside SDK Timer callbacks. No model,
+  economic, customer or team-hour benefit; existing financial/traction gates
+  and standing Git instructions remain unchanged.
+
+---
+
 # HANDOFF — model-harness co-training
 
 **The first current-state section supersedes every earlier checkpoint below.**
 Historical receipts, including non-green runs, are retained rather than rewritten.
 The original body remains under [History](#history).
+
+---
+
+## Current state, 2026-10-29, bounded native file-SDK and Timer acceptance
+
+Read the [native SDK workflow receipt](docs/2026-10-29-native-sql-skill-workflow.md).
+
+- Actual file-SDK qualification and two fresh-process reuses passed natively:
+  four qualifications/two reuses valid EX=1; source and SDK rescore valid EX=0.
+  Separate caller review/pins preceded reuse, not automatic promotion approval.
+  This is caller-authored fixture trust, not authenticated customer permission.
+- New campaign: 15/15 CLOSED jobs (7 PROGRAM, 8 SCORER), matching finalization
+  pairs, zero retries/model calls/incidents. Both phase-native and postproof
+  processes exited 0. Wrong promotion pin dispatched nothing.
+- All 15 owned containers and 75 recorded actors absent; zero active reservations
+  or unclosed blocks. Owned containers deleted normally, five historical DBs
+  moved/preserved before reuse, ten unrelated containers unchanged. VM left up.
+- Actual synchronous SDK Timer spans include writes/rename/fsync, but exclude
+  source generation, bootstrap, fixtures, approval and observation finalization.
+  No baseline/speedup, billing, model benefit or team-hours claim follows.
+- Production unchanged: 142 Python sources/16 native-role files match HEAD.
+  Prior 3,793-pass offline suite, 28 probes and three controls remain separate
+  completed evidence; older direct-evaluator/native receipts below are unchanged.
+- Bounded native SDK happy path is now covered. Full adversarial OOM/timeout/
+  guardian/kernel acceptance and economic/model benefit remain unproved.
+  Fresh native budget exhausted; financial gates closed. This receipt grants
+  no further native/paid/model/deployment permission; standing Git instructions
+  remain unchanged.
+
+---
+
+## Current state, 2026-10-29, qualification evidence, timing and bounded native lifecycle
+
+Read the [qualification receipt](docs/2026-10-29-sql-qualification-evidence.md),
+[outer timing receipt](docs/2026-10-29-sql-reuse-timing.md) and
+[bounded native receipt](docs/2026-10-29-bounded-native-acceptance.md).
+
+- Final independent offline acceptance: 3,793 passed, zero failed, one optional
+  missing-Torch skip, two configured tokenizer deselections, ten warnings,
+  28 passing subtests, exit 0 in 725.24s. All 260 source bindings unchanged
+  before this docs-only integration. Independent probes: 28/28; three intended
+  assertion RED controls and restored GREEN. Counts overlap, never add them.
+- Qualification preserves completed ordered captures on ordinary exceptions.
+  Post-rename final fsync can leave a visible UNAPPROVED promotion with unknown
+  durability; successful return and external review/pins are still required.
+- Timing includes synchronous callback writes/fsync and failed setup. Callback
+  and setup completeness are caller trust. Scenarios are not adoption forecasts;
+  model/provider/customer/team end-to-end time and economics remain unproved.
+- Retained history: interruption, then 3,792 passed/one isolated-bench failure.
+  The unchanged SDK test moved to train (all 11 assertions retained), leaving
+  19 pure bench tests. Corrected full pass follows; no test was removed.
+- Separately completed direct-evaluator native trial: three tests, 19 CLOSED
+  jobs (10 PROGRAM, 9 SCORER), four qualifications/two fresh reuses EX=1,
+  zero model calls/retries. Owned containers deleted normally; five historical
+  DBs preserved at moved paths; ten unrelated containers unchanged.
+- Native SDK/full adversarial guardian acceptance and model/economic/team
+  benefit remain unproved. See [reuse economics research](research/2026-10-29-team-reuse-economics.md).
+  Financial gate stays closed; consumed permissions and separate standing Git
+  instructions remain unchanged. Historical receipts below are preserved.
+
+---
+
+## Current state, 2026-10-29, read-only SQL capture comparison
+
+Read the [comparison receipt](docs/2026-10-29-sql-capture-comparison.md).
+
+- Typed comparison retains every independently planned case, including missing
+  both arms. Missing, malformed, blocked-read, invalid-gold and infrastructure
+  outcomes stay distinct; incomplete coverage or incompatible bindings withhold
+  aggregates. Complete admissible pairs use unchanged `paired(treatment, baseline)`.
+  No DB opening, fresh execution, scoring, writes or network during analysis.
+- Final corrected-byte offline suite: 3,765 passed, one optional missing-Torch
+  skip, two configured tokenizer deselections, 10 warnings, exit 0 in 768.39s.
+  All 3,718 previous SDK selected IDs retained, plus 48 comparison cases.
+  Comparison 48/48 and focused 1,036/1,036 passed twice; counts overlap.
+  Two independent mutants fail intended assertions with green baselines/restores.
+- Security review's blocked-read misclassification fixed after RED (2 fail,
+  46 pass), then GREEN (48 pass). Python/security re-review closed; general
+  review clean. Separate Devin CLI SWE-2 High static challenge found no issues;
+  it did not execute tests and is not runtime validation.
+- Illustrative six-pair test: baseline 4/6, treatment 3/6, delta -1/6,
+  CI [-2/3,1/3], p=1. No model benefit, significance or savings claim.
+  Billing, tokens, request latency and approved-reuse attribution unavailable;
+  caller arm declarations are not authenticated provenance.
+- Existing estimator/evaluator/runtime/budget/scorer unchanged. Native/kernel/
+  guardian acceptance and model benefit remain unproved. Financial gate stays
+  closed; consumed permissions and existing native/paid/push gates still apply.
+
+---
+
+## Current state, 2026-10-29, caller-owned SQL skill SDK
+
+Read the [SDK verification receipt](docs/2026-10-29-sql-skill-workflow.md).
+The earlier same-date demo receipt below remains unchanged.
+
+- Typed file SDK adds candidate creation, qualification and separately approved
+  reuse around existing APIs. Canonical artifacts use exclusive new directories
+  outside checkout. Qualification receipts are UNAPPROVED; callers supply trusted
+  assets, external pins and exact approval IDs. Execution defaults to disabled;
+  caller-selected executor passes through unchanged.
+- Independent complete default offline suite: 3,717 passed, one optional
+  missing-Torch skip, two existing tokenizer deselections, exit 0 in 754.08s.
+  All previous 3,683 selected IDs retained, plus 35 SDK cases. Focused checks:
+  35/35 workflow and 719/719 combined; counts overlap, never add them.
+- Two real SQLite test families: 8/8 qualifications and 4/4 reuses EX=1.
+  Separate-process reuse: 2/2 EX=1 with five old DB paths unavailable.
+  Wrong approval dispatches zero programs/scorers; second-qualification failure
+  retains scores [1,0] after two submissions, with no promotion.
+  Two mutation baselines pass; both mutants fail intended assertions.
+- Python/security/general reviews found no actionable issues. Production
+  evaluator/defaults/runtime and four protected budget/scorer files unchanged.
+  No offline product failure reproduced. Native/container/guardian acceptance
+  and model benefit remain unproved; SDK qualification is not trusted approval.
+- Financial gate remains closed, prior one-shot permissions consumed. Existing
+  native-trial, paid/model-call and push/deployment gates remain in force.
+
+---
+
+## Current state, 2026-10-29, portable offline SQL reuse
+
+Read the [demo and verification receipt](docs/2026-10-29-sql-reuse-demo.md)
+for the root-directory run command, local evidence and acceptance limits.
+
+- Portable standard-library demo: caller-authored SQL program, four EX=1
+  qualifications, then two distinct fresh-process EX=1 reuses after the five
+  source/qualification DB paths become unavailable. Wrong promotion pin
+  dispatches nothing. Independent system-Python execution passed twice.
+- Complete configured offline suite: 3,682 passed, one optional missing-Torch
+  skip, two existing tokenizer deselections, exit 0 in 702.86s. All original
+  678 runtime IDs retained; now 701 runtime cases and 299 skills/demo cases.
+  Independent Python/general/security static reviews found no actionable issues.
+- Four passing controls became intended assertion failures under separate
+  pin/admission/drain/digest mutations. Offline process/IPC fixtures use
+  synthetic container metadata; no production defect was reproduced.
+  Production and protected budget/scorer files remain unchanged.
+- No new native/container/kernel acceptance or full guardian recovery proof.
+  No automatic model discovery, learning/scientific benefit or independently
+  authenticated approval was demonstrated. Original receipts are local scratch,
+  not portable evidence; the runnable fixture demo itself is portable.
+- Financial gate stays closed; earlier one-shot permissions remain consumed.
+  No new native trial, model call, push or deployment is authorized by this
+  checkpoint or by autonomous-team instructions.
+
+---
+
+## Current state, 2026-10-28, offline maintenance
+
+Read the [maintenance receipt](docs/2026-10-27-maintenance.md) for executed
+checks, failed validation attempts and remaining acceptance gaps.
+
+- Coordinated SQL result/exit and durable pending/ACK/commit finalization pass
+  678 offline runtime cases, retaining all original cases.
+- Live wire schema is now 2. Old source/profile bindings must not silently
+  authorize the changed protocol. Record/profile schema versions are unchanged.
+- No new native lifecycle acceptance ran. The financial gate remains closed;
+  prior one-shot permissions remain consumed. No model call or push occurred.
+- CPU-only RSS instrumentation and controls passed in fresh scratch copies.
+  The historical MLX timeout and training benefit remain unproven.
+
+---
+
+## Current state, 2026-10-25, SQL pilot session closed
+
+**Read [SQL pilot next-session handoff](spec/sql-skill-pilot-handoff.md) first.**
+This checkpoint covers the SQL pilot; earlier feature receipts remain below.
+
+- Session scope complete: implementation, offline verification, authorized real
+  trial, separately authorized cleanup and durable evidence are saved locally.
+- Pilot NOT complete: native pair passed; real record lifecycle failed before
+  reuse. Missing-usage RPC completed 4.796 ms before STOPPED; strict discard
+  correctly refused. Full kernel acceptance and model benefit remain unproven.
+- Current-source offline suite: 3,403 passed, one optional Torch skip, two
+  tokenizer deselections, ten existing fork warnings. Reviews found no issues.
+- Latest trial cleanup verified: all four owned containers and 18 actors absent,
+  ten unrelated containers unchanged, no active reservation/unclosed block.
+- Zero model calls. Billing gate closed. Trial/cleanup permissions consumed;
+  no retries, new real trials or push authorized.
+- Next session: bounded offline diagnosis/design for the pre-STOPPED stats gap,
+  not another unchanged trial or infrastructure expansion.
 
 ---
 

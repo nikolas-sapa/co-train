@@ -1,6 +1,64 @@
 # co-train
 
-## Current implementation boundary, 2026-10-23
+Co-train tests whether training a small model around a tool interface improves
+task performance, and whether any improvement survives a harness swap.
+
+## Current orientation, 2026-10-30
+
+Priority is the original research sequence **4 -> 5 -> 6**. Recent SQL
+reuse/acceptance work was scope drift relative to that sequence: useful separate
+engineering evidence, not completion of those research milestones.
+
+### Current research milestones 4-6
+
+| Stage | Current status and existing work | Remaining gap / next priority |
+|---|---|---|
+| 4: environment + escalation channel | **PARTIAL.** Opt-in reporting is implemented in the in-process PTC catalog and the actual shell runner, plus constructor-only `qa_factory` on `PTCHarness.launch`; a controlled real-SQLite shortcut fixture exists. See the [escalation evidence](docs/2026-10-30-agent-defect-escalation.md). | Wire the remaining pieces before live experiments: production verifiers-bash routing, isolated transport/wire reporting, sealed capture and SqlEpisode configuration binding, and TRL training integration. Launch activation is constructor-only, not a CLI/config flag; shell telemetry remains forgeable. |
+| 5: two harnesses, measure untrained first | **PARTIAL.** Both bash/PTC SQL harnesses exist behind the [parity contract](docs/harness-parity.md). The [retired `ledger` premise check](docs/results-untrained.md) ran and did not reproduce the published gap. The paired untrained baseline on the current BIRD taskset/frontier is **missing, not zero**. | Next actionable order per [stage-5 readiness](docs/2026-10-30-baseline-readiness.md): offline exact draw (`bench.suite.select` seed/counts), `validate_golds()` under recorded bounds, then draw provenance — before any authorized matched-G baseline rollouts. Match information, tools, budgets and metric before training; retain every planned task and distinguish error categories/invalid gold. |
+| 6: co-train, then cross-harness evaluation | **BLOCKED, not complete.** [Training guards](train/guards.py) require the absent `bench/frontier/manifest.json`; the [main CLI](train/grpo_ptc.py) still raises `NotImplementedError` after real preflight. | Satisfy the existing gates unchanged — legitimate frontier measurements (a real manifest), compatible stack/template and completed/verified CLI integration — before preregistered training and cross-harness evaluation. Separate MLX updates do not establish this result. |
+
+See [stage 4 reporting usage and evidence](docs/2026-10-30-agent-defect-escalation.md):
+at `ae2323d` the recorded evidence is 813 targeted passes (14 launch-lifecycle
+tests plus 799 existing), two controls that went RED and were restored, and no
+full-suite rerun — increments are recorded separately, not as a post-feature suite.
+
+The [frontier measurement source](bench/frontier/probe.py) and
+[taskset contract](docs/bench-taskset.md) describe baseline preparation, not a
+reason to stop stage 4 implementation. Preserve the original preregistered
+negative `ledger` outcome; do not relabel it as current-taskset measurement or
+a new reproduction. Existing preregistration/amendment gates still apply.
+
+The historical “not started” rows below are dated history only. Use the
+[current replacement table](#current-research-milestones-4-6), not those rows,
+for stages 4-6; the original numbering and verdicts for stages 1-3 are retained.
+The [native-training contract](spec/native-training.md) records stack/template
+conflicts, not a fresh runtime check by this documentation update. Its historical
+Mac/CUDA restriction is not a general claim that local MLX training is impossible.
+
+### Separate recorded engineering evidence
+
+| Workstream | Recorded boundary | Relation to the research sequence |
+|---|---|---|
+| SQL acceptance | Published code checkpoint `1501f0b`: earlier [direct-evaluator 19-job](docs/2026-10-29-bounded-native-acceptance.md) and [file-SDK 15-job](docs/2026-10-29-native-sql-skill-workflow.md) native campaigns passed CLOSED. The [portable helper](docs/2026-10-30-portable-sql-skill-sdk-acceptance.md) has recorded offline acceptance; its native phases remain NOT_EXECUTED. | Separate engineering, not stage 4-6 completion or full adversarial/kernel acceptance. Optional portable-native acceptance is off the critical path, not a stage 4 prerequisite. |
+| Separate local MLX | Real sampling and weight updates were recorded in another worktree; no completed holdout/three-seed trial or harness-swap evaluation. See [recorded evidence](docs/evidence-index.md). | Partial training work, not stage 6 proof or measured learned benefit. |
+
+Start with the [project map](docs/project-map.md), then the
+[evidence index](docs/evidence-index.md). [HANDOFF.md](HANDOFF.md) preserves
+dated technical history; a clone does not include original scratch receipts.
+Recorded tests were not rerun for this status update.
+
+This update grants no new experiment, native, model-spending or training
+permission. Old 19/15-job authorizations are consumed, never replayable.
+Preflight-only SQL context preparation is not new execution consent. Future
+work follows its applicable authorization; paid model trials need an explicit
+budget, and agent-session usage is not a product-experiment budget.
+No learned benefit, savings or customer traction follows from these receipts.
+
+## Historical implementation boundary, 2026-10-23
+
+This dated checkpoint is retained for its native-training constraints and
+validation receipt. It is not the latest SQL-pilot status and does not describe
+the separate MLX workstream.
 
 The historical "pipeline built" and install instructions below do not describe
 a runnable native PTC training path. `train.native_training.build_sql_trainer`
@@ -28,6 +86,13 @@ skips. The preceding 1861-test warm-cache result is historical.
 See [`spec/offline-harness-reliability.md`](spec/offline-harness-reliability.md)
 and the [validation receipt](research/2026-10-23-offline-harness-reliability.json).
 
+## Historical research framing
+
+The framing below predates the separate MLX experiment. Statements about
+unrun training and research-versus-product intent describe that earlier scope;
+the current evidence boundary is above. Company positioning is not settled by
+this historical text.
+
 **Does co-training a small model against a programmatic-tool-calling (PTC) harness reverse the
 bash-over-PTC ordering that arXiv 2609.11999 measured on untrained models — and does the winner
 survive a harness swap?**
@@ -51,17 +116,13 @@ and N1 against it cell by cell.
 
 ## Start here
 
-~6,500 lines of markdown across 24 documents. One row per question a reader actually arrives
-with; read the one file, not the pile.
-
-**Dated note, 2026-10-19:** the totals have moved. `docs/` alone is **23 markdown files,
-8,445 lines** (6,494 of them at its top level; the difference is `docs/superpowers/`), so
-both the file count and the line count above undercount. They are kept because the sentence
-is a reading instruction rather than a measurement, but a reader who checks will find more
-documents than 24.
+Read the document that answers your question. The project map and evidence
+index above distinguish current work from the dated research below.
 
 | If you arrived asking | Read |
 |---|---|
+| **How is the project organized?** | [Project map](docs/project-map.md). |
+| **What can an application honestly claim?** | [Evidence index](docs/evidence-index.md), including missing proof and local-only sources. |
 | **What is the result?** | **`docs/results-untrained.md`** — the pre-committed report on the untrained premise check. Read it before the framing below on this page, which was written before the run. |
 | **What went wrong with the instrument?** | **`docs/deviations.md`** — defect ledger at the top of the file, each fault with the observation that caught it and, where one exists, the run that exposed it. This line read "each fault with the run that exposed it" until 2026-10-13, when a third table arrived for the faults found while building the next instrument: no run could have exposed those, because it had not run yet. |
 | **What is the state, and what is next?** | **`HANDOFF.md`** — current state first, then the dated history below it. |
@@ -72,11 +133,34 @@ documents than 24.
 | **Has anyone already answered this?** | **`docs/related-work.md`** — verified arXiv IDs, ProgAgent read in full against H1-H5 and N1, and the one cell still open. |
 | **Did the training loop run on free hardware?** | `step2/results/README.md` for the verdict, `step2/README.md` for the detail. |
 
+```mermaid
+flowchart LR
+    subgraph PUB["Published reference: TAC / Opus-4.8 (source paper Table 1)"]
+        direction TB
+        PB["bash: 69.4%"]
+        PP["PTC: 52.9%"]
+        PG["published bash lead: +16.5 pp"]
+        PB --- PG
+        PP --- PG
+    end
+    subgraph NOW["This repository: small model on BIRD-SQL dev"]
+        direction TB
+        SU["untrained: paired baseline MISSING"]
+        SC["co-trained comparison: BLOCKED"]
+        SS["swapped harness: NOT MEASURED"]
+        SU --> SC --> SS
+    end
+
+    classDef accent fill:#006bff,stroke:#006bff,color:#ffffff;
+    class PG accent;
 ```
-                 untrained          co-trained          swapped harness
-   bash            69.4  ──┐          ?                   ?
-   PTC             52.9  ──┴─ +16.5pp, the gap to reverse
-```
+
+*Published motivation only, different cohorts: the 69.4/52.9/+16.5 pp cells are the
+external TAC / Opus-4.8 reference recomputed from the source paper's Table 1
+([pre-registration §3](docs/pre-registration.md)), not this repository's BIRD
+baseline. The retired `ledger` premise check ran and did not reproduce the ordering;
+the current BIRD paired baseline is still missing, so the untrained, co-trained and
+swapped cells here are unmeasured — never zeros.*
 
 Range to reverse is **+6.8 to +22.0 pp** across four published arms, one of which is not
 statistically significant. Under a cost-per-successful-task metric the ordering is **already
@@ -84,16 +168,23 @@ reversed** in one untrained arm — so the metric is chosen before the run, not 
 
 ---
 
-## Status
+## Historical build sequence
+
+This original step sequence and its dated corrections are retained below.
+Rows 1-3 keep their dated historical verdicts as originally recorded. Rows 4-6
+originally read a bare "not started"; they were refreshed 2026-10-30 to match the
+[current milestone table](#current-research-milestones-4-6) and are not a
+remeasurement of the historical claims around them. Use the current orientation
+above for the separate SQL and MLX checkpoints.
 
 | Step | State | Where |
 |---|---|---|
 | **1 — adversarial non-solvers + the gate** | ✅ done, 51 tests | `src/cotrain/`, `tests/` |
 | **2 — prove the loop on free hardware** | ✅ done — **`STEP 2 PASS`, fp16 stable on T4** | `step2/`, result in `step2/results/` |
 | **3 — verifier before environment** | ✅ **built** — BIRD-SQL eval harness + co-training pipeline, probe run, gate shut | `bench/`, `train/` |
-| 4 — environment + escalation channel | not started | — |
-| 5 — two harnesses, measure untrained first | not started | — |
-| 6 — co-train, then cross-harness eval | not started | — |
+| 4 — environment + escalation channel | **PARTIAL** — opt-in reporting in the PTC catalog and real shell runner, plus constructor-only `qa_factory` on `PTCHarness.launch`; production routing, isolated-wire reporting, sealed capture and TRL integration remain | [escalation evidence](docs/2026-10-30-agent-defect-escalation.md), [current table](#current-research-milestones-4-6) |
+| 5 — two harnesses, measure untrained first | **PARTIAL** — both harnesses exist under the parity contract; the BIRD paired untrained baseline is missing, not zero | [baseline readiness](docs/2026-10-30-baseline-readiness.md), [parity contract](docs/harness-parity.md) |
+| 6 — co-train, then cross-harness eval | **BLOCKED** — guards require the absent `bench/frontier/manifest.json`; the main CLI still raises `NotImplementedError` after preflight | [`train/guards.py`](train/guards.py), [`train/grpo_ptc.py`](train/grpo_ptc.py) |
 
 Step 2 is answered: **fp16 GRPO is stable on a Kaggle T4.** 5 steps, `grad_norm` finite and
 positive throughout, `reward_std` > 0 every step, `kl` rising across three orders of magnitude —
@@ -166,12 +257,19 @@ Developed on CPython 3.12 and 3.14; no lower bound has actually been tested.
 
 ```bash
 .venv-ptc/bin/python -m pytest -q
+```
+
+Optional local-tokenizer integration, requiring the admitted artifact:
+
+```bash
 .venv-ptc/bin/python -m pytest bench/test_contamination.py -q \
   -m tokenizer_integration --tokenizer-artifact /absolute/local/snapshot
-
-.venv-ptc/bin/python -m pytest step2 -q
-.venv-ptc/bin/python -m pytest tests -q
 ```
+
+The commands require an existing compatible environment; `.venv-ptc` is not
+shipped in Git. They are not an installation recipe or authorization to fetch
+dependencies. The legacy `step2` suite is separate and may contact Hugging Face;
+it is not part of the default offline command.
 
 ### Historical suite notes, 2026-10-19 and earlier
 
@@ -221,8 +319,8 @@ installs *below* 2026.10.3, and that is the version where the four seams this pr
 needs are absent (`train/guards.py`, `docs/RUNBOOK-probe.md` §3.3). The `trl==0.29.0` above
 is neither: it is the dev venv's, for template helpers only.
 
-Training runs nowhere locally — the dev machine is darwin/arm64 and prime-rl requires NVIDIA.
-Everything trains on Kaggle or rented hardware.
+That historical GPU stack required Kaggle or rented hardware; prime-rl requires
+NVIDIA. It does not describe the later, separate local MLX experiment.
 
 ---
 
@@ -231,6 +329,12 @@ Everything trains on Kaggle or rented hardware.
 | Path | What it is |
 |---|---|
 | **`HANDOFF.md`** | **Read this to continue the work.** Current state at the top; below the history marker, the original build sequence, hard constraints, the "do NOT do these" list and corpus map, kept as written. |
+| `docs/project-map.md` | Current reading order, workstreams, directory map and checkout boundaries. |
+| `docs/evidence-index.md` | Dated evidence, limitations and application-preparation gaps. |
+| `spec/` | Current implementation contracts, pilot protocol and next-session handoff. |
+| `bench/` | SQL tasks, execution scoring, harness comparisons and frontier controls. |
+| `train/` | Training integration, capture/skill mechanics and gated SQL-pilot control. |
+| `ptc/`, `ledger/` | Restricted PTC runtime and retired untrained-comparison taskset. |
 | `docs/results-untrained.md` | The pre-committed report on the untrained premise check. |
 | `docs/deviations.md` | Append-only amendment log, with the defect ledger at the top. |
 | `docs/HANDOFF-STEP2.md` | What Step 1 learned, and the constraints it places on Steps 3-5. |
@@ -272,11 +376,14 @@ mandatory. A byte-length-identical mutation restored within the same second leav
 
 ---
 
-## Hard constraints
+## Historical GPU-stack constraints
+
+These constraints describe the original GPU path. Current SQL permissions are
+in its handoff; separate MLX limits are in that track's continuation document.
 
 Expensive to rediscover. Full table in `HANDOFF.md`.
 
-- **No local training.** darwin/arm64 dev machine.
+- **No local training on this GPU stack.** darwin/arm64 dev machine; separate MLX work is not this stack.
 - **T4 = fp16 only.** Compute capability 7.5; bf16 needs 8.0.
 - **prime-rl cannot run on a T4 at all** — no float16 in its `DTYPE_MAP`, FSDP hardcoded to
   bfloat16. The Unsloth-on-T4 path and the prime-rl path are *disjoint*, not two rungs of a ladder.
@@ -287,11 +394,17 @@ Expensive to rediscover. Full table in `HANDOFF.md`.
 
 ---
 
-## Branches
+## Local checkout snapshot, 2026-10-27
 
 | Branch | Holds |
 |---|---|
-| `main` | Everything. The current state of the project. |
+| `fix/nonfinite-dead-group-monitor` | SQL-pilot checkpoint, last saved handoff `6bda2ac` before this cleanup. Local work, not a claim about GitHub state. |
+| `docs/mlx-three-seed-handoff-2026-10-25` | Separate MLX continuation, `8c877fd`, in its own local worktree. Not merged here. |
+
+This is not a complete branch inventory. Verify status/log before continuing;
+do not assume `main` contains these checkpoints.
+
+### Historical branch cleanup, 2026-10-11
 
 Six branches were deleted 2026-10-11 after `git rev-list main..<branch>` showed zero unique
 commits on each: `step1-nonsolver-gate`, `step2-kaggle-smoke`, `step2-run`,

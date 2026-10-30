@@ -229,7 +229,7 @@ skips itself when `verifiers` is absent rather than failing.
 
     <python-with-verifiers> -m pytest ptc/ -q          # 53 tests
     python3 -m pytest ptc/ -q                          # 23 + 1 skipped, no verifiers needed
-    <python-with-verifiers> ptc/mutate.py harness.py <<'JSON'
+    <python-with-verifiers> ptc/mutate.py ptc/harness.py <<'JSON'
     [["name", "old", "new"], ...]
     JSON
 

@@ -12,6 +12,31 @@ shaped to see, and everything here exists because of that.
 
 ---
 
+## Opt-in defect reporting, 2026-10-30
+
+`build_sql_arms(task, qa=QaChannel(...))` enables structured reporting on the
+in-process PTC catalog and actual shell runner. Default `qa=None` is unchanged,
+with no optional QA import or report command. Both arms share reporting prompt
+semantics, capabilities and budgets; reporting grants no extra turns and never
+changes reward, gold, validity/voids or finalSQL. Unsupported backends refuse
+before execution. See [usage and targeted evidence](2026-10-30-agent-defect-escalation.md).
+
+The declared route asymmetry is PTC `report_defect` inside the program catalog
+(still one model tool, `run_program`) versus a shell wrapper emitting public
+markers scanned from real stdout/stderr. Callback events have
+`catalog_callback` provenance; shell events have `agent_output` provenance.
+Shell markers can be forged even by ordinary SQL rows. Original output stays
+an unmodified prefix, feedback is bounded and actual return status is preserved.
+The caller owns the in-memory collector and persistence of exported JSON bytes.
+There is no authenticated/durable journal or host-shell/same-UID sandbox claim.
+
+Controlled fixture coverage records three real SQLite shortcut invocations as
+three events per arm; mere mentions record zero. This is not general exploit
+detection. Stage 4 remains PARTIAL: production verifiers bash routing, isolated
+wire, capture/SqlEpisode reporting configuration binding and TRL integration
+are unfinished. The unchanged isolated wire does not carry QA reports; opt-in
+QA is outside the old native pin closure. Historical pins are not reissued.
+
 ## 1. Defect 5, which is why this exists
 
 Run 1 (2026-10-01, taskset `ledger`, n=14, one rollout each) measured bash 0.8571 (12/14)

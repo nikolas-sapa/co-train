@@ -519,3 +519,549 @@ def test_native_discovery_and_default_unbound_environment_unchanged():
     assert [tool["function"]["name"] for tool in environment.tools] == ["run_program"]
     with pytest.raises(NotImplementedError):
         environment.step("print(1)")
+
+
+def isolated_world(tmp_path, monkeypatch):
+    """Call-graph unit fixture, not actual runtime qualification evidence."""
+    from bench.score import ExResult
+    from ptc import sql_isolation as isolation
+    from train import sql_capture
+    from train.test_sql_capture import isolation_executor, isolation_methods, isolation_score_receipt
+    from types import SimpleNamespace
+
+    module, evaluator = api(), api("sql_skill_eval")
+    executor = isolation_executor(tmp_path)
+    calls = isolation_methods(monkeypatch)
+    def scorer(self, sql, task, **kwargs):
+        calls.append(("scorer", sql, kwargs))
+        match = sql != "SELECT -1"
+        result = ExResult(float(match), "match" if match else "mismatch", True, "", 1, 1)
+        return isolation.ScoreOutcome(result, None, isolation_score_receipt(sql, task, kwargs))
+    monkeypatch.setattr(isolation.PilotExecutor, "score_sql", scorer)
+    task = task_at(tmp_path, "v2-origin", 2)
+    actual = sql_capture.start_capture(task, ids=ids(), allow_execution=True,
+                                       executor=executor).finish("SELECT -1")
+    candidate = proposed(module, task, actual)
+    cases = tuple(evaluator.SkillCase(
+        "qualification", task_at(tmp_path, "v2-q" + str(i), i),
+        ids("v2-q" + str(i), "qualification"),
+    ) for i in range(4))
+    calls.clear()
+    state = SimpleNamespace(
+        capture=actual, task=task, candidate=candidate, executor=executor,
+        source=evaluator.SkillCase("source_failure", task, actual.ids), cases=cases,
+        approval_ids=ids("approval", "approval"),
+        source_pin=pin(sql_capture.encode_capture(actual)),
+    )
+    return state, calls
+
+
+def test_isolated_promotion_four_reruns_rescore_and_v2_receipt(tmp_path, monkeypatch):
+    evaluator, module = api("sql_skill_eval"), api()
+    assert "executor" in __import__("inspect").signature(evaluator.promote_candidate).parameters, "v2 promotion missing"
+    state, calls = isolated_world(tmp_path, monkeypatch)
+    receipt, captures = promote(module, evaluator, state, executor=state.executor)
+    assert receipt.schema_version == 2 and len(captures) == 4
+    assert [c[0] for c in calls] == ["scorer"] + ["program", "scorer"] * 4, "qualification/rerun sentry"
+    assert receipt.binding.execution_binding == state.executor.profile.binding
+    assert len({ref.db_sha256 for ref in receipt.qualifications}) == 4
+    for ref, actual in zip(receipt.qualifications, captures):
+        assert ref.capture_sha256 == pin(__import__("train.sql_capture", fromlist=["encode_capture"]).encode_capture(actual))
+    encoded = module.encode_promotion(receipt)
+    assert module.encode_promotion(module.decode_promotion(encoded)) == encoded
+    calls.clear()
+    case = reuse_case(evaluator, tmp_path, "isolated-fresh")
+    actual = evaluator.reuse_promoted(
+        state.candidate, receipt, case, expected_promotion_sha256=pin(encoded),
+        ids=state.approval_ids, allow_execution=True, executor=state.executor,
+    )
+    assert actual.schema_version == 2 and actual.result.score == 1
+    assert [c[0] for c in calls] == ["program", "scorer"]
+
+
+def test_isolated_rejection_cannot_qualify_or_originate(tmp_path, monkeypatch):
+    from train.test_sql_capture import isolation_methods
+    evaluator, module = api("sql_skill_eval"), api()
+    assert "executor" in __import__("inspect").signature(evaluator.evaluate_candidate).parameters, "v2 evaluation missing"
+    state, _ = isolated_world(tmp_path, monkeypatch)
+    calls = isolation_methods(monkeypatch, observation="FINAL_SQL:SELECT 1\nfailure", rejected=True)
+    actual = evaluator.evaluate_candidate(state.candidate, state.cases[0],
+        allow_execution=True, executor=state.executor)
+    assert actual.terminal_label == "program_rejected", "native rejected flag lost"
+    assert actual.result is None and actual.execution_abort is None
+    assert [c[0] for c in calls] == ["program"]
+    with pytest.raises(ValueError):
+        proposed(module, state.cases[0].task, actual)
+
+
+def test_isolated_origin_is_actually_rescored_before_program(tmp_path, monkeypatch):
+    from train import sql_capture
+    evaluator, module = api("sql_skill_eval"), api()
+    assert "executor" in __import__("inspect").signature(evaluator.promote_candidate).parameters, "v2 origin missing"
+    state, calls = isolated_world(tmp_path, monkeypatch)
+    actual = sql_capture.start_capture(state.task, ids=state.capture.ids,
+        allow_execution=True, executor=state.executor).finish("SELECT 1")
+    state.capture = dataclasses.replace(actual, result=state.capture.result)
+    state.candidate = proposed(module, state.task, state.capture)
+    state.source_pin = pin(sql_capture.encode_capture(state.capture))
+    calls.clear()
+    with pytest.raises(ValueError, match="independently rescore"):
+        promote(module, evaluator, state, executor=state.executor)
+    assert [c[0] for c in calls] == ["scorer"], "source rescore sentry"
+
+
+@pytest.mark.parametrize("change", ("pin", "scope", "no_executor", "v1_approval", "wrong_engine"))
+def test_isolated_reuse_guard_before_any_backend(tmp_path, monkeypatch, change):
+    evaluator, module = api("sql_skill_eval"), api()
+    assert "executor" in __import__("inspect").signature(evaluator.reuse_promoted).parameters, "v2 reuse missing"
+    state, calls = isolated_world(tmp_path, monkeypatch)
+    receipt, _ = promote(module, evaluator, state, executor=state.executor)
+    executor = state.executor
+    case = reuse_case(evaluator, tmp_path, "isolated-guard")
+    approved = pin(module.encode_promotion(receipt))
+    if change == "pin":
+        approved = "0" * 64
+    elif change == "scope":
+        case = dataclasses.replace(case, task=dataclasses.replace(case.task, shape="wrong"))
+    elif change == "no_executor":
+        executor = None
+    elif change == "v1_approval":
+        receipt = dataclasses.replace(receipt, schema_version=1,
+            binding=dataclasses.replace(receipt.binding, execution_binding=None))
+        approved = pin(module.encode_promotion(receipt))
+    else:
+        from ptc import sql_isolation as isolation
+        old = executor.profile.binding
+        scorer = dataclasses.replace(old.scorer, sources=old.scorer.sources + (
+            isolation.SourcePin("train/guards.py",
+                pin((Path(__file__).resolve().parents[1] / "train/guards.py").read_bytes())),
+        ))
+        executor = isolation.PilotExecutor(
+            dataclasses.replace(executor.profile, binding=dataclasses.replace(old, scorer=scorer)),
+            state_dir=tmp_path / "different-run",
+        )
+    calls.clear()
+    rejected = False
+    try:
+        evaluator.reuse_promoted(state.candidate, receipt, case,
+            expected_promotion_sha256=approved, ids=state.approval_ids,
+            allow_execution=True, executor=executor)
+    except REJECT:
+        rejected = True
+    assert calls == [], "approval/routing/binding sentry: unauthorized backend"
+    assert rejected
+
+
+@pytest.mark.parametrize("change", ("three", "duplicate", "source_split", "db_duplicate"))
+def test_isolated_all_four_qualification_assets_before_program(tmp_path, monkeypatch, change):
+    evaluator, module = api("sql_skill_eval"), api()
+    state, calls = isolated_world(tmp_path, monkeypatch)
+    cases = list(state.cases)
+    if change == "three":
+        cases.pop()
+    elif change == "duplicate":
+        cases[-1] = cases[0]
+    elif change == "source_split":
+        cases[-1] = dataclasses.replace(cases[-1], ids=dataclasses.replace(
+            cases[-1].ids, split_id=state.source.ids.split_id,
+        ))
+    else:
+        cases[-1] = dataclasses.replace(cases[-1], task=dataclasses.replace(
+            cases[-1].task, db_path=cases[0].task.db_path,
+        ))
+    rejected = False
+    try:
+        promote(module, evaluator, state, qualification_cases=tuple(cases),
+                executor=state.executor)
+    except REJECT:
+        rejected = True
+    assert [c[0] for c in calls] == ["scorer"], "qualification admission sentry: PROGRAM dispatched"
+    assert rejected
+
+
+def test_isolated_native_rejection_cannot_be_qualification_success(tmp_path, monkeypatch):
+    from ptc import sql_isolation as isolation
+    from train.test_sql_capture import isolation_program_receipt
+    evaluator, module = api("sql_skill_eval"), api()
+    state, calls = isolated_world(tmp_path, monkeypatch)
+    def rejected(self, code, **kwargs):
+        calls.append(("program", code, kwargs))
+        return isolation.ProgramOutcome(
+            "FINAL_SQL:SELECT 1\nrejected", None, isolation_program_receipt(code, kwargs), rejected=True,
+        )
+    monkeypatch.setattr(isolation.PilotExecutor, "run_program", rejected)
+    receipt, actuals = promote(module, evaluator, state, executor=state.executor)
+    assert receipt is None and len(actuals) == 1
+    assert actuals[0].terminal_label == "program_rejected"
+    assert actuals[0].result is None and actuals[0].execution_abort is None
+    assert [c[0] for c in calls] == ["scorer", "program"]
+
+
+@pytest.mark.parametrize("text", (
+    "SELECT 1", " FINAL_SQL:SELECT 1", "prose\nFINAL_SQL:SELECT 1",
+    "final_sql:SELECT 1", "FINAL_SQL:", "FINAL_SQL:   ",
+))
+def test_isolated_framing_never_scores_malformed(tmp_path, monkeypatch, text):
+    from train.test_sql_capture import isolation_methods
+    evaluator = api("sql_skill_eval")
+    state, _ = isolated_world(tmp_path, monkeypatch)
+    calls = isolation_methods(monkeypatch, observation=text)
+    actual = evaluator.evaluate_candidate(
+        state.candidate, state.cases[0], allow_execution=True, executor=state.executor,
+    )
+    assert actual.terminal_label == "aborted" and actual.result is None
+    assert actual.steps[0].observation == text
+    assert [c[0] for c in calls] == ["program"]
+
+
+def test_isolated_well_framed_wrong_sql_keeps_valid_zero_and_suffix(tmp_path, monkeypatch):
+    from bench.score import ExResult
+    from train.test_sql_capture import isolation_methods
+    evaluator = api("sql_skill_eval")
+    state, _ = isolated_world(tmp_path, monkeypatch)
+    suffix = "  SELECT 99;  "
+    calls = isolation_methods(monkeypatch, observation="FINAL_SQL:" + suffix,
+        score=ExResult(0.0, "mismatch", True, "", 1, 1))
+    actual = evaluator.evaluate_candidate(
+        state.candidate, state.cases[0], allow_execution=True, executor=state.executor,
+    )
+    assert actual.final_answer == suffix and actual.terminal_label == "final_submitted"
+    assert actual.result.valid is True and actual.result.score == 0.0
+    assert [c[0] for c in calls] == ["program", "scorer"]
+
+
+def test_isolated_stale_scorer_success_cannot_qualify_next_database(tmp_path, monkeypatch):
+    from ptc import sql_isolation as isolation
+    evaluator, module = api("sql_skill_eval"), api()
+    state, calls = isolated_world(tmp_path, monkeypatch)
+    original = isolation.PilotExecutor.score_sql
+    previous = []
+    def stale(self, sql, task, **kwargs):
+        actual = original(self, sql, task, **kwargs)
+        if task == state.cases[0].task:
+            previous.append(actual)
+        if task == state.cases[1].task:
+            assert len(previous) == 1
+            assert actual.receipt.request_sha256 != previous[0].receipt.request_sha256
+            return previous[0]
+        return actual
+    monkeypatch.setattr(isolation.PilotExecutor, "score_sql", stale)
+    receipt, actuals = promote(module, evaluator, state, executor=state.executor)
+    assert receipt is None, "qualification receipt sentry: stale EX1 promoted"
+    assert len(actuals) == 2
+    assert actuals[0].result.valid is True and actuals[0].result.score == 1.0
+    assert actuals[1].result is None and actuals[1].terminal_label == "execution_aborted"
+    assert actuals[1].execution_abort == isolation.AbortInfo("scorer", "protocol")
+    assert [r.role for r in actuals[1].runtime_receipts] == ["program"]
+    assert previous[0].receipt not in actuals[1].runtime_receipts
+    assert [c[0] for c in calls] == ["scorer", "program", "scorer", "program", "scorer"]
+
+
+@pytest.mark.parametrize("with_receipt", (False, True))
+def test_isolated_later_program_abort_retains_qualification_prefix(tmp_path, monkeypatch, with_receipt):
+    from ptc import sql_isolation as isolation
+    from train import sql_capture
+    from train.test_sql_capture import isolation_program_receipt
+    evaluator, module = api("sql_skill_eval"), api()
+    state, calls = isolated_world(tmp_path, monkeypatch)
+    original = isolation.PilotExecutor.run_program
+    dispatched, abort_receipts = [], []
+    def program(self, code, **kwargs):
+        dispatched.append(kwargs["db_path"])
+        if kwargs["db_path"] == state.cases[2].task.db_path:
+            calls.append(("program", code, kwargs))
+            receipt = isolation_program_receipt(code, kwargs) if with_receipt else None
+            abort_receipts.append(receipt)
+            return isolation.ProgramOutcome(
+                None, isolation.AbortInfo("program", "memory"), receipt,
+            )
+        return original(self, code, **kwargs)
+    monkeypatch.setattr(isolation.PilotExecutor, "run_program", program)
+    try:
+        promotion, actuals = promote(module, evaluator, state, executor=state.executor)
+    except sql_capture.CaptureExecutionAborted as exc:
+        # Historical behavior exposes only the third capture, losing successes.
+        promotion, actuals = None, (exc.capture,)
+    assert len(actuals) == 3, "qualification retention sentry: completed prefix lost"
+    assert promotion is None
+    assert tuple(c.ids for c in actuals) == tuple(c.ids for c in state.cases[:3])
+    assert tuple(c.task_id for c in actuals) == tuple(c.task.name for c in state.cases[:3])
+    for actual in actuals[:2]:
+        assert actual.terminal_label == "final_submitted"
+        assert actual.result.valid is True and actual.result.score == 1.0
+        assert actual.steps[0].action == state.candidate.program
+        assert [r.role for r in actual.runtime_receipts] == ["program", "scorer"]
+    failed = actuals[2]
+    assert failed.terminal_label == "execution_aborted" and failed.result is None
+    assert failed.execution_abort == isolation.AbortInfo("program", "memory")
+    assert failed.steps == () and failed.final_answer is failed.extracted_sql is None
+    assert failed.runtime_receipts == (() if not with_receipt else (abort_receipts[0],))
+    assert sql_capture.decode_capture(sql_capture.encode_capture(failed)) == failed
+    assert dispatched == [case.task.db_path for case in state.cases[:3]]
+    assert state.cases[3].task.db_path not in dispatched
+    assert [c[0] for c in calls] == ["scorer", "program", "scorer", "program", "scorer", "program"]
+
+
+@pytest.mark.parametrize("operation", ("source_rescore", "direct_evaluation"))
+def test_isolated_abort_outside_qualification_still_raises(tmp_path, monkeypatch, operation):
+    from ptc import sql_isolation as isolation
+    from train import sql_capture
+    from train.test_sql_capture import isolation_program_receipt, isolation_score_receipt
+    evaluator, module = api("sql_skill_eval"), api()
+    state, calls = isolated_world(tmp_path, monkeypatch)
+    stage = "scorer" if operation == "source_rescore" else "program"
+    receipts = []
+    def aborted(self, text, *args, **kwargs):
+        calls.append((stage, text, kwargs))
+        receipt = (isolation_program_receipt(text, kwargs) if stage == "program"
+                   else isolation_score_receipt(text, args[0], kwargs))
+        receipts.append(receipt)
+        abort = isolation.AbortInfo(stage, "memory")
+        return (isolation.ProgramOutcome(None, abort, receipt) if stage == "program"
+                else isolation.ScoreOutcome(None, abort, receipt))
+    monkeypatch.setattr(isolation.PilotExecutor,
+                        "score_sql" if stage == "scorer" else "run_program", aborted)
+    with pytest.raises(sql_capture.CaptureExecutionAborted) as raised:
+        if operation == "source_rescore":
+            promote(module, evaluator, state, executor=state.executor)
+        else:
+            evaluator.evaluate_candidate(state.candidate, state.cases[0],
+                allow_execution=True, executor=state.executor)
+    actual = raised.value.capture
+    assert actual.result is None and actual.terminal_label == "execution_aborted"
+    assert actual.execution_abort == isolation.AbortInfo(stage, "memory")
+    assert actual.runtime_receipts[-1] == receipts[0]
+    assert [c[0] for c in calls] == [stage]
+
+
+def _dbpin_case(case, expected):
+    fields = {f.name: f for f in dataclasses.fields(type(case))}
+    assert "expected_db_sha256" in fields, "dbpin SkillCase field missing"
+    return dataclasses.replace(case, expected_db_sha256=expected)
+
+
+def test_dbpin_skill_case_three_positional_frozen_kw_only(tmp_path):
+    evaluator = api("sql_skill_eval")
+    task = task_at(tmp_path, "dbpin-case", 1)
+    case = evaluator.SkillCase("qualification", task, ids("case", "qualification"))
+    fields = {f.name: f for f in dataclasses.fields(case)}
+    assert "expected_db_sha256" in fields, "dbpin SkillCase field missing"
+    assert fields["expected_db_sha256"].kw_only and case.expected_db_sha256 is None
+    assert dataclasses.is_dataclass(case) and type(case).__dataclass_params__.frozen
+    with pytest.raises(TypeError):
+        evaluator.SkillCase(case.role, case.task, case.ids, "a" * 64)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        case.expected_db_sha256 = "a" * 64
+    assert _dbpin_case(case, "a" * 64).expected_db_sha256 == "a" * 64
+
+
+@pytest.mark.parametrize("expected", ("", "a" * 63, "a" * 65, "A" * 64, "g" * 64,
+                                    True, False, 1, b"a" * 64))
+def test_dbpin_skill_case_strict_digest(tmp_path, expected):
+    evaluator = api("sql_skill_eval")
+    case = evaluator.SkillCase("qualification", task_at(tmp_path, "dbpin-case", 1),
+                               ids("case", "qualification"))
+    assert "expected_db_sha256" in {f.name for f in dataclasses.fields(case)}, "dbpin SkillCase field missing"
+    with pytest.raises(REJECT):
+        _dbpin_case(case, expected)
+
+
+def test_dbpin_case_propagates_evaluation_source_four_qualifications_reuse(tmp_path, monkeypatch):
+    from train import sql_capture
+    evaluator, module = api("sql_skill_eval"), api()
+    state, calls = isolated_world(tmp_path, monkeypatch)
+    digest = sql_capture.evidence._db_digest
+    state.source = _dbpin_case(state.source, state.capture.db_sha256)
+    state.cases = tuple(_dbpin_case(c, digest(c.task)) for c in state.cases)
+    starts = []
+    original = sql_capture.start_capture
+    def start(task, **kwargs):
+        starts.append((task.name, kwargs.get("expected_db_sha256")))
+        return original(task, **kwargs)
+    monkeypatch.setattr(sql_capture, "start_capture", start)
+    actual = evaluator.evaluate_candidate(state.candidate, state.cases[0],
+        allow_execution=True, executor=state.executor)
+    assert actual.db_sha256 == state.cases[0].expected_db_sha256
+    assert starts == [(state.cases[0].task.name, state.cases[0].expected_db_sha256)], "dbpin case propagation lost"
+    calls.clear()
+    starts.clear()
+    receipt, captures = promote(module, evaluator, state, executor=state.executor)
+    assert receipt is not None and len(captures) == 4
+    assert starts == [(c.task.name, c.expected_db_sha256) for c in state.cases]
+    assert [c[2]["db_sha256"] for c in calls] == [state.source.expected_db_sha256] + [
+        c.expected_db_sha256 for c in state.cases for _ in range(2)
+    ]
+    case = reuse_case(evaluator, tmp_path, "dbpin-heldout")
+    case = _dbpin_case(case, digest(case.task))
+    starts.clear()
+    calls.clear()
+    actual = evaluator.reuse_promoted(state.candidate, receipt, case,
+        expected_promotion_sha256=pin(module.encode_promotion(receipt)),
+        ids=state.approval_ids, allow_execution=True, executor=state.executor)
+    assert actual.db_sha256 == case.expected_db_sha256
+    assert starts == [(case.task.name, case.expected_db_sha256)]
+    assert [c[2]["db_sha256"] for c in calls] == [case.expected_db_sha256] * 2
+
+
+@pytest.mark.parametrize("operation", ("evaluate", "qualifications", "reuse", "origin"))
+def test_dbpin_case_expectation_not_freshly_rebound(tmp_path, monkeypatch, operation):
+    from train import sql_capture
+    evaluator, module = api("sql_skill_eval"), api()
+    state, calls = isolated_world(tmp_path, monkeypatch)
+    receipt = None
+    if operation == "reuse":
+        receipt, _ = promote(module, evaluator, state, executor=state.executor)
+        case = reuse_case(evaluator, tmp_path, "dbpin-heldout")
+    else:
+        case = state.source if operation == "origin" else state.cases[0]
+    expected = sql_capture.evidence._db_digest(case.task)
+    case = _dbpin_case(case, "f" * 64 if operation == "origin" else expected)
+    if operation != "origin":
+        path = Path(case.task.db_path)
+        path.write_bytes(path.read_bytes() + b"replacement")
+    calls.clear()
+    rejected = False
+    try:
+        if operation == "evaluate":
+            evaluator.evaluate_candidate(state.candidate, case, allow_execution=True, executor=state.executor)
+        elif operation == "qualifications":
+            evaluator._admit_qualifications(state.candidate, (case,) + state.cases[1:])
+        elif operation == "origin":
+            state.source = case
+            promote(module, evaluator, state, executor=state.executor)
+        else:
+            evaluator.reuse_promoted(state.candidate, receipt, case,
+                expected_promotion_sha256=pin(module.encode_promotion(receipt)),
+                ids=state.approval_ids, allow_execution=True, executor=state.executor)
+    except ValueError:
+        rejected = True
+    assert rejected, "dbpin admission sentry: external expectation ignored"
+    assert calls == [], "dbpin admission sentry: dispatched before frozen admission"
+
+
+def test_dbpin_conflicting_admitted_and_case_expectations_zero_dispatch(tmp_path, monkeypatch):
+    from train import sql_capture
+    evaluator = api("sql_skill_eval")
+    state, calls = isolated_world(tmp_path, monkeypatch)
+    case = _dbpin_case(state.cases[0], sql_capture.evidence._db_digest(state.cases[0].task))
+    with pytest.raises(ValueError):
+        evaluator._execute(state.candidate, case, expected_db_sha256="f" * 64, executor=state.executor)
+    assert calls == []
+
+
+def test_dbpin_aba_around_outer_checks_never_adopts_replacement(tmp_path, monkeypatch):
+    from train import sql_capture
+    evaluator = api("sql_skill_eval")
+    state, calls = isolated_world(tmp_path, monkeypatch)
+    case = state.cases[0]
+    expected = sql_capture.evidence._db_digest(case.task)
+    path = Path(case.task.db_path)
+    saved = path.read_bytes()
+    original = sql_capture.start_capture
+    adopted = []
+    def replacing_start(task, **kwargs):
+        path.write_bytes(saved + b"ABA replacement")
+        try:
+            session = original(task, **kwargs)
+            adopted.append(session._capture.db_sha256)
+            return session
+        finally:
+            path.write_bytes(saved)
+    monkeypatch.setattr(sql_capture, "start_capture", replacing_start)
+    with pytest.raises(ValueError):
+        evaluator._execute(state.candidate, case, expected_db_sha256=expected, executor=state.executor)
+    assert adopted == [], "dbpin ABA sentry: replacement hash admitted between outer checks"
+    assert sql_capture.evidence._db_digest(case.task) == expected and calls == []
+
+
+@pytest.mark.parametrize("kind", ("finish", "abort_prefix", "abort_empty", "score_abort",
+                                 "rejected", "program_abort", "start_abort", "finish_exception"))
+def test_dbpin_all_returned_and_exception_capture_hashes_guarded(tmp_path, monkeypatch, kind):
+    from ptc import sql_isolation as isolation
+    from train import sql_capture
+    from train.test_sql_capture import isolation_methods
+    evaluator = api("sql_skill_eval")
+    state, _ = isolated_world(tmp_path, monkeypatch)
+    case = state.cases[0]
+    expected = sql_capture.evidence._db_digest(case.task)
+    kwargs = {}
+    if kind == "abort_prefix":
+        kwargs["observation"] = "not final SQL"
+    elif kind == "abort_empty":
+        kwargs["observation"] = "FINAL_SQL: "
+    elif kind == "score_abort":
+        kwargs["score_abort"] = isolation.AbortInfo("scorer", "memory")
+    elif kind == "rejected":
+        kwargs["rejected"] = True
+    elif kind == "program_abort":
+        kwargs["program_abort"] = isolation.AbortInfo("program", "memory")
+    calls = isolation_methods(monkeypatch, **kwargs)
+    def foreign(actual):
+        return dataclasses.replace(actual, db_sha256="f" * 64)
+    if kind == "start_abort":
+        snapshot = sql_capture.start_capture(case.task, ids=case.ids,
+            allow_execution=True, executor=state.executor).abort()
+        actual = foreign(sql_capture._aborted(snapshot, isolation.AbortInfo("program", "memory")))
+        def start(*args, **kwargs):
+            raise sql_capture.CaptureExecutionAborted(actual)
+        monkeypatch.setattr(sql_capture, "start_capture", start)
+    elif kind in ("rejected", "program_abort"):
+        original = sql_capture._CaptureSession.step
+        def step(self, code):
+            try:
+                return original(self, code)
+            except sql_capture.CaptureError as exc:
+                raise type(exc)(foreign(exc.capture))
+        monkeypatch.setattr(sql_capture._CaptureSession, "step", step)
+    else:
+        method = "abort" if kind.startswith("abort_") else "finish"
+        original = getattr(sql_capture._CaptureSession, method)
+        def terminal(self, *args):
+            actual = original(self, *args)
+            if kind == "finish_exception":
+                actual = sql_capture._aborted(actual, isolation.AbortInfo("scorer", "memory"))
+                raise sql_capture.CaptureExecutionAborted(foreign(actual))
+            return foreign(actual)
+        monkeypatch.setattr(sql_capture._CaptureSession, method, terminal)
+    rejected = False
+    try:
+        evaluator._execute(state.candidate, case, expected_db_sha256=expected, executor=state.executor)
+    except ValueError:
+        rejected = True
+    except sql_capture.CaptureError:
+        pass
+    assert rejected, "dbpin returned capture sentry: foreign hash accepted or propagated"
+    assert all(c[2]["db_sha256"] == expected for c in calls)
+
+
+@pytest.mark.parametrize("binding_call,completed", ((3, 1), (6, 4)))
+def test_binding_failure_keeps_obtained_captures_without_authorizing_promotion(
+    tmp_path, monkeypatch, binding_call, completed,
+):
+    module, evaluator = api(), api("sql_skill_eval")
+    state = world(tmp_path, module, evaluator)
+    counts = sentries(monkeypatch)
+    binding, execute = evaluator._current_binding, evaluator._execute
+    bindings, obtained = [], []
+
+    def drift(*args, **kwargs):
+        actual = binding(*args, **kwargs)
+        bindings.append(actual)
+        if len(bindings) == binding_call:
+            return dataclasses.replace(actual, source_sha256="f" * 64)
+        return actual
+
+    def observe(*args, **kwargs):
+        actual = execute(*args, **kwargs)
+        obtained.append(actual)
+        return actual
+
+    monkeypatch.setattr(evaluator, "_current_binding", drift)
+    monkeypatch.setattr(evaluator, "_execute", observe)
+    with pytest.raises(ValueError, match="workflow binding changed") as raised:
+        promote(module, evaluator, state)
+    assert counts["dispatch"] == completed and counts["score"] == completed + 1
+    assert len(obtained) == completed
+    assert all(c.result.valid is True and c.result.score == 1 for c in obtained)
+    assert raised.value.qualification_captures == tuple(obtained)
+    assert tuple(c.ids for c in obtained) == tuple(c.ids for c in state.cases[:completed])

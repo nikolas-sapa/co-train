@@ -36,6 +36,11 @@ test checks them where they can actually fire:
    through a wrapper that enforces both. Raw `sqlite3 <db> "<query>"` is an *uncapped*
    channel, which is an information asymmetry in bash's favour -- defect 5 inverted --
    so the wrapper exists to remove it, and its body is the brief's own command form.
+
+Separately and strictly opt-in: `qa=` on `sql_catalog`, `run_ptc_program`,
+`run_bash_sql`, `prompt_for`'s `reporting`, `ArmPair` and `build_sql_arms` binds
+the defect-report collector (`ptc.sql_qa`) onto both arms. Nothing on the default
+path imports that module, installs its executable, or names `report_defect`.
 """
 
 from __future__ import annotations
@@ -47,7 +52,10 @@ import subprocess
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
+
+if TYPE_CHECKING:
+    from ptc.sql_qa import QaChannel
 
 from ptc.runtime import SAFE_BUILTINS, Catalog, ProgramRejected
 from ptc.sqlite_safety import protect_connection
@@ -72,6 +80,8 @@ __all__ = [
     "SHARED_PROMPT",
     "BASH_CHANNEL",
     "PTC_CHANNEL",
+    "BASH_CHANNEL_REPORTING",
+    "PTC_CHANNEL_REPORTING",
     "prompt_for",
     "Capability",
     "CAPABILITIES",
@@ -344,7 +354,8 @@ class BashResult:
 def run_bash_sql(db_path: str, query: str, *, bindir: str | Path,
                  max_rows: int = MAX_ROWS,
                  command: str | None = None,
-                 timeout: float = WRAPPER_TIMEOUT) -> BashResult:
+                 timeout: float = WRAPPER_TIMEOUT,
+                 qa: "QaChannel | None" = None) -> BashResult:
     """Run one bash-arm action against `db_path`.
 
     `command` defaults to the single action the prompt describes,
@@ -354,15 +365,32 @@ def run_bash_sql(db_path: str, query: str, *, bindir: str | Path,
     The wrapper is installed into `bindir` and `bindir` is PREPENDED to PATH rather
     than replacing it: the bash arm's channel is a real shell with its real utilities,
     and handing it a PATH with no `sort` would be a parity test rigged in PTC's favour.
+
+    `qa` opts the action into the defect-report channel: `ptc.sql_qa`'s report
+    wrapper is installed into the same `bindir`, and after the REAL shell exits the
+    captured streams are handed to `qa.consume_output`, which validates the public
+    marker lines, records events with `agent_output` provenance and appends a
+    bounded receipt or refusal. The captured text stays an unmodified prefix, and
+    stderr and the process's actual returncode are preserved -- a dropped or
+    malformed report is a visible refusal, never a silent rewrite of the action's
+    outcome. `ptc.sql_qa` is imported only on this path.
     """
     install_wrapper(bindir, db_path, max_rows)
+    if qa is not None:
+        from ptc.sql_qa import install_report_wrapper
+
+        install_report_wrapper(bindir)
     if command is None:
         command = f"{SQL_TOOL} {_sh_single(query)}"
     env = dict(os.environ)
     env["PATH"] = f"{Path(bindir)}{os.pathsep}{env.get('PATH', '')}"
     proc = subprocess.run(["/bin/sh", "-c", command], capture_output=True,
                           text=True, timeout=timeout, env=env, cwd=str(bindir))
-    return BashResult(proc.stdout, proc.stderr, proc.returncode)
+    stdout, stderr = proc.stdout, proc.stderr
+    if qa is not None:
+        stdout = qa.consume_output("bash", stdout)
+        stderr = qa.consume_output("bash", stderr)
+    return BashResult(stdout, stderr, proc.returncode)
 
 
 # ------------------------------------------------------------------------------------
@@ -412,6 +440,25 @@ PTC_CHANNEL = (
 The sentence about the return being DATA is the one run 1 could not honestly have
 written. `make_execute_sql` is what makes it true."""
 
+BASH_CHANNEL_REPORTING = (
+    " You may also file a bounded defect report -- an allegation about this task, "
+    "its verifier or the environment that is recorded but not acted on -- with the "
+    "command `{report} '<single-line JSON object>'`."
+)
+"""How the bash arm reaches the opt-in defect-report channel, appended to
+`BASH_CHANNEL` only when `prompt_for` is called with `reporting=True`.
+
+The channel's semantics live in `ptc.sql_qa.REPORT_PROMPT`, which is shared text;
+this paragraph only names the mechanism on this arm, so the two prompts still
+differ by the channel paragraph alone."""
+
+PTC_CHANNEL_REPORTING = (
+    " You may also file the same bounded defect report from inside your program "
+    "with `{report}(kind=..., detail=...)`."
+)
+"""The PTC arm's route to the same channel: a catalog function inside the program,
+never a second registered model tool."""
+
 _CAP_SENTENCE = (
     "A query returning more than {max_rows} rows is refused with a message telling you "
     "so, rather than truncated, so aggregate in SQL (COUNT, SUM, MAX, GROUP BY) or add "
@@ -420,12 +467,18 @@ _CAP_SENTENCE = (
 
 
 def prompt_for(view: TaskView, arm: str, *, schema: str | None = None,
-               max_rows: int = MAX_ROWS) -> str:
+               max_rows: int = MAX_ROWS, reporting: bool = False) -> str:
     """The full prompt one arm receives for one task.
 
     `schema` is read from the database when not supplied, which is the normal path;
     passing it in lets a caller render both arms' prompts against ONE schema string and
     so removes the last way the two could diverge.
+
+    `reporting=True` appends `ptc.sql_qa.REPORT_PROMPT` to the shared body -- the
+    channel's semantics, identical on both arms -- and that arm's route to the
+    report channel to its channel paragraph. The optional module is imported here
+    and nowhere else by default, so a prompt rendered without reporting never
+    touches it.
     """
     if arm not in ("bash", "ptc"):
         raise ValueError(f"arm must be 'bash' or 'ptc', got {arm!r}")
@@ -441,8 +494,14 @@ def prompt_for(view: TaskView, arm: str, *, schema: str | None = None,
         tool=SQL_TOOL,
         cap=_CAP_SENTENCE.format(max_rows=max_rows),
     )
-    channel = BASH_CHANNEL if arm == "bash" else PTC_CHANNEL
-    return body + channel.format(tool=SQL_TOOL)
+    channel = (BASH_CHANNEL if arm == "bash" else PTC_CHANNEL).format(tool=SQL_TOOL)
+    if reporting:
+        from ptc.sql_qa import REPORT_PROMPT, REPORT_TOOL
+
+        body += "\n\n" + REPORT_PROMPT
+        channel += (BASH_CHANNEL_REPORTING if arm == "bash"
+                    else PTC_CHANNEL_REPORTING).format(report=REPORT_TOOL)
+    return body + channel
 
 
 # ------------------------------------------------------------------------------------
@@ -503,13 +562,22 @@ def build_probe_db(db_path: str | Path) -> Path:
 
 
 def sql_catalog(db_path: str, max_rows: int = MAX_ROWS,
-                observe: Callable[..., None] | None = None) -> Catalog:
+                observe: Callable[..., None] | None = None,
+                *, qa: "QaChannel | None" = None) -> Catalog:
     """The catalog the PTC arm hands a program for a SQL task.
 
     The ONE place the PTC arm's action space is assembled, so the probes measure the
     real arm rather than a catalog the test built for itself. Three parts and no
     others: the task's SQL action, `sql_runtime.SQL_PRIMITIVES`, and the `print`
     shadow `harness.py` installs under `OBSERVE` to capture output per program.
+
+    `qa` adds a fourth, `report_defect(kind=..., detail=...)`, the in-process route
+    of the opt-in defect-report channel. A `ReportRejected` becomes the existing
+    `ProgramRejected`, so a refused report reads to the program exactly like a
+    refused query (`rejected: <why>`), and the receipt is the fixed
+    `report received (unverified allegation; outcome unchanged)` text. It stays a
+    catalog entry INSIDE the program -- the model still registers exactly one tool.
+    `ptc.sql_qa` is imported only on this branch.
     """
     tools: dict[str, Callable[..., Any]] = {
         SQL_TOOL: make_execute_sql(db_path, max_rows),
@@ -518,6 +586,18 @@ def sql_catalog(db_path: str, max_rows: int = MAX_ROWS,
     if observe is not None:
         # Shadow Python's builtin without importing the harness frameworks.
         tools["print"] = observe
+    if qa is not None:
+        from ptc.sql_qa import REPORT_TOOL, ReportRejected, report_ack
+
+        def report_defect(*, kind: str, detail: str) -> str:
+            try:
+                qa.submit("ptc", kind=kind, detail=detail)
+            except ReportRejected as exc:
+                raise ProgramRejected(str(exc)) from None
+            return report_ack()
+
+        report_defect.__name__ = REPORT_TOOL
+        tools[REPORT_TOOL] = report_defect
     return Catalog(tools=tools)
 
 
@@ -530,7 +610,8 @@ class PtcResult:
 
 
 def run_ptc_program(program: str, db_path: str, *,
-                    max_rows: int = MAX_ROWS) -> PtcResult:
+                    max_rows: int = MAX_ROWS,
+                    qa: "QaChannel | None" = None) -> PtcResult:
     """Run one PTC-arm action and return what the model would read.
 
     Mirrors `harness.py::_loop`'s three outcomes exactly -- printed output, `rejected:
@@ -540,6 +621,9 @@ def run_ptc_program(program: str, db_path: str, *,
     `ptc.runtime.run` is imported here rather than at module scope so that a caller who
     only wants `wrapper_script` or the contract data pays for neither it nor, through
     `sql_catalog`, `ptc.harness`.
+
+    `qa` is forwarded to `sql_catalog`, which adds `report_defect` to the program's
+    catalog. Events it records carry `catalog_callback` provenance.
     """
     from ptc.runtime import run as run_restricted
 
@@ -548,7 +632,11 @@ def run_ptc_program(program: str, db_path: str, *,
     def observe(*parts: Any, sep: str = " ", end: str = "\n") -> None:
         printed.append(sep.join(str(part) for part in parts))
 
-    catalog = sql_catalog(db_path, max_rows, observe)
+    # qa is forwarded only when set, so the default call is byte-identical to the
+    # pre-qa signature -- a caller patching `sql_catalog` with the old shape keeps
+    # working.
+    catalog = (sql_catalog(db_path, max_rows, observe) if qa is None
+               else sql_catalog(db_path, max_rows, observe, qa=qa))
     try:
         run_restricted(program, catalog)
     except ProgramRejected as exc:
@@ -904,6 +992,11 @@ SECOND_HARNESS_REQUIREMENTS = (
     "run_bash / run_ptc deliver the same refusal text on an over-cap result and the "
     "same database error text, because an arm told why it failed has information the "
     "other lacks.",
+    "The opt-in defect-report channel (ptc.sql_qa) is a bounded extension, not a "
+    "widened signature: a backend that supports it sets supports_qa = True and "
+    "accepts keyword-only qa= on catalog, run_ptc and run_bash. Every other "
+    "backend keeps the base signatures and is refused explicitly before execution "
+    "rather than silently bypassed.",
     "Every entry in CAPABILITIES passes on both of its arms. The parity test is "
     "parameterised over backends, so a second implementation inherits the whole guard "
     "and does not get a second, weaker test.",
@@ -931,6 +1024,11 @@ class HarnessBackend(Protocol):
     Deliberately NOT in here: the task, the schema string, the prompt body and the
     budgets. Those are the experiment's and are identical across harnesses by
     construction -- a backend that could vary them could vary the comparison.
+
+    Also deliberately not in here: the opt-in defect-report channel. Widening these
+    signatures to carry `qa` would break every existing implementation for a
+    feature most backends will never host, so it is a bounded extension instead --
+    see `SECOND_HARNESS_REQUIREMENTS` and `_require_qa_backend`.
     """
 
     name: str
@@ -973,6 +1071,11 @@ class _PtcV1Backend:
     """
 
     name = "ptc-v1"
+    supports_qa = True
+    """This backend carries the bounded defect-report extension: keyword-only `qa=`
+    on `catalog`, `run_ptc` and `run_bash`, all defaulting to the unchanged
+    behaviour. A backend without this attribute is refused explicitly before
+    execution rather than called with an argument it never accepted."""
 
     def arm_ids(self) -> tuple[str, str]:
         return ("bash", "ptc")
@@ -996,20 +1099,48 @@ class _PtcV1Backend:
         raise ValueError(f"arm must be 'bash' or 'ptc', got {arm!r}")
 
     def catalog(self, view: TaskView, max_rows: int,
-                observe: Callable[..., None] | None) -> Catalog:
-        return sql_catalog(view.db_path, max_rows, observe)
+                observe: Callable[..., None] | None,
+                *, qa: "QaChannel | None" = None) -> Catalog:
+        if qa is None:
+            return sql_catalog(view.db_path, max_rows, observe)
+        return sql_catalog(view.db_path, max_rows, observe, qa=qa)
 
-    def run_ptc(self, program: str, view: TaskView, max_rows: int) -> PtcResult:
-        return run_ptc_program(program, view.db_path, max_rows=max_rows)
+    def run_ptc(self, program: str, view: TaskView, max_rows: int,
+                *, qa: "QaChannel | None" = None) -> PtcResult:
+        if qa is None:
+            return run_ptc_program(program, view.db_path, max_rows=max_rows)
+        return run_ptc_program(program, view.db_path, max_rows=max_rows, qa=qa)
 
     def run_bash(self, command: str, view: TaskView, max_rows: int,
-                 bindir: str | Path) -> BashResult:
+                 bindir: str | Path, *, qa: "QaChannel | None" = None) -> BashResult:
+        if qa is None:
+            return run_bash_sql(view.db_path, "", bindir=bindir,
+                                max_rows=max_rows, command=command)
         return run_bash_sql(view.db_path, "", bindir=bindir, max_rows=max_rows,
-                            command=command)
+                            command=command, qa=qa)
 
 
 PTC_V1: HarnessBackend = _PtcV1Backend()
 """The current harness, as a backend. The default everywhere."""
+
+
+def _require_qa_backend(backend: HarnessBackend) -> None:
+    """Refuse a QA-enabled pair on a backend that never opted into the channel.
+
+    The defect-report extension is bounded on purpose: `PTC_V1` declares
+    `supports_qa` and accepts `qa=` on its three methods, while every other
+    backend keeps the base `HarnessBackend` signatures untouched. A backend that
+    does not declare support is told so BEFORE any action runs -- passing `qa`
+    positionally or silently dropping it would either crash on a signature the
+    backend never accepted or, worse, run the arm's actions on a channel the
+    caller believes is recording and is not.
+    """
+    if not getattr(backend, "supports_qa", False):
+        raise NotImplementedError(
+            f"backend {getattr(backend, 'name', type(backend).__name__)!r} does "
+            "not support the opt-in defect-reporting channel; refusing rather "
+            "than bypassing it"
+        )
 
 
 @dataclass(frozen=True)
@@ -1020,6 +1151,12 @@ class ArmPair:
     to both prompts, the budgets are one struct shared by both arms, and the backend is
     swappable. There is no path through this module that builds one arm without the
     other, which is the structural answer to two arms drifting apart between runs.
+
+    `qa` is the caller-owned defect-report collector (`ptc.sql_qa.QaChannel`), or
+    `None` -- which every default path is. When it is set, `catalog` returns a
+    catalog that actually contains `report_defect` so a QA-enabled prompt cannot
+    promise a primitive that is not there, and `run` forwards it to the backend,
+    which has already opted in or been refused by `build_sql_arms`.
     """
 
     view: TaskView
@@ -1029,44 +1166,86 @@ class ArmPair:
     bash_prompt: str
     ptc_prompt: str
     max_rows: int = MAX_ROWS
+    qa: "QaChannel | None" = None
+
+    @property
+    def reporting(self) -> bool:
+        """Whether this pair carries the opt-in defect-report channel."""
+        return self.qa is not None
 
     def prompt(self, arm: str) -> str:
         return self.bash_prompt if arm == "bash" else self.ptc_prompt
+
+    def catalog(self, observe: Callable[..., None] | None = None) -> Catalog:
+        """The catalog this pair's PTC arm actually runs against.
+
+        Needed so a caller rendering the QA-enabled prompt gets a catalog that
+        contains `report_defect` rather than promising a primitive that is not
+        there -- and so the catalog a test inspects is the same one the arm runs.
+        """
+        if self.qa is None:
+            return self.backend.catalog(self.view, self.max_rows, observe)
+        _require_qa_backend(self.backend)
+        return self.backend.catalog(self.view, self.max_rows, observe, qa=self.qa)
 
     def run(self, arm: str, action: str, *, bindir: str | Path | None = None) -> str:
         """Take one action on one arm and return the observation the model would read.
 
         One entry point for both arms, so a caller cannot accidentally give one of them
-        a different `max_rows` or a different database.
+        a different `max_rows` or a different database. The default calls are
+        byte-for-byte the pre-`qa` ones; the collector is only forwarded when the
+        pair was built with it, and only on a backend that opted in.
         """
         if arm == "ptc":
-            return self.backend.run_ptc(action, self.view, self.max_rows).observation
+            if self.qa is None:
+                return self.backend.run_ptc(
+                    action, self.view, self.max_rows).observation
+            _require_qa_backend(self.backend)
+            return self.backend.run_ptc(
+                action, self.view, self.max_rows, qa=self.qa).observation
         if arm == "bash":
             if bindir is None:
                 raise ValueError("the bash arm needs a bindir for its wrapper script")
+            if self.qa is None:
+                return self.backend.run_bash(action, self.view, self.max_rows,
+                                             bindir).observation
+            _require_qa_backend(self.backend)
             return self.backend.run_bash(action, self.view, self.max_rows,
-                                         bindir).observation
+                                         bindir, qa=self.qa).observation
         raise ValueError(f"arm must be 'bash' or 'ptc', got {arm!r}")
 
 
 def build_sql_arms(task: Any, *, backend: HarnessBackend = PTC_V1,
                    budget: Budget | None = None,
-                   max_rows: int = MAX_ROWS) -> ArmPair:
+                   max_rows: int = MAX_ROWS,
+                   qa: "QaChannel | None" = None) -> ArmPair:
     """Build both arms for one task. The module's entry point.
 
     `task` is anything `adapt_task` can read -- a `bench.task.SqlTask`, or the minimum
     documented in `docs/bench-taskset.md`. The schema is read ONCE and passed to both
     prompts, so the two cannot be rendered against different reads of the same
     database.
+
+    `qa` opts the pair into the defect-report channel: both prompts gain the
+    shared `REPORT_PROMPT` semantics plus their arm's route to it, and the pair
+    forwards the collector to the backend on every action. A backend that never
+    opted in is refused explicitly here, before a prompt is rendered or an action
+    runs.
     """
+    if qa is not None:
+        _require_qa_backend(backend)
     view = adapt_task(task)
     schema = schema_text(view.db_path)
+    reporting = qa is not None
     return ArmPair(
         view=view,
         backend=backend,
         budget=budget or Budget(),
         schema=schema,
-        bash_prompt=prompt_for(view, "bash", schema=schema, max_rows=max_rows),
-        ptc_prompt=prompt_for(view, "ptc", schema=schema, max_rows=max_rows),
+        bash_prompt=prompt_for(view, "bash", schema=schema, max_rows=max_rows,
+                               reporting=reporting),
+        ptc_prompt=prompt_for(view, "ptc", schema=schema, max_rows=max_rows,
+                              reporting=reporting),
         max_rows=max_rows,
+        qa=qa,
     )
