@@ -176,6 +176,17 @@ sampling/semantic diversity. The trusted host owns approval, evaluator and asset
 
 ### Caller-owned file workflow
 
+The explicit [portable local-fixture SDK acceptance CLI](../spec/sql-skill-sdk-acceptance.md)
+has ten validated default offline guards, not automatic native execution.
+Its native helper filename avoids default collection; missing required context
+fails before dispatch, never SKIP. The closed-fixture 3,803-pass full result is
+offline only; all new native phases remain NOT_EXECUTED. Native use requires
+integrated-commit review, separate fresh authorization, an approved caller-owned
+profile and post-qualification fixture approval. Operators externally compare
+HEAD/source pins before profile/consent and each phase; the CLI does not check
+Git HEAD. Strict raw FD/thread equality uses no forced GC or separate native
+settled metric; configuration/PREMOVE metadata evidence is caller-side.
+
 `train.sql_skill_workflow` wraps these same APIs with typed caller-owned tasks,
 cases, IDs and absolute artifact paths. See the [file-workflow contract](../spec/sql-skill-workflow.md)
 for signatures and storage rules. `create_candidate_file` writes a canonical

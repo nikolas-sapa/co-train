@@ -1,3 +1,53 @@
+# Current handoff, 2026-10-30
+
+## Current state, closed-fixture portable SQL skill SDK offline acceptance
+
+Read the [portable SDK verification receipt](docs/2026-10-30-portable-sql-skill-sdk-acceptance.md)
+and [usage/contract guide](spec/sql-skill-sdk-acceptance.md). This section
+supersedes earlier current-state checkpoints; the full original HANDOFF follows
+byte-for-byte below.
+
+- Final closed-fixture offline acceptance: 3,803 passed, zero failed, one optional
+  missing-Torch skip, two existing tokenizer deselections, ten warnings and
+  28 subtests; exit 0 in 741.59s. All 3,794 prior selected IDs retained, plus ten
+  new default offline guards. All 268 bound files stayed frozen during that
+  full run. This five-doc refresh is separately checked, not another full run.
+- Independent 30 probes passed, including real non-native SQLite/file SDK source
+  EX=0, four qualifications and one reuse EX=1. Seven real fixture tasks had
+  raw FD delta 0, seven explicit closes and zero live connection weakrefs before
+  GC, which was forbidden until after assertions (recorded FD baseline 11).
+  Five call-phase REDs each restored ten guards GREEN. Counts are not additive.
+- Portable-owned `_fixture_task` closes the SQLite connection before return;
+  legacy `_task` is unchanged. Legacy-alias RED retained one FD before cleanup,
+  not a demonstrated old native failure. Capture-dependency union including
+  `train/grpo_ptc.py` remains guarded. Final Python/security reviews approved.
+- Validation used base HEAD `c1dfb85476f77e817ec57adb3b015a74b690b816` with the
+  two code files then uncommitted. Exact validated code/evidence hashes are in
+  the linked receipt.
+  After this refresh only five doc hashes change from the 268-file snapshot;
+  263 other files, both code pins, 31 controller sources, 16 native-role files
+  and four protected paths remain unchanged. Earlier 3,802/29/four-control
+  proof is retained as pre-fixture-close history, not current-byte acceptance.
+- Native qualification and both fresh-interpreter reuses: NOT_EXECUTED.
+  Parent owns integrated-commit review, commit/push and later fresh 15-job
+  authorization. No profile, consent, permission or claims created here.
+  Before profile/consent and each phase, operator must externally compare actual
+  HEAD and reviewed source pins. CLI `reviewed_revision` is format-only;
+  file/profile pins are checked. Strict raw FD/thread equality must pass without
+  forced GC; separate settled measurements belong to offline validation only.
+- Caller collects approved unrelated configuration and PREMOVE inode/mode/mtime
+  evidence outside the CLI; helper scope is IDs/state and DB hash/path/move
+  proof, not all-host/private-workload clearance. Missing context fails, never
+  skips. Consumed 15/19-job native authority cannot be replayed; old scratch-helper
+  native success remains legitimate separate bounded evidence.
+- New receipt records one resolved scratch pre-collection tuple/list comparison
+  incident, not zero incidents. No new native/provider/model or infrastructure
+  work. Two source-generation jobs are outside SDK Timer callbacks. No model,
+  economic, customer or team-hour benefit; existing financial/traction gates
+  and standing Git instructions remain unchanged.
+
+---
+
 # HANDOFF — model-harness co-training
 
 **The first current-state section supersedes every earlier checkpoint below.**

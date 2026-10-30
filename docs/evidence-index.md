@@ -1,6 +1,8 @@
 # Evidence index
 
-Updated 2026-10-29 with bounded native file-SDK/Timer acceptance.
+Updated 2026-10-30 with [closed-fixture portable SDK offline acceptance](2026-10-30-portable-sql-skill-sdk-acceptance.md).
+New portable-helper native phases are NOT_EXECUTED; earlier native receipts
+remain separate recorded evidence.
 These are recorded results, not fresh test runs from documentation integration.
 Offline mechanics, bounded direct-evaluator lifecycle and native file-SDK
 happy-path integration are verified. Full adversarial guardian/kernel coverage,
@@ -11,6 +13,7 @@ Historical failed runs remain recorded.
 
 | Date / scope | Recorded observation | Source | Limitation |
 |---|---|---|---|
+| 2026-10-30, closed-fixture portable SQL skill SDK offline acceptance | Final full suite: 3,803 passed, zero failed, one optional Torch skip, two existing tokenizer deselections, ten warnings, 28 subtests; exit 0 in 741.59s. Ten default guards, 30 probes, five RED/restored-ten-GREEN controls. Seven real SQLite fixture closes, raw FD delta 0 before GC. | [Portable SDK receipt](2026-10-30-portable-sql-skill-sdk-acceptance.md), [usage contract](../spec/sql-skill-sdk-acceptance.md). | 268 files frozen during full proof; five-doc refresh separately checked. One resolved scratch preparation incident. Native phases NOT_EXECUTED; fresh explicit 15-job authorization follows commit review. Raw CLI criterion, offline settled metrics, caller-side config/PREMOVE evidence and external HEAD checks are separate scopes. Counts overlap; earlier native proof not transferable. |
 | 2026-10-29, bounded native file-SDK/Timer | Four qualifications and two fresh-process SDK reuses EX=1. Fifteen CLOSED jobs, zero retries/model calls; all phase-native/postproof exits 0. | [Native SDK workflow receipt](2026-10-29-native-sql-skill-workflow.md). | Caller-authored fixture approval, not independent authentication. Callback timings are not a baseline/savings study; full adversarial faults/model benefit remain unproved. |
 | 2026-10-29, qualification failure evidence | Final offline suite: 3,793 passed, one optional Torch skip, two configured deselections, ten warnings, 28 subtests; exit 0 in 725.24s. Independent 28 probes and three sensitivity controls completed. | [Qualification receipt](2026-10-29-sql-qualification-evidence.md). | Post-rename fsync can leave visible UNAPPROVED promotion, durability unknown. Successful return/external approval required; overlapping totals not additive. |
 | 2026-10-29, SQL reuse outer timing | Synchronous callback writes/fsync and failed setup included; independent SQLite SDK exercise has four qualification/one reuse EX=1. | [Timing receipt](2026-10-29-sql-reuse-timing.md). | Caller declares operation/setup completeness. No measured economic, provider or team benefit; unknown billing is not zero. |
