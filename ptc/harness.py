@@ -18,8 +18,10 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import threading
+import weakref
 from contextlib import AsyncExitStack
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 from pydantic import Field
@@ -295,6 +297,8 @@ class PTCHarness(Harness[PTCHarnessConfig]):
         config: PTCHarnessConfig,
         catalog: Catalog | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        *,
+        qa_factory: Callable[[TaskData], Any] | None = None,
     ) -> None:
         super().__init__(config)
         # Per-instance: a class-level `Catalog()` default would be one dict shared
@@ -304,6 +308,32 @@ class PTCHarness(Harness[PTCHarnessConfig]):
         # Test seam. `None` is httpx's own default, so production is unchanged;
         # `test_harness.py` passes an `httpx.MockTransport` and needs no server.
         self.transport = transport
+        # Opt-in defect-report channel (spec/agent-defect-escalation-harness.md).
+        # The factory is caller configuration: each enabled launch calls it with
+        # that launch's TaskData and must get back a fresh `QaChannel`. The caller
+        # owns the channels and any export/persistence, so nothing here may hold
+        # one strongly -- the launch keeps the only strong reference, inside the
+        # `report_defect` closure that lives in the launch-local catalog.
+        if qa_factory is not None and not callable(qa_factory):
+            raise TypeError(
+                f"qa_factory must be callable, got {type(qa_factory).__name__}"
+            )
+        self.qa_factory = qa_factory
+        # Channels claimed by in-flight launches on THIS harness, tracked weakly
+        # and by identity: reusing one live channel across launches is refused,
+        # but a completed launch drops its catalog -- and with it the closure's
+        # strong reference -- so a channel the caller lets die is never retained
+        # as history here. The lock serializes the check-and-claim so two
+        # concurrent launches cannot both claim the same channel.
+        # Allocated only when reporting is enabled, and only at construction:
+        # a threading.Lock cannot be pickled, so an unconditional allocation
+        # would break deepcopy of a default harness, and deferred creation would
+        # be a lazy-init race between concurrent first launches.
+        self._qa_channel_lock: threading.Lock | None = None
+        self._qa_channels: weakref.WeakSet | None = None
+        if qa_factory is not None:
+            self._qa_channel_lock = threading.Lock()
+            self._qa_channels = weakref.WeakSet()
 
     async def launch(
         self,
@@ -336,6 +366,57 @@ class PTCHarness(Harness[PTCHarnessConfig]):
 
         async with AsyncExitStack() as stack:
             tools = dict(self.catalog.tools)
+            qa_prompt: str | None = None
+            if self.qa_factory is not None:
+                # The only QA import site in this module: default import,
+                # construction and disabled launches never touch `ptc.sql_qa`.
+                from ptc.sql_qa import (
+                    QaChannel,
+                    REPORT_PROMPT,
+                    REPORT_TOOL,
+                    ReportRejected,
+                    report_ack,
+                )
+                # The collector owns `report_defect` on an enabled launch. A
+                # local entry by that name would be silently shadowed, so refuse
+                # before any MCP connection or model request rather than merge.
+                if REPORT_TOOL in tools:
+                    raise ValueError(
+                        f"catalog already registers {REPORT_TOOL!r}; "
+                        "reporting cannot be enabled"
+                    )
+                channel = self.qa_factory(data)
+                if type(channel) is not QaChannel:
+                    raise TypeError(
+                        "qa_factory must return a QaChannel, got "
+                        f"{type(channel).__name__}"
+                    )
+                channel_lock = self._qa_channel_lock
+                live_channels = self._qa_channels
+                if channel_lock is None or live_channels is None:
+                    raise RuntimeError(
+                        "qa_factory was set on a harness constructed without "
+                        "one; enabling reporting after construction is not "
+                        "supported"
+                    )
+                with channel_lock:
+                    if channel in live_channels:
+                        raise ValueError(
+                            "qa_factory returned a channel already claimed by "
+                            "a live launch on this harness"
+                        )
+                    live_channels.add(channel)
+
+                def report_defect(*, kind: str, detail: str) -> str:
+                    try:
+                        channel.submit("ptc", kind=kind, detail=detail)
+                    except ReportRejected as exc:
+                        raise ProgramRejected(str(exc)) from None
+                    return report_ack()
+
+                report_defect.__name__ = REPORT_TOOL
+                tools[REPORT_TOOL] = report_defect
+                qa_prompt = REPORT_PROMPT
             # Locally-registered catalog functions are real functions, so their own
             # signatures are the truth; MCP tools only have schemas.
             params = {name: _callable_params(fn) for name, fn in tools.items()}
@@ -344,15 +425,22 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                 discovered, unusable, discovered_params = await _mcp_catalog(
                     mcp_urls, stack, self.config.tool_timeout
                 )
+                if qa_prompt is not None and REPORT_TOOL in discovered:
+                    raise ValueError(
+                        f"MCP discovery returned {REPORT_TOOL!r}; "
+                        "reporting cannot be enabled"
+                    )
                 tools.update(discovered)
                 params.update(discovered_params)
             if unusable:
                 log.append(f"unreachable tool names (not identifiers): {unusable}")
             catalog = Catalog(tools={**tools, OBSERVE: observe})
             names = sorted(tools)
-            messages[0]["content"] = SYSTEM.format(
-                names=render_catalog(names, params) or "(none)"
-            ) + (f"\n\n{system}" if system else "")
+            messages[0]["content"] = (
+                SYSTEM.format(names=render_catalog(names, params) or "(none)")
+                + (f"\n\n{system}" if system else "")
+                + (f"\n\n{qa_prompt}" if qa_prompt is not None else "")
+            )
 
             await self._loop(ctx, endpoint, secret, messages, catalog, printed, log)
 

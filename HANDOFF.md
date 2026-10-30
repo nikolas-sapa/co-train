@@ -1,3 +1,19 @@
+# Current feature checkpoint, 2026-10-30: PTC launch reporting
+
+The follow-on to `1ded101` adds constructor-only `qa_factory` to the real
+`PTCHarness.launch` route. Each launch gets a caller-owned channel; local/MCP
+report-tool collisions and live-channel reuse on one harness refuse explicitly.
+Tracking is weak and the registered model tool remains only `run_program`.
+See [launch usage](docs/2026-10-30-agent-defect-escalation.md#opt-in-through-ptcharnesslaunch)
+and the [test-first contract](spec/agent-defect-escalation-harness.md).
+
+Stage 4 remains PARTIAL. CLI/config activation, production bash routing,
+isolated reporting, sealed capture binding and TRL integration are unfinished.
+Priority stays 4 -> 5 -> 6. No experiment/spending authority is added; historical
+pins and native receipts are not reissued. Prior checkpoints follow unchanged.
+
+---
+
 # Current feature checkpoint, 2026-10-30: stage 4 reporting
 
 This checkpoint supersedes the older “complete structured reporting” gap below.

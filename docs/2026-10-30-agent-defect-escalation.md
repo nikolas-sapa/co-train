@@ -8,8 +8,9 @@ routes and bind reporting configuration before live experiments. Priority stays
 4 -> 5 -> 6; the current BIRD paired baseline is absent and stage 6 is blocked.
 Further SQL-native acceptance is not a stage 4 prerequisite.
 
-This records feature work against base HEAD `91336c8`, not a new published
-revision. Implementation: [collector](../ptc/sql_qa.py),
+The original collector/arm work used base `91336c8`; the launch follow-on uses
+base `1ded101`. Validation below separates those increments.
+Implementation: [collector](../ptc/sql_qa.py),
 [arm API](../ptc/sql_arms.py), [core tests](../ptc/test_sql_qa.py) and
 [real-route integration tests](../ptc/test_sql_qa_integration.py).
 
@@ -38,6 +39,47 @@ report command. PTC still has exactly one model-registered tool, `run_program`;
 `report_defect` is a callable inside its program catalog, not a second tool.
 Both prompts share reporting semantics, capabilities and budgets; their route
 paragraphs differ. See the [opt-in parity note](harness-parity.md#opt-in-defect-reporting-2026-10-30).
+
+## Opt in through `PTCHarness.launch`
+
+The follow-on [launch contract](../spec/agent-defect-escalation-harness.md)
+adds constructor-only `qa_factory`, not a CLI or config-schema flag. Each
+enabled launch passes its exact `TaskData` to the factory. The caller owns
+the returned channel and any persistence:
+
+```python
+from ptc.harness import PTCHarness, PTCHarnessConfig
+from ptc.sql_arms import sql_catalog
+from ptc.sql_qa import QaChannel
+
+owned_channels = []
+
+def new_channel(data):
+    channel = QaChannel()
+    owned_channels.append((data, channel))
+    return channel
+
+harness = PTCHarness(
+    PTCHarnessConfig(max_turns=8),
+    catalog=sql_catalog(db_path),  # Existing caller-owned database path.
+    qa_factory=new_channel,
+)
+```
+
+Construction makes no model request. The real launch adds the shared reporting
+prompt and a launch-local catalog callback; it still registers only `run_program`.
+Return a fresh exact `QaChannel` each time. Reusing a still-live channel on the
+same harness refuses, even if its earlier launch completed. Tracking is weak,
+not an owning channel history. Caller retention in the example is explicit.
+
+Local or discovered MCP `report_defect` collisions refuse before model requests.
+Do not combine this factory with an already reporting-enabled `pair.catalog()`.
+Factory exceptions and wrong return types fail explicitly. With no factory,
+the default launch does not import QA or change its catalog/prompt.
+Default harnesses remain deep-copyable and pickle-round-trippable. Enabling
+reporting after constructing a disabled harness is explicitly unsupported.
+This covers the in-process launch entrypoint, not config-driven activation,
+production bash, isolated reporting, sealed captures or TRL.
 
 ## Payload, bounds and trust
 
@@ -76,7 +118,33 @@ PTC uses the callback; shell telemetry remains forgeable output. This proves a
 controlled rule-legal shortcut fixture, not a general exploit detector,
 production gold oracle or kernel acceptance.
 
-## Recorded validation, not rerun by this docs worker
+## Launch follow-on validation, base `1ded101`
+
+The parent ran one frozen-source selection: [14 launch lifecycle tests](../ptc/test_harness_qa.py),
+`ptc/test_harness.py`, `ptc/test_sql_qa.py`, `ptc/test_sql_qa_integration.py`,
+`ptc/test_sql_arms.py`, `train/test_sql_episodes.py`,
+`train/test_execution_binding.py` and `train/test_sql_capture.py`:
+**813 passed in 40.40 seconds, no skips**. No full suite was rerun. This total
+is not additive with the historical selection below.
+
+Two in-memory controls failed at test call phase and restored green:
+dropping accepted report storage broke the real-launch event assertion;
+restoring unconditional lock allocation broke default copyability.
+Final implementation/test hashes stayed unchanged during controls.
+Local receipt: `~/scratch/co-train-2026-10-30/harness-qa-1ded101/final-negative-controls.json`.
+Python review approved source/tests; security review approved implementation.
+Reviews were static, not execution evidence.
+
+Pre-publication fixes: the first concurrency test did not force overlap;
+an async barrier now does. Unconditional lock allocation broke default
+`deepcopy`; tracking is now allocated only when enabled, and both deepcopy
+and pickle round-trip have regression coverage. The first control driver
+matched the wrong failure text; its corrected run and initial incident remain
+recorded. Repeated in-process control invocations emitted the `anyio` already-
+imported assertion-rewrite warning; the frozen 813-test run emitted none.
+No product-provider calls, training or native jobs were run for this increment.
+
+## Original collector/arm validation, base `91336c8`
 
 | Parent-recorded selection | Result |
 |---|---|
