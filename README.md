@@ -41,6 +41,10 @@ ordinary PTCHarness delegate execution without forking its model loop.
 Its 295 affected tests passed (36 new, including two actual SDK integrations),
 with two intended-failure controls and restored positives. This is a trusted
 callback seam, not an activated native SQL adapter or a paired baseline.
+The [owned SQL invocation contract](spec/sql-owned-invocations.md) adds inert
+program/scorer handles, separate cancellation pipes and host-issued cleanup
+acknowledgments. Tests use first-party fake actors; native/profile/SDK
+activation remains closed.
 The [Bash launch follow-on](docs/2026-10-31-bash-launch-reporting.md) records
 38 new passes (30 unit/lifecycle plus 8 real loopback subprocess integrations)
 and 94 existing regressions in separate runs, plus actual forwarding

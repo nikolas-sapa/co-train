@@ -2755,6 +2755,34 @@ def _finalization_attempt(values):
     return m._publish_finalization(profile, journal, job, raw_journal, raw_outcome, read)
 
 
+@pytest.mark.parametrize("operation", ("commit", "validate"))
+def test_owned_resource_finalization_after_role_deadline(
+        finalization_files, monkeypatch, operation):
+    m, profile, job, journal, *_ = finalization_files
+    ack = _finalization_attempt(finalization_files)
+    pending = m._read_owned(profile.shared_state_dir / (
+        "FINALIZATION-PENDING-" + journal["nonce"] + ".json"))
+    frame = m.canonical_json_bytes(ack) + b"\n"
+    later = journal["deadline"] + 0.01
+    assert ack["release_verified_at"] < journal["deadline"] < later < journal["cleanup_deadline"]
+    with monkeypatch.context() as patch:
+        patch.setattr(m.time, "monotonic", lambda: later)
+        with pytest.raises(m._Failure):
+            m._validate_finalization(profile, pending, ack, job=job,
+                                     guardian_pid=ack["guardian_pid"], current=True)
+        if operation == "commit":
+            outcome = m._commit_finalization(
+                profile, job, journal, ack["guardian_pid"], frame,
+                suppress_outcome=True)
+        else:
+            _, _, outcome = m._validate_finalization(
+                profile, pending, ack, job=job, guardian_pid=ack["guardian_pid"],
+                current=True, suppress_outcome=True)
+    assert outcome.observation == "completed"
+    assert m._read_owned(profile.shared_state_dir / (
+        "FINALIZATION-PENDING-" + journal["nonce"] + ".json")) == pending
+
+
 def _assert_finalization_blocked(values):
     m, profile, *_ = values
     with pytest.raises(m._Failure, match="finalization|reservation"):

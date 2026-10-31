@@ -1,3 +1,42 @@
+# Owned SQL invocation source, 2026-10-31
+
+Base `9149df4`, branch `feat/sql-owned-invocations`. Source-engineering only.
+Inert `PilotExecutor.owned_program` and `owned_score` factories retain one
+dispatch and immutable first cancellation intent. Separate anonymous pipes
+notify host and guardian without dropping controller liveness. Host-issued
+cleanup acknowledgments require current finalization evidence, actual creator
+waits and thread joins. Unknown proof retains ownership and pending callers,
+not a fabricated clean abort or bounded-return guarantee.
+
+Existing role ceilings, admission, memory limits and legacy entry points stay
+unchanged. Accepted cancellation suppresses usable output. Historical resource
+proof may be validated after the execution ceiling within its original cleanup
+cap, without restoring success eligibility or extending that cap.
+
+The real guest fixture exposed a live-journal read racing atomic replacement:
+an old open inode became unlinked and strict reading permanently retained the
+host. Both open/initial-inspection and mid-read windows now raise a narrow
+private exception. Only pre-terminal live journal polling discards and retries
+through the same checkpoint/cap. Static reads, in-place changes, hardlinks and
+post-ACK artifact validation remain strict. Deterministic regressions failed
+before their fixes; restored tests pass.
+
+Verification: 1,137 affected tests passed in two runs, 1,065 non-lifecycle
+regressions in 54.93s and all 72 lifecycle cases in 84.07s. This is not a
+full-suite claim. Both roles pass three actual started `Task.cancel()` calls
+(two during held cleanup), original cancellation propagation only after ACK,
+and concurrent callers sharing one dispatch/completion/ACK. Canonical ownership
+and cleanup mutations each reach one intended resource assertion; restored
+positives pass. Real PROGRAM-ceiling crossing and unchanged original cleanup
+cap pass. Independent Python/security reviews found no remaining blockers
+within this source/fake-actor scope. Contract: `spec/sql-owned-invocations.md`.
+
+No native/profile/SDK activation, source repinning, provider/model/corpus/SQL
+execution, paired BIRD baseline or training/spend selection. Research stages
+4/5 remain PARTIAL and 6 BLOCKED. Historical sections below are unchanged.
+
+---
+
 # Optional owned program runner, 2026-10-31
 
 Base `d8fd82b`, branch `feat/ptc-sql-owned-programs`. Ordinary PTCHarness now

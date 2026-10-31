@@ -15,7 +15,7 @@ import pwd
 import re
 from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Literal, Union
+from typing import TYPE_CHECKING, Generic, Literal, TypeVar, Union
 
 if TYPE_CHECKING:
     from bench.score import ExResult
@@ -917,6 +917,19 @@ class PilotExecutor:
             return ScoreOutcome(None, AbortInfo("scorer", "protocol"), None)
         return _run_isolated(self, "scorer", request, original)
 
+    def owned_program(self, program: str, *, db_path: str, db_sha256: str,
+                      max_rows: int) -> OwnedSqlInvocation[ProgramOutcome]:
+        request = ProgramRequest(program, max_rows, db_sha256)
+        return OwnedSqlInvocation(self, "program", request, Path(db_path))
+
+    def owned_score(self, predicted_sql: str, task: SqlTask, *, db_sha256: str,
+                    instrument: InstrumentSettings) -> OwnedSqlInvocation[ScoreOutcome]:
+        from dataclasses import replace
+        request = ScoreRequest(replace(task, db_path="/db.sqlite"), predicted_sql,
+                               instrument.scorer_timeout_s, instrument.scorer_max_rows,
+                               instrument.compare, db_sha256)
+        return OwnedSqlInvocation(self, "scorer", request, Path(task.db_path))
+
 
 # Runtime imports remain stdlib-only. No execution or daemon IO occurs at import.
 import concurrent.futures
@@ -931,6 +944,7 @@ import sys
 import threading
 import time
 import uuid
+import asyncio
 
 _PROGRAM_PATHS = (
     "ptc/__init__.py", "ptc/runtime.py", "ptc/sql_arms.py", "ptc/sql_runtime.py",
@@ -1006,12 +1020,20 @@ def _secure_directory(path: Path):
         os.close(parent)
 
 
+class _OwnedFileReplaced(ValueError):
+    """An owned snapshot became unlinked; its bytes are never returned."""
+
+
 def _read_owned(path: Path, maximum=MAX_ARTIFACT_BYTES) -> bytes:
     parent, name = _open_parent(path)
     try:
         fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
         try:
-            before = os.fstat(fd); _owned_stat(before)
+            before = os.fstat(fd)
+            if (before.st_nlink == 0 and stat.S_ISREG(before.st_mode)
+                    and before.st_uid == os.getuid() and 0 <= before.st_size <= maximum):
+                raise _OwnedFileReplaced("source changed before initial inspection")
+            _owned_stat(before)
             data = bytearray()
             while chunk := os.read(fd, min(65536, maximum + 1 - len(data))):
                 data.extend(chunk)
@@ -1020,6 +1042,12 @@ def _read_owned(path: Path, maximum=MAX_ARTIFACT_BYTES) -> bytes:
             after = os.fstat(fd)
             if (before.st_ino, before.st_size, before.st_mtime_ns, before.st_nlink) != (
                     after.st_ino, after.st_size, after.st_mtime_ns, after.st_nlink):
+                if (before.st_nlink == 1 and after.st_nlink == 0
+                        and (before.st_ino, before.st_size, before.st_mtime_ns,
+                             before.st_mode, before.st_uid, before.st_gid) ==
+                            (after.st_ino, after.st_size, after.st_mtime_ns,
+                             after.st_mode, after.st_uid, after.st_gid)):
+                    raise _OwnedFileReplaced("source changed while read")
                 raise ValueError("source changed while read")
             return bytes(data)
         finally:
@@ -1250,9 +1278,17 @@ class _Daemon:
             end = min(end, self.operation_deadline)
         if getattr(self, "shutdown_supervision", None) is not None:
             end = min(end, self.operation_deadline)
+        owned = getattr(self, "_owned", None)
+        if owned is not None:
+            end = min(end, owned.cap())
         return end
 
     def _supervise(self, end, operation_end=None):
+        owned = getattr(self, "_owned", None)
+        if owned is not None:
+            if not getattr(self, "_owned_observation", False):
+                owned.checkpoint()
+            end = min(end, owned.cap())
         if time.monotonic() >= end:
             hard_end = end if operation_end is None else operation_end
             reason = "cleanup" if hasattr(self, "cleanup_deadline") else (
@@ -1288,20 +1324,35 @@ class _Daemon:
         with self.lock:
             self.workers.add(thread)
         started = False
+        cancellation = None
         try:
             thread.start(); started = True
             while not done.wait(min(0.01, max(0, io_end - time.monotonic()))):
-                self._supervise(io_end, end)
-            self._supervise(end)
+                try:
+                    self._supervise(io_end, end)
+                except _OwnedCancellation as exc:
+                    # Preserve the in-flight response and join, not merely a
+                    # cancelled socket. Unknown mutations still cannot ACK.
+                    cancellation = exc
+                    _begin_cleanup(self._owned.journal)
+            try:
+                self._supervise(end)
+            except _OwnedCancellation as exc:
+                cancellation = exc
+                _begin_cleanup(self._owned.journal)
             if not box[0][0]:
                 error = box[0][1]
                 if isinstance(error, _Failure):
                     raise error
                 reason = "memory" if isinstance(error, MemoryError) else "transport"
                 raise _RPCUncertain(reason, "incomplete/malformed RPC: " + type(error).__name__) from error
+            if cancellation is not None:
+                raise cancellation
             return box[0][1]
         except _HTTPFailure:
             raise  # Completed, typed HTTP status, especially the exact 409 path.
+        except _OwnedCancellation:
+            raise
         except _Failure as exc:
             # A cancelled mutation may have reached the peer. Never treat it as
             # completion merely because its socket was closed.
@@ -1314,7 +1365,12 @@ class _Daemon:
                     pass
                 sock.close()
             if started:
-                thread.join(timeout=max(0, end - time.monotonic()))
+                owned = getattr(self, "_owned", None)
+                if owned is None:
+                    thread.join(timeout=max(0, end - time.monotonic()))
+                else:
+                    while thread.is_alive() and time.monotonic() < min(end, owned.cap()):
+                        thread.join(timeout=min(0.01, max(0, min(end, owned.cap()) - time.monotonic())))
             if started and thread.is_alive():
                 raise _RPCUncertain("cleanup", "RPC worker did not join after socket cancellation")
             with self.lock:
@@ -1607,6 +1663,10 @@ def _observer_failure_event(job, failure):
 
 
 def _vm_memory(profile, job, deadline):
+    with _OWNED_CONTEXT_LOCK:
+        owned = _OWNED_CONTEXTS.get(job.name)
+    if owned is not None:
+        return _owned_vm_memory(profile, job, deadline, owned)
     remaining = min(2.0, deadline - time.monotonic())
     if remaining <= 0:
         raise _ObservationFailure("VM observation deadline")
@@ -1652,6 +1712,24 @@ def _vm_memory(profile, job, deadline):
 def _memory_sample(profile, daemon, job):
     started = time.monotonic()
     end = started + 4.0
+    owned = getattr(daemon, "_owned", None)
+    def result(future):
+        if owned is None:
+            return future.result(timeout=max(0.001, end - time.monotonic()))
+        while True:
+            if not getattr(daemon, "_owned_observation", False):
+                try:
+                    owned.checkpoint()
+                except _OwnedCancellation:
+                    _begin_cleanup(owned.journal)
+                    raise
+            remaining = min(end, owned.cap()) - time.monotonic()
+            if remaining <= 0:
+                raise _ObservationFailure("complete sample absolute deadline")
+            try:
+                return future.result(timeout=min(0.01, remaining))
+            except concurrent.futures.TimeoutError:
+                continue
     def get(path, timed=False):
         remaining = min(3.0, end - time.monotonic())
         if remaining <= 0:
@@ -1660,12 +1738,15 @@ def _memory_sample(profile, daemon, job):
         completed = time.monotonic()  # Worker completion, never future-consumption time.
         return (value, completed) if timed else value
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=16, thread_name_prefix="sql-metadata")
+    if owned is not None:
+        with owned.lock:
+            owned.executors.append(pool)
     try:
         try:
             vm = pool.submit(_vm_memory, profile, job, end)
             info = pool.submit(get, "/info")
             listing = pool.submit(get, "/containers/json")
-            containers = listing.result(timeout=max(0.001, end - time.monotonic()))
+            containers = result(listing)
             if type(containers) is not list or len(containers) > 128:
                 raise _ObservationFailure("invalid running-container inventory")
             ids = []
@@ -1677,15 +1758,15 @@ def _memory_sample(profile, daemon, job):
                 raise _ObservationFailure("duplicate running CID")
             charges = [(cid, pool.submit(get, f"/containers/{cid}/stats?stream=false&one-shot=true", True))
                        for cid in ids]
-            total, available = vm.result(timeout=max(0.001, end - time.monotonic()))
-            daemon_info = info.result(timeout=max(0.001, end - time.monotonic()))
+            total, available = result(vm)
+            daemon_info = result(info)
             if type(daemon_info) is not dict or _integer(daemon_info.get("MemTotal"), minimum=1) != total:
                 raise _ObservationFailure("VM/daemon total mismatch")
             raw, missing, hard = [], [], []
             for cid, future in charges:
                 stats, received = None, False
                 try:
-                    stats, completed = future.result(timeout=max(0.001, end - time.monotonic()))
+                    stats, completed = result(future)
                     received = True
                     if type(stats) is not dict or type(stats.get("memory_stats")) is not dict:
                         raise _ObservationFailure("missing raw memory statistics")
@@ -1718,7 +1799,15 @@ def _memory_sample(profile, daemon, job):
                 raise _ObservationFailure("inconsistent raw charged memory")
         finally:
             # Candidate creation also requires every future and HTTP alias gone.
-            pool.shutdown(wait=True, cancel_futures=False)
+            if owned is None:
+                pool.shutdown(wait=True, cancel_futures=False)
+            else:
+                pool.shutdown(wait=False, cancel_futures=False)
+                for thread in tuple(pool._threads):
+                    while thread.is_alive() and time.monotonic() < owned.cap():
+                        thread.join(timeout=min(0.01, max(0, owned.cap() - time.monotonic())))
+                    if thread.is_alive():
+                        raise _Failure("cleanup", "metadata executor join unproven")
             if daemon.active or daemon.workers:
                 raise _ObservationFailure("metadata HTTP aliases not closed")
         finished = time.monotonic()
@@ -1738,7 +1827,7 @@ def _memory_sample(profile, daemon, job):
         _event(job, "MEMORY_SAMPLE", **sample)
         return sample
     except BaseException as exc:
-        if isinstance(exc, _ObservationFailure):
+        if isinstance(exc, (_ObservationFailure, _OwnedCancellation)):
             raise
         raise _ObservationFailure("incomplete/error raw memory observation") from exc
 
@@ -1864,7 +1953,12 @@ class _Observer:
             if type(self.latest) is dict:
                 self.latest["eligible"] = False
         self.stop.set()
-        self.thread.join(timeout=max(0, deadline - time.monotonic()))
+        owned = _owned_context({"nonce": self.job.name})
+        if owned is None:
+            self.thread.join(timeout=max(0, deadline - time.monotonic()))
+        else:
+            while self.thread.is_alive() and time.monotonic() < min(deadline, owned.cap()):
+                self.thread.join(timeout=min(0.01, max(0, min(deadline, owned.cap()) - time.monotonic())))
         if self.thread.is_alive() or self.inflight or self.daemon.active or getattr(self.daemon, "workers", set()):
             raise _Failure("cleanup", "aborted scheduler aliases remain unresolved")
         # Deliberately no RETIRED, STOPPED, absence or JOIN_ACK event.
@@ -1929,7 +2023,13 @@ class _Observer:
         except BaseException as exc:
             event_error = exc
         self.stop.set()
-        self.thread.join(timeout=max(0, min(4.5, deadline - time.monotonic())) if deadline is not None else 4.5)
+        owned = _owned_context({"nonce": self.job.name})
+        if owned is None:
+            self.thread.join(timeout=max(0, min(4.5, deadline - time.monotonic())) if deadline is not None else 4.5)
+        else:
+            end = min(owned.cap(), deadline if deadline is not None else owned.cap())
+            while self.thread.is_alive() and time.monotonic() < min(end, owned.cap()):
+                self.thread.join(timeout=min(0.01, max(0, min(end, owned.cap()) - time.monotonic())))
         if self.thread.is_alive() or self.daemon.active or getattr(self.daemon, "workers", set()):
             raise _Failure("cleanup", "observer/CLI/HTTP join not acknowledged")
         if event_error is not None:
@@ -2032,6 +2132,10 @@ def _locate_created(daemon, journal):
 
 
 def _controller_alive(fd):
+    with _OWNED_CONTEXT_LOCK:
+        owned = _OWNED_CONTROLS.get(fd)
+    if owned is not None:
+        owned.checkpoint()
     ready, _, _ = select.select([fd], [], [], 0)
     if ready:
         data = os.read(fd, 64)
@@ -2169,8 +2273,11 @@ def _stream_result(profile, daemon, journal, job, control, observer, attached):
                 journal["bootstrap"] = _plain(bootstrap)
                 journal["bootstrap_sha256"] = hashlib.sha256(wire).hexdigest()
                 _save_journal(job, journal)
-                attached.settimeout(min(3.0, max(0.001, journal["deadline"] - time.monotonic())))
-                attached.sendall(request)
+                if _owned_context(journal) is None:
+                    attached.settimeout(min(3.0, max(0.001, journal["deadline"] - time.monotonic())))
+                    attached.sendall(request)
+                else:
+                    _owned_send_request(attached, request, control, journal)
                 attached.settimeout(0.1)
                 _event(job, "REQUEST_DELIVERED", request_sha256=journal["request_sha256"])
             elif bootstrap is not None and b"\n" in output:
@@ -2314,10 +2421,17 @@ def _begin_cleanup(journal):
     elif "cleanup_trigger" not in journal:
         # Also supports a scaled, pre-seeded private test budget.
         journal["cleanup_trigger"] = min(time.monotonic(), journal["cleanup_deadline"])
+    owned = _owned_context(journal)
+    if owned is not None:
+        owned.begin_cleanup()
 
 
 def _cleanup_remaining(journal):
-    if time.monotonic() >= journal["cleanup_deadline"]:
+    owned = _owned_context(journal)
+    end = journal["cleanup_deadline"]
+    if owned is not None:
+        end = min(end, owned.cap())
+    if time.monotonic() >= end:
         raise _Failure("cleanup", "original absolute cleanup deadline exhausted")
 
 
@@ -2459,14 +2573,14 @@ def _shared_names(profile):
         os.close(parent)
 
 
-def _finalization_remaining(journal, outcome):
+def _finalization_remaining(journal, outcome, *, suppress_outcome=False):
     _cleanup_remaining(journal)
-    if outcome.abort is None:
+    if outcome.abort is None and not suppress_outcome:
         _success_remaining(journal)
 
 
 def _validate_finalization(profile, pending_raw, ack, *, job=None, guardian_pid=None,
-                           current=False, allow_active=False):
+                           current=False, allow_active=False, suppress_outcome=False):
     """One validator for current-pipe commit and historical admission.
 
     Historical checks bind release time to original budgets, not today's clock.
@@ -2542,6 +2656,8 @@ def _validate_finalization(profile, pending_raw, ack, *, job=None, guardian_pid=
     if outcome.abort is not None and (type(journal["failure"]) is not dict
                                      or outcome.abort.reason != journal["failure"].get("reason")):
         raise ValueError("finalization typed abort reason mismatch")
+    if "owned_cleanup_evidence" in journal:
+        _check_owned_cleanup_evidence(job, journal)
     end = min(pending["cleanup_deadline"], pending["role_deadline"]) if outcome.abort is None else pending["cleanup_deadline"]
     if not pending["cleanup_trigger"] <= ack["release_verified_at"] < end:
         raise ValueError("finalization release outside original deadlines")
@@ -2557,7 +2673,7 @@ def _validate_finalization(profile, pending_raw, ack, *, job=None, guardian_pid=
     elif allow_active:
         raise _Failure("cleanup", "finalization reservation disappeared before unlink")
     if current:
-        _finalization_remaining(journal, outcome)
+        _finalization_remaining(journal, outcome, suppress_outcome=suppress_outcome)
         if ack["release_verified_at"] > time.monotonic():
             raise ValueError("finalization release timestamp in future")
     return pending, journal, outcome
@@ -2761,12 +2877,13 @@ def _receive_terminal_ack(process, journal, job):
             raise _Failure("cleanup", "guardian died without terminal finalization ACK")
 
 
-def _commit_finalization(profile, job, journal, guardian_pid, frame):
+def _commit_finalization(profile, job, journal, guardian_pid, frame, *, suppress_outcome=False):
     ack = _parse_terminal_ack(frame)
     pending_path = profile.shared_state_dir / ("FINALIZATION-PENDING-" + journal["nonce"] + ".json")
     pending_raw = _read_owned(pending_path, maximum=16384)
     pending, latest, outcome = _validate_finalization(profile, pending_raw, ack, job=job,
-                                                     guardian_pid=guardian_pid, current=True)
+                                                     guardian_pid=guardian_pid, current=True,
+                                                     suppress_outcome=suppress_outcome)
     if (pending["nonce"] != journal["nonce"] or pending["role"] != journal["role"]
             or pending["request_sha256"] != journal["request_sha256"]
             or pending["profile_sha256"] != journal["profile_sha256"]
@@ -2774,10 +2891,10 @@ def _commit_finalization(profile, job, journal, guardian_pid, frame):
             or pending["cleanup_trigger"] != journal["cleanup_trigger"]
             or pending["cleanup_deadline"] != journal["cleanup_deadline"]):
         raise ValueError("finalization invocation context mismatch")
-    _finalization_remaining(latest, outcome)
+    _finalization_remaining(latest, outcome, suppress_outcome=suppress_outcome)
     _publish_immutable(profile.shared_state_dir / ("FINALIZATION-COMMITTED-" + journal["nonce"] + ".json"),
                        _finalization_record("committed", {"pending_sha256": ack["pending_sha256"], "terminal_ack": ack}))
-    _finalization_remaining(latest, outcome)
+    _finalization_remaining(latest, outcome, suppress_outcome=suppress_outcome)
     return outcome
 
 
@@ -2851,6 +2968,14 @@ def _complete_guardian(profile, daemon, journal, job, observer, attached, failur
         daemon.shutdown_supervision = None
     try:
         _cleanup_owned(profile, daemon, journal, job, observer)
+        owned = _owned_context(journal)
+        if owned is not None:
+            _owned_cleanup_evidence(owned, observer)
+            protocol_failure = owned.protocol_failure()
+            if protocol_failure is not None:
+                failure = protocol_failure
+                journal["failure"] = {"reason": failure.reason, "detail": str(failure)}
+                daemon.shutdown_supervision = None
         if failure is None and journal.get("shutdown_requested"):
             _success_remaining(journal)
     except BaseException as exc:
@@ -2859,11 +2984,23 @@ def _complete_guardian(profile, daemon, journal, job, observer, attached, failur
                               _Failure("cleanup", type(exc).__name__))
 
     def retain_unresolved():
-        journal["state"] = "UNRESOLVED"
-        if failure is not None:
-            journal["failure"] = {"reason": failure.reason, "detail": str(failure)}
+        owned = _owned_context(journal)
         try:
-            _block(profile, journal, job, str(failure))
+            if owned is not None and owned.published:
+                # A visible PENDING binds the exact journal bytes. Preserve
+                # that history, recording live incompleteness separately.
+                _publish_immutable(
+                    profile.shared_state_dir / ("UNRESOLVED-" + journal["nonce"] + ".json"),
+                    canonical_json_bytes({
+                        "nonce": journal["nonce"], "job": str(job), "cid": journal["cid"],
+                        "reason": "cleanup",
+                        "journal_sha256": hashlib.sha256(_read_owned(job / "journal.json")).hexdigest()
+                    }) + b"\n")
+            else:
+                journal["state"] = "UNRESOLVED"
+                if failure is not None:
+                    journal["failure"] = {"reason": failure.reason, "detail": str(failure)}
+                _block(profile, journal, job, str(failure))
         except BaseException:
             # Active OR the immutable PENDING blocks admission even if every
             # subsequent report write fails after successful active unlink.
@@ -2886,6 +3023,19 @@ def _complete_guardian(profile, daemon, journal, job, observer, attached, failur
         return None  # Uncertain aborts never publish a completion transaction.
     try:
         journal["state"] = "CLOSED"
+        owned = _owned_context(journal)
+        published_monitor_error = None
+        if owned is not None:
+            # Freeze metadata with the journal bytes, never rewrite history
+            # when a later notification tightens the independent live cap.
+            with owned.lock:
+                owned.begin_cleanup()
+                protocol_failure = owned.protocol_failure()
+                if protocol_failure is not None:
+                    failure = protocol_failure
+                    journal["failure"] = {"reason": failure.reason, "detail": str(failure)}
+                    published_monitor_error = owned.error
+                owned.published = True
         journal_raw = canonical_json_bytes(journal) + b"\n"
         receipt = None
         if journal.get("bootstrap") is not None:
@@ -2902,6 +3052,9 @@ def _complete_guardian(profile, daemon, journal, job, observer, attached, failur
             outcome = ScoreOutcome(result, None, receipt)
         ack = _publish_finalization(profile, journal, job, journal_raw,
                                     canonical_json_bytes(outcome) + b"\n", daemon.control)
+        if owned is not None and published_monitor_error is not None:
+            with owned.lock:
+                owned.accounted_error = published_monitor_error
     except BaseException as exc:
         failure = failure or (exc if isinstance(exc, _Failure) else _Failure("cleanup", type(exc).__name__))
         retain_unresolved()
@@ -2930,7 +3083,7 @@ def _completed_outcome_ready(profile, journal, outcome):
     return True
 
 
-def _guardian(job: Path, control: int, emergency: bool):
+def _guardian(job: Path, control: int, emergency: bool, *, cancel_fd=None):
     journal = _metadata(_read_owned(job / "journal.json"))
     profile_raw = _read_owned(job / "profile.json")
     profile = execution_profile_from_bytes(profile_raw)
@@ -2940,13 +3093,21 @@ def _guardian(job: Path, control: int, emergency: bool):
         raise ValueError("guardian configuration mismatch")
     _activate_staged_import_root(job, profile)
     build_execution_binding(profile, source_root=installed_source_root())
+    owned = None
+    if cancel_fd is not None:
+        owned = _OwnedContext(job, control, cancel_fd, journal)
+        owned.bridge = _owned_boundary_io(profile, job)
+        owned.monitor.start()
+        while not owned.ready.wait(0.01):
+            if time.monotonic() >= min(journal["deadline"], owned.cap()):
+                raise _Failure("cleanup", "cancellation monitor startup unproven")
     journal["guardians"].append(os.getpid())
     _save_journal(job, journal)
     _event(job, "GUARDIAN_ACK", pid=os.getpid(), emergency=emergency)
     sys.stdout.buffer.write(b"ACK\n"); sys.stdout.buffer.flush()
-    if os.read(control, 1) != b"G":
+    if owned is None and os.read(control, 1) != b"G":
         emergency = True
-    daemon = _Daemon(profile)
+    daemon = _Daemon(profile) if owned is None else owned.daemon(profile)
     daemon.operation_deadline = journal["deadline"]
     daemon.control = control
     observer = None
@@ -2955,6 +3116,15 @@ def _guardian(job: Path, control: int, emergency: bool):
     result = None
     uncertain = False
     try:
+        if owned is not None:
+            # Monitor is registered and running before the startup grant.
+            while not select.select([control], [], [], 0.01)[0]:
+                owned.checkpoint()
+                if time.monotonic() >= (owned.cap() if emergency else journal["deadline"]):
+                    raise _Failure("deadline", "owned startup grant deadline")
+            if os.read(control, 1) != b"G":
+                raise _Failure("transport", "owned startup grant lost")
+            owned.checkpoint()
         if not emergency:
             _controller_alive(control)
             _image_preflight(daemon)
@@ -2978,7 +3148,9 @@ def _guardian(job: Path, control: int, emergency: bool):
             _save_journal(job, journal)
             attached = daemon.attach(journal["cid"])
             fresh_after = time.monotonic()
-            observer = _Observer(profile, _Daemon(profile), job)
+            observer_daemon = (_Daemon(profile) if owned is None else
+                               owned.daemon(profile, observation=True))
+            observer = _Observer(profile, observer_daemon, job)
             observer.thread.start()
             while True:
                 _controller_alive(control)
@@ -3016,6 +3188,8 @@ def _guardian(job: Path, control: int, emergency: bool):
         raise _Failure("cleanup", "guardian finalization uncommitted")
     _controller_alive(control)
     _finalization_remaining(journal, finalization.outcome)
+    if owned is not None:
+        owned.retire()
     _send_terminal_ack(sys.stdout.buffer, finalization.ack)
     # Terminal ACK is the last completion action. No journal/event/block writes.
 
@@ -3151,7 +3325,1124 @@ def _run_isolated(executor, role, request, db_path):
             os.close(lock_fd)
 
 
-if __name__ == "__main__":
-    if len(sys.argv) != 5 or sys.argv[1] != "--guardian" or sys.argv[4] not in ("normal", "emergency"):
+_T = TypeVar("_T")
+_CANCEL_NS = 12_000_000_000
+_CANCEL_FRAME = struct.Struct(">8s16sQQ")
+_UINT64_MAX = (1 << 64) - 1
+
+
+def _cancel_identity(value):
+    if type(value) is not uuid.UUID or value.int == 0:
+        raise ValueError("non-nil invocation UUID required")
+
+
+def _cancel_times(requested, deadline):
+    if (type(requested) is not int or type(deadline) is not int
+            or not 0 <= requested <= _UINT64_MAX - _CANCEL_NS
+            or deadline != requested + _CANCEL_NS):
+        raise ValueError("invalid absolute cancellation budget")
+
+
+@dataclass(frozen=True, slots=True)
+class CancelIntent:
+    invocation_id: uuid.UUID
+    reason: Literal["caller_cancelled", "runner_closed"]
+    requested_ns: int
+    deadline_ns: int
+
+    def __post_init__(self):
+        _cancel_identity(self.invocation_id)
+        _choice(self.reason, ("caller_cancelled", "runner_closed"))
+        _cancel_times(self.requested_ns, self.deadline_ns)
+
+
+@dataclass(frozen=True, slots=True)
+class CancelReceipt:
+    status: Literal["accepted", "repeated", "already_completed"]
+    intent: CancelIntent | None
+
+    def __post_init__(self):
+        _choice(self.status, ("accepted", "repeated", "already_completed"))
+        if (self.status == "already_completed") != (self.intent is None):
+            raise ValueError("cancellation receipt branch mismatch")
+        if self.intent is not None and type(self.intent) is not CancelIntent:
+            raise TypeError("concrete cancellation intent required")
+
+
+@dataclass(frozen=True, slots=True)
+class OutcomeAbort:
+    invocation_id: uuid.UUID
+    role: Role
+    kind: Literal["cancelled", "infrastructure"]
+    detail_code: str
+
+    def __post_init__(self):
+        _cancel_identity(self.invocation_id)
+        _choice(self.role, ("program", "scorer"))
+        _choice(self.kind, ("cancelled", "infrastructure"))
+        _text(self.detail_code, nonempty=True, maximum=128)
+
+
+class _AckAuthority:
+    def __init__(self, owner):
+        self.owner = owner
+        self.issuing = False
+        self.ack = None
+
+
+@dataclass(frozen=True, slots=True)
+class CleanupCompleteAck:
+    invocation_id: uuid.UUID
+    role: Role
+    request_sha256: str
+    profile_sha256: str
+    not_started: bool
+    released: bool
+    cleanup_trigger_ns: int
+    cleanup_deadline_ns: int
+    completed_ns: int
+    terminal_ack_sha256: str | None
+    guardian_reaps: tuple[tuple[int, int], ...] = ()
+    child_waits: bool = False
+    thread_joins: bool = False
+    _authority: object = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self):
+        authority = self._authority
+        if (type(authority) is not _AckAuthority or not authority.issuing
+                or authority.ack is not None):
+            raise ValueError("only the live invocation owner may issue cleanup ACK")
+        owner = authority.owner
+        if (self.invocation_id != owner.invocation_id or self.role != owner.role
+                or self.request_sha256 != owner.request_digest
+                or self.profile_sha256 != owner.profile_digest or self.released is not True
+                or type(self.not_started) is not bool
+                or not 0 <= self.cleanup_trigger_ns <= self.completed_ns <= self.cleanup_deadline_ns):
+            raise ValueError("cleanup ACK ownership/budget mismatch")
+        if self.not_started:
+            if self.terminal_ack_sha256 is not None or self.guardian_reaps:
+                raise ValueError("not-started ACK cannot contain terminal evidence")
+        elif (not self.guardian_reaps or not self.child_waits or not self.thread_joins
+              or self.terminal_ack_sha256 is None):
+            raise ValueError("started ACK requires actual reap/join evidence")
+
+
+@dataclass(frozen=True, slots=True)
+class InvocationCompletion(Generic[_T]):
+    outcome: _T | None
+    abort: OutcomeAbort | None
+    cleanup_ack: CleanupCompleteAck
+
+    def __post_init__(self):
+        if (self.outcome is None) == (self.abort is None):
+            raise ValueError("exactly one outcome/abort required")
+        ack = self.cleanup_ack
+        if (type(ack) is not CleanupCompleteAck
+                or type(ack._authority) is not _AckAuthority or ack._authority.ack is not ack):
+            raise ValueError("live-owner cleanup ACK required")
+        if self.abort is not None and (
+                type(self.abort) is not OutcomeAbort
+                or self.abort.invocation_id != ack.invocation_id or self.abort.role != ack.role):
+            raise ValueError("abort/cleanup identity mismatch")
+        if self.outcome is not None:
+            expected = ProgramOutcome if ack.role == "program" else ScoreOutcome
+            if (type(self.outcome) is not expected or self.outcome.abort is not None
+                    or ack._authority.owner._intent is not None):
+                raise ValueError("usable outcome branch mismatch")
+            self.outcome.__post_init__()
+            if self.outcome.receipt.request_sha256 != ack.request_sha256:
+                raise ValueError("outcome request/cleanup mismatch")
+
+
+@dataclass(frozen=True, slots=True)
+class InvocationSnapshot:
+    state: str
+    invocation_id: uuid.UUID
+    role: Role
+    request_sha256: str
+    profile_sha256: str
+    intent: CancelIntent | None
+    incomplete: bool
+
+
+def _encode_cancel_frame(intent: CancelIntent) -> bytes:
+    if type(intent) is not CancelIntent:
+        raise ValueError("concrete cancellation intent required")
+    intent.__post_init__()
+    return _CANCEL_FRAME.pack(b"SQLCNL01", intent.invocation_id.bytes,
+                              intent.requested_ns, intent.deadline_ns)
+
+
+def _decode_cancel_frame(data: bytes, *, invocation_id: uuid.UUID,
+                         now_ns: int) -> tuple[int, int]:
+    _cancel_identity(invocation_id)
+    if (type(data) is not bytes or len(data) != _CANCEL_FRAME.size
+            or type(now_ns) is not int or now_ns < 0):
+        raise ValueError("invalid cancellation frame")
+    magic, identity, requested, deadline = _CANCEL_FRAME.unpack(data)
+    if magic != b"SQLCNL01" or identity != invocation_id.bytes:
+        raise ValueError("cancellation frame identity mismatch")
+    _cancel_times(requested, deadline)
+    if requested > now_ns:
+        raise ValueError("future cancellation timestamp")
+    return requested, deadline
+
+
+def _acquire_cancel_frame(fd, identity, end):
+    """Sole-reader acquisition, including an oversize sentinel byte."""
+    end = min(end, time.monotonic() + 0.1)
+    data = bytearray()
+    os.set_blocking(fd, False)
+    while True:
+        try:
+            chunk = os.read(fd, 41 - len(data))
+        except BlockingIOError:
+            chunk = None
+        if chunk == b"":
+            raise _Failure("protocol", "cancellation notification EOF")
+        if chunk is not None:
+            data.extend(chunk)
+            if len(data) > 40:
+                raise _Failure("protocol", "oversize cancellation notification")
+            if len(data) == 40:
+                try:
+                    extra = os.read(fd, 1)
+                except BlockingIOError:
+                    extra = b""
+                if extra:
+                    raise _Failure("protocol", "extra cancellation notification")
+                try:
+                    return _decode_cancel_frame(bytes(data), invocation_id=identity,
+                                                now_ns=time.monotonic_ns())
+                except ValueError as exc:
+                    raise _Failure("protocol", "invalid cancellation notification") from exc
+        if time.monotonic() >= end:
+            raise _Failure("protocol", "partial cancellation notification")
+        select.select([fd], [], [], min(0.01, max(0, end - time.monotonic())))
+
+
+class _CancelEndpoint:
+    """All access, including close, is serialized by the owner's lifetime lock."""
+    def __init__(self, fd):
+        self.fd = fd
+        self.sent = False
+        self.unavailable = False
+        os.set_blocking(fd, False)
+        if os.fpathconf(fd, "PC_PIPE_BUF") < _CANCEL_FRAME.size:
+            raise _Failure("protocol", "cancellation pipe atomicity unavailable")
+
+    def deliver(self, intent):
+        if self.fd is None or self.sent:
+            return
+        self.sent = True  # Exactly one attempt, never replay a partial write.
+        try:
+            if os.write(self.fd, _encode_cancel_frame(intent)) != 40:
+                self.unavailable = True
+        except OSError:
+            self.unavailable = True
+
+    def close(self):
+        if self.fd is not None:
+            fd, self.fd = self.fd, None
+            os.close(fd)
+
+
+class _CreatorPopen(subprocess.Popen):
+    """Retain the actual object even if BasePopen construction/publication fails."""
+    def __init__(self, *args, _registry, **kwargs):
+        self._creator_lock = threading.RLock()
+        self._creator_reaped = False
+        self._creator_waited = False
+        self._creator_ambiguous = False
+        _registry.append(self)
+        try:
+            super().__init__(*args, **kwargs)
+        except BaseException:
+            self._creator_ambiguous = getattr(self, "pid", None) is None
+            raise
+
+    def wait(self, timeout=None):
+        with self._creator_lock:
+            try:
+                result = super().wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                raise
+            except BaseException:
+                self._creator_ambiguous = True
+                raise
+            self._creator_reaped = True
+            self._creator_waited = True
+            return result
+
+    def poll(self):
+        with self._creator_lock:
+            result = super().poll()
+            if result is not None:
+                self._creator_reaped = True
+            return result
+
+    def kill(self):
+        with self._creator_lock:
+            if self._creator_reaped or self._creator_ambiguous:
+                raise _Failure("cleanup", "creator signal authority retired")
+            return super().kill()
+
+    def send_signal(self, sig):
+        with self._creator_lock:
+            if self._creator_reaped or self._creator_ambiguous:
+                raise _Failure("cleanup", "creator signal authority retired")
+            return super().send_signal(sig)
+
+    def terminate(self):
+        with self._creator_lock:
+            if self._creator_reaped or self._creator_ambiguous:
+                raise _Failure("cleanup", "creator signal authority retired")
+            return super().terminate()
+
+
+_OWNED_CONTEXT_LOCK = threading.RLock()
+_OWNED_CONTEXTS = {}
+_OWNED_CONTROLS = {}
+
+
+class _OwnedCancellation(_Failure):
+    def __init__(self):
+        super().__init__("transport", "owned invocation cancellation")
+
+
+def _owned_context(journal):
+    with _OWNED_CONTEXT_LOCK:
+        return _OWNED_CONTEXTS.get(journal.get("nonce"))
+
+
+class _OwnedContext:
+    """Guardian-wide locked latch. Only monitor consumes its notification FD."""
+    def __init__(self, job, control, cancel_fd, journal):
+        self.job, self.control, self.cancel_fd = job, control, cancel_fd
+        self.identity = uuid.UUID(hex=journal["nonce"])
+        _cancel_identity(self.identity)
+        self.journal = journal
+        self.lock = threading.RLock()
+        self.times = None
+        self.error = None
+        self.accounted_error = None
+        self.cleaning = False
+        self.published = False
+        self.stop = threading.Event()
+        self.ready = threading.Event()
+        self.children = []
+        self.daemons = []
+        self.executors = []
+        self.bridge = None
+        self.monitor = threading.Thread(target=self._monitor, name="sql-cancel-monitor", daemon=False)
+        with _OWNED_CONTEXT_LOCK:
+            _OWNED_CONTEXTS[journal["nonce"]] = self
+            _OWNED_CONTROLS[control] = self
+
+    def daemon(self, profile, *, observation=False):
+        daemon = self.bridge.daemon(profile)
+        daemon._owned = self
+        daemon._owned_observation = observation
+        with self.lock:
+            self.daemons.append(daemon)
+        return daemon
+
+    def _monitor(self):
+        try:
+            first = True
+            while True:
+                if select.select([self.cancel_fd], [], [],
+                                 0 if first or self.stop.is_set() else 0.01)[0]:
+                    if self.times is not None:
+                        if os.read(self.cancel_fd, 1):
+                            raise _Failure("protocol", "extra cancellation notification")
+                        raise _Failure("protocol", "cancellation notification EOF")
+                    end = self.cap() if self.cleaning else min(self.cap(), self.journal["deadline"])
+                    times = _acquire_cancel_frame(self.cancel_fd, self.identity, end)
+                    with self.lock:
+                        self.times = times
+                    self.ready.set()
+                    first = False
+                    continue
+                self.ready.set()
+                first = False
+                if self.stop.is_set():
+                    return
+        except BaseException as exc:
+            with self.lock:
+                self.error = exc
+        finally:
+            self.ready.set()
+
+    def cap(self):
+        with self.lock:
+            end = min(self.journal["deadline"] + 12,
+                      self.journal.get("cleanup_deadline", self.journal["deadline"] + 12))
+            if self.times is not None:
+                end = min(end, self.times[1] / 1e9)
+            return end
+
+    def checkpoint(self):
+        with self.lock:
+            if self.cleaning:
+                return
+            if self.error is not None:
+                raise _Failure("protocol", "cancellation monitor protocol failure")
+            if self.times is not None:
+                raise _OwnedCancellation()
+
+    def protocol_failure(self):
+        with self.lock:
+            if self.error is not None:
+                return _Failure("protocol", "cancellation monitor protocol failure")
+        return None
+
+    def begin_cleanup(self):
+        with self.lock:
+            self.cleaning = True
+            if not self.published and self.times is not None:
+                self.journal["cleanup_trigger"] = min(
+                    self.journal["cleanup_trigger"], self.times[0] / 1e9)
+                self.journal["cleanup_deadline"] = self.cap()
+            elif not self.published:
+                self.journal["cleanup_deadline"] = self.cap()
+
+    def retire(self):
+        self.stop.set()
+        while self.monitor.is_alive() and time.monotonic() < self.cap():
+            self.monitor.join(timeout=min(0.01, max(0, self.cap() - time.monotonic())))
+        if self.monitor.is_alive():
+            raise _Failure("cleanup", "cancellation monitor did not join")
+        for child in self.children:
+            if not child._creator_waited or child._creator_ambiguous:
+                raise _Failure("cleanup", "creator CLI wait absent")
+        for daemon in self.daemons:
+            if daemon.active or daemon.workers:
+                raise _Failure("cleanup", "owned RPC actors remain")
+        for pool in self.executors:
+            if any(thread.is_alive() for thread in tuple(pool._threads)):
+                raise _Failure("cleanup", "owned metadata executor remains")
+        if time.monotonic() >= self.cap():
+            raise _Failure("cleanup", "owned retirement budget exhausted")
+        os.close(self.cancel_fd)
+        with _OWNED_CONTEXT_LOCK:
+            _OWNED_CONTROLS.pop(self.control, None)
+            _OWNED_CONTEXTS.pop(self.identity.hex, None)
+        failure = self.protocol_failure()
+        if failure is not None and self.error is not self.accounted_error:
+            raise failure
+
+
+class _OwnedBoundaryIO:
+    """Private first-party fixture seam, not a profile/backend selector.
+
+    A fresh fake guardian may substitute this object. daemon(profile) must
+    implement the existing call/attach contract and active/workers manifests.
+    vm_command(profile) supplies argv/env for the actual creator-owned CLI.
+    Canonical observer, stream, cleanup and finalization are not substituted.
+    """
+    def daemon(self, profile):
+        return _Daemon(profile)
+
+    def vm_command(self, profile):
+        return ([str(profile.observer.binary), "--profile", "default", "ssh", "--",
+                 "cat", "/proc/meminfo"],
+                {"HOME": pwd.getpwuid(os.getuid()).pw_dir,
+                 "PATH": "/opt/homebrew/bin:/usr/bin:/bin", "LANG": "C.UTF-8"})
+
+
+def _owned_boundary_io(profile, job):
+    return _OwnedBoundaryIO()
+
+
+def _owned_wait(process, cap):
+    """Actual creator wait, with a live cap that can tighten during the wait."""
+    while True:
+        remaining = cap() - time.monotonic()
+        if remaining <= 0:
+            raise _Failure("cleanup", "actual creator wait budget exhausted")
+        try:
+            return process.wait(timeout=min(0.01, remaining))
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def _owned_vm_memory(profile, job, deadline, owned):
+    """Actual creator handles, including failed constructor/publication handles."""
+    end = min(deadline, time.monotonic() + 2, owned.cap())
+    token = uuid.uuid4().hex
+    _event(job, "CLI_SPAWN_INTENT", token=token, guardian=os.getpid(),
+           binary_sha256=profile.observer.binary_sha256)
+    process = None
+    start = len(owned.children)
+    started_record = False
+    try:
+        argv, env = owned.bridge.vm_command(profile)
+        process = _CreatorPopen(
+            argv, _registry=owned.children, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, env=env)
+        _event(job, "CLI_STARTED", token=token, pid=process.pid, guardian=os.getpid())
+        started_record = True
+        while True:
+            remaining = min(end, owned.cap()) - time.monotonic()
+            if remaining <= 0:
+                raise _ObservationFailure("VM observer absolute deadline")
+            try:
+                output, error = process.communicate(timeout=min(0.01, remaining))
+                _owned_wait(process, owned.cap)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        if process.returncode != 0 or len(output) > 65536 or len(error) > 65536:
+            raise _ObservationFailure("VM observer failed")
+        values = {}
+        for line in output.decode("ascii", "strict").splitlines():
+            parts = line.split()
+            if parts and parts[0] in ("MemTotal:", "MemAvailable:"):
+                if len(parts) != 3 or parts[2] != "kB" or parts[0] in values:
+                    raise _ObservationFailure("invalid VM memory fields")
+                values[parts[0]] = _integer(int(parts[1]), minimum=1) * 1024
+        if (set(values) != {"MemTotal:", "MemAvailable:"}
+                or values["MemAvailable:"] > values["MemTotal:"]):
+            raise _ObservationFailure("missing or inconsistent VM memory")
+        return values["MemTotal:"], values["MemAvailable:"]
+    finally:
+        # Constructor may have created a child before raising: local assignment
+        # is not ownership. The pre-Base registry is authoritative here.
+        created = owned.children[start:]
+        for child in created:
+            if child._creator_ambiguous or getattr(child, "pid", None) is None:
+                raise _Failure("cleanup", "CLI creation ownership unresolved")
+            if not child._creator_waited:
+                if child.poll() is None:
+                    child.kill()
+                _owned_wait(child, owned.cap)
+            if not child._creator_waited:
+                raise _Failure("cleanup", "CLI actual creator wait absent")
+            for stream in (getattr(child, "stdin", None), getattr(child, "stdout", None),
+                           getattr(child, "stderr", None)):
+                if stream is not None:
+                    stream.close()
+            if not started_record:
+                _event(job, "CLI_STARTED", token=token, pid=child.pid, guardian=os.getpid())
+                started_record = True
+            _event(job, "CLI_JOIN_ACK", token=token, pid=child.pid,
+                   returncode=child.returncode, guardian=os.getpid(), reaped=True)
+        if time.monotonic() >= owned.cap():
+            raise _Failure("cleanup", "CLI finalization exceeded owned cleanup cap")
+
+
+def _check_owned_cleanup_evidence(job, journal):
+    evidence = _closed(journal["owned_cleanup_evidence"], (
+        "events_sha256", "creator_waits", "executors_joined", "observer_joined",
+        "rpc_joined", "guest_released"))
+    for name in ("observer_joined", "rpc_joined", "guest_released"):
+        if evidence[name] is not True:
+            raise _Failure("cleanup", "owned cleanup evidence incomplete")
+    _integer(evidence["creator_waits"])
+    _integer(evidence["executors_joined"])
+    raw = _read_owned(job / "events.jsonl")
+    if hashlib.sha256(raw).hexdigest() != _digest(evidence["events_sha256"]):
+        raise _Failure("cleanup", "owned cleanup event binding changed")
+    events = [_metadata(line) for line in raw.splitlines()]
+    if any(type(event) is not dict for event in events):
+        raise _Failure("cleanup", "owned cleanup event object required")
+    absence = [i for i, event in enumerate(events) if event.get("kind") == "ACTOR_ABSENCE_PROOF"]
+    if not absence:
+        raise _Failure("cleanup", "owned actor absence evidence missing")
+    cid = journal.get("cid")
+    if cid is None:
+        if journal.get("create_attempted") is not False:
+            raise _Failure("cleanup", "attempted guest creation remains unproven")
+    else:
+        _digest(cid)
+        positions = {}
+        for kind in ("STOPPED", "DELETE", "ABSENCE"):
+            positions[kind] = [i for i, event in enumerate(events)
+                               if event.get("kind") == kind and event.get("cid") == cid]
+            if not positions[kind]:
+                raise _Failure("cleanup", "owned guest release evidence missing")
+        delete = positions["DELETE"][-1]
+        if not (any(i < delete for i in positions["STOPPED"])
+                and any(i < delete for i in absence)
+                and any(i > delete for i in positions["ABSENCE"])):
+            raise _Failure("cleanup", "owned release evidence ordering invalid")
+
+
+def _owned_cleanup_evidence(owned, observer):
+    """Bind canonical resource proof to the immutable finalization journal."""
+    if observer is not None and (
+            not observer.retired or observer.thread.is_alive() or observer.inflight):
+        raise _Failure("cleanup", "owned observer join absent")
+    with owned.lock:
+        if any(not child._creator_waited or child._creator_ambiguous for child in owned.children):
+            raise _Failure("cleanup", "owned CLI creator wait absent")
+        if any(daemon.active or daemon.workers for daemon in owned.daemons):
+            raise _Failure("cleanup", "owned RPC aliases/workers remain")
+        if any(thread.is_alive() for pool in owned.executors for thread in tuple(pool._threads)):
+            raise _Failure("cleanup", "owned executor thread join absent")
+        owned.journal["owned_cleanup_evidence"] = {
+            "events_sha256": hashlib.sha256(_read_owned(owned.job / "events.jsonl")).hexdigest(),
+            "creator_waits": len(owned.children), "executors_joined": len(owned.executors),
+            "observer_joined": True, "rpc_joined": True, "guest_released": True}
+        _check_owned_cleanup_evidence(owned.job, owned.journal)
+    _cleanup_remaining(owned.journal)
+
+
+def _owned_guardian(job: Path, control: int, cancel_fd: int, emergency: bool):
+    _guardian(job, control, emergency, cancel_fd=cancel_fd)
+
+
+def _owned_send_request(attached, request, control, journal):
+    end = min(journal["deadline"], time.monotonic() + 3)
+    remaining = memoryview(request)
+    try:
+        while remaining:
+            _controller_alive(control)
+            if time.monotonic() >= end:
+                raise _Failure("transport", "request delivery absolute deadline")
+            attached.settimeout(min(0.01, max(0.001, end - time.monotonic())))
+            try:
+                count = attached.send(remaining[:65536])
+            except socket.timeout:
+                continue
+            if not count:
+                raise _Failure("transport", "request delivery EOF")
+            remaining = remaining[count:]
+    finally:
+        attached.settimeout(0.1)
+
+
+def _spawn_owned_guardian(owner, job, control_fd, cancel_fd, lock_fd, log,
+                          emergency=False):
+    """Return creator-retained Popen; fake bootstraps use owner._spawn as well."""
+    return owner._spawn(
+        [sys.executable, "-I", "-B", str(job / "controller/ptc/sql_isolation.py"),
+         "--owned-guardian", str(job), str(control_fd), str(cancel_fd),
+         "emergency" if emergency else "normal"],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=log,
+        pass_fds=(control_fd, cancel_fd, lock_fd), close_fds=True,
+        env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1"})
+
+
+class OwnedSqlInvocation(Generic[_T]):
+    """Single-dispatch owner. Unknown cleanup deliberately retains this owner."""
+    def __init__(self, executor, role, request, db_path):
+        self.executor, self.role, self.request, self.db_path = executor, role, request, db_path
+        self.invocation_id = uuid.uuid4()
+        self.request_digest = request_sha256(request)
+        self.profile_digest = execution_profile_sha256(executor.profile)
+        self._lock = threading.RLock()
+        self._authority = _AckAuthority(self)
+        self._intent = None
+        self._state = "ALLOCATED"
+        self._incomplete = False
+        self._completion = None
+        self._candidate = None
+        self._thread = None
+        self._children = []
+        self._endpoints = []
+        self._host_read = None
+        self._host_received = False
+        self._journal = None
+        self._proof = None
+        self._seal_lock_fd = None
+        self._resources = []
+        self._retained = threading.Event()
+
+    def request_cancel(self, reason: Literal["caller_cancelled", "runner_closed"]) -> CancelReceipt:
+        _choice(reason, ("caller_cancelled", "runner_closed"))
+        with self._lock:
+            if self._completion is not None:
+                return CancelReceipt("already_completed", None)
+            if self._intent is not None:
+                return CancelReceipt("repeated", self._intent)
+            now = time.monotonic_ns()
+            self._intent = CancelIntent(self.invocation_id, reason, now, now + _CANCEL_NS)
+            self._state = "ABORT_LATCHED"
+            for endpoint in self._endpoints:
+                endpoint.deliver(self._intent)
+            return CancelReceipt("accepted", self._intent)
+
+    def snapshot(self) -> InvocationSnapshot:
+        with self._lock:
+            incomplete = self._incomplete
+            if self._completion is None and self._thread is not None:
+                incomplete |= time.monotonic() >= self._cap()
+            return InvocationSnapshot(
+                "UNRESOLVED_OWNED" if incomplete else self._state,
+                self.invocation_id, self.role, self.request_digest, self.profile_digest,
+                self._intent, incomplete)
+
+    def _cap(self):
+        with self._lock:
+            end = float("inf")
+            if self._journal is not None:
+                end = min(self._journal["deadline"] + 12,
+                          self._journal.get("cleanup_deadline", float("inf")))
+            if self._intent is not None:
+                end = min(end, self._intent.deadline_ns / 1e9)
+            return end
+
+    def _register_pipe(self):
+        with self._lock:
+            read_fd, write_fd = os.pipe()
+            try:
+                endpoint = _CancelEndpoint(write_fd)
+            except BaseException:
+                os.close(read_fd); os.close(write_fd)
+                raise
+            self._endpoints.append(endpoint)
+            if self._intent is not None:
+                endpoint.deliver(self._intent)
+            return read_fd, endpoint
+
+    def _spawn(self, *args, **kwargs):
+        return _CreatorPopen(*args, _registry=self._children, **kwargs)
+
+    def _issue(self, *, not_started, terminal=None, reaps=()):
+        now = time.monotonic_ns()
+        if self._intent is not None:
+            trigger, end = self._intent.requested_ns, self._intent.deadline_ns
+        elif self._journal is not None and "cleanup_trigger" in self._journal:
+            trigger = int(self._journal["cleanup_trigger"] * 1e9)
+            end = int(self._cap() * 1e9)
+        else:
+            trigger, end = now, now + _CANCEL_NS
+        if not not_started:
+            end = min(end, int(self._cap() * 1e9))
+        self._authority.issuing = True
+        try:
+            ack = CleanupCompleteAck(
+                self.invocation_id, self.role, self.request_digest, self.profile_digest,
+                not_started, True, trigger, end, now, terminal, reaps,
+                not not_started, not not_started, self._authority)
+        finally:
+            self._authority.issuing = False
+        self._authority.ack = ack
+        return ack
+
+    def _seal(self, outcome, detail, *, not_started, terminal=None, reaps=()):
+        # Caller holds the same lock as cancellation, no await through issuance.
+        if not not_started:
+            if self._proof is None or self._thread is None or self._thread.is_alive():
+                raise _Failure("cleanup", "post-reap host proof absent")
+            actual = tuple((p.pid, p.returncode) for p in self._children
+                           if p._creator_waited and not p._creator_ambiguous)
+            if (actual != reaps or len(actual) != len(self._children)
+                    or any(endpoint.fd is not None for endpoint in self._endpoints)
+                    or self._host_read is not None):
+                raise _Failure("cleanup", "owned actors/endpoints remain at host seal")
+            job, frame, guardian_pid = self._proof
+            if terminal != hashlib.sha256(frame).hexdigest():
+                raise _Failure("cleanup", "terminal proof digest changed")
+            _, latest, _ = _validate_finalization(
+                self.executor.profile,
+                _read_owned(self.executor.profile.shared_state_dir / (
+                    "FINALIZATION-PENDING-" + self.invocation_id.hex + ".json")),
+                _parse_terminal_ack(frame), job=job, guardian_pid=guardian_pid, current=True,
+                suppress_outcome=True)
+            if "owned_cleanup_evidence" not in latest:
+                raise _Failure("cleanup", "owned canonical cleanup evidence absent")
+            self._host_checkpoint()
+            if self._seal_lock_fd is None:
+                raise _Failure("cleanup", "host admission ownership absent")
+            # Resource proof can outlive usable-result eligibility. Historical
+            # release checks remain intact; only the host may suppress output.
+            if self._intent is None and detail is None:
+                try:
+                    _success_remaining(self._journal)
+                except _Failure as exc:
+                    detail = exc.reason
+        ack = self._issue(not_started=not_started, terminal=terminal, reaps=reaps)
+        if not not_started:
+            try:
+                os.close(self._seal_lock_fd)
+            except BaseException:
+                self._authority.ack = None
+                raise
+            self._seal_lock_fd = None
+            self._resources.clear()
+        abort = None
+        if self._intent is not None:
+            abort = OutcomeAbort(self.invocation_id, self.role, "cancelled", "cancelled")
+        elif detail is not None:
+            abort = OutcomeAbort(self.invocation_id, self.role, "infrastructure", detail)
+        self._completion = InvocationCompletion(None if abort else outcome, abort, ack)
+        self._state = "HOST_SEALED"
+        return self._completion
+
+    def _start(self):
+        with self._lock:
+            if self._completion is not None or self._thread is not None or self._incomplete:
+                return
+            if self._intent is not None:
+                if time.monotonic_ns() > self._intent.deadline_ns:
+                    self._incomplete = True
+                    self._state = "UNRESOLVED_OWNED"
+                    return
+                try:
+                    self._seal(None, "cancelled", not_started=True)
+                except ValueError:
+                    self._incomplete = True
+                    self._state = "UNRESOLVED_OWNED"
+                return
+            try:
+                binding = build_execution_binding(
+                    self.executor.profile, source_root=installed_source_root())
+                if ({p.path for p in binding.program.sources} != set(_PROGRAM_PATHS)
+                        or {p.path for p in binding.scorer.sources} != set(_SCORER_PATHS)
+                        or "ptc/sql_isolation.py" not in {p.path for p in binding.controller_sources}):
+                    raise ValueError("incomplete source closure")
+            except (TypeError, ValueError, OSError, KeyError, RecursionError):
+                self._seal(None, "binding", not_started=True)
+                return
+            self._state = "ADMITTED"
+            self._thread = threading.Thread(
+                target=self._controller, args=(binding,),
+                name="sql-owned-controller-" + self.invocation_id.hex, daemon=False)
+            try:
+                self._thread.start()
+            except BaseException:
+                if self._thread.ident is not None or self._thread.is_alive():
+                    self.request_cancel("runner_closed")
+                else:
+                    self._thread = None
+                    self._seal(None, "start", not_started=True)
+
+    async def execute(self) -> InvocationCompletion[_T]:
+        original_cancel = None
+        self._start()
+        while True:
+            with self._lock:
+                if (self._completion is None and self._candidate is not None
+                        and self._thread is not None and not self._thread.is_alive()):
+                    self._thread.join(timeout=0)
+                    outcome, detail, terminal, reaps = self._candidate
+                    try:
+                        self._seal(outcome, detail, not_started=not reaps,
+                                   terminal=terminal, reaps=reaps)
+                    except Exception:
+                        self._candidate = None
+                        self._incomplete = True
+                completed = self._completion
+            if completed is not None:
+                if original_cancel is not None:
+                    raise original_cancel
+                return completed
+            try:
+                await asyncio.sleep(0.01)
+            except asyncio.CancelledError as exc:
+                if original_cancel is None:
+                    original_cancel = exc
+                self.request_cancel("caller_cancelled")
+
+    async def aclose(self) -> CleanupCompleteAck:
+        self.request_cancel("runner_closed")
+        return (await self.execute()).cleanup_ack
+
+    def _host_checkpoint(self):
+        if self._host_read is not None and not self._host_received:
+            if select.select([self._host_read], [], [], 0)[0]:
+                _acquire_cancel_frame(self._host_read, self.invocation_id, self._cap())
+                self._host_received = True
+        if time.monotonic() >= self._cap():
+            raise _Failure("cleanup", "owned cleanup budget exhausted")
+
+    def _wait_startup(self, process, write_control, *, emergency=False):
+        data = bytearray()
+        os.set_blocking(process.stdout.fileno(), False)
+        end = min(self._cap(), self._cap() if emergency else self._journal["deadline"],
+                  time.monotonic() + 4)
+        while time.monotonic() < end:
+            self._host_checkpoint()
+            ready, _, _ = select.select([process.stdout.fileno()], [], [], 0.01)
+            if ready:
+                chunk = os.read(process.stdout.fileno(), 5 - len(data))
+                if not chunk:
+                    raise _Failure("transport", "guardian startup EOF")
+                data.extend(chunk)
+                if b"\n" in data:
+                    if bytes(data) != b"ACK\n":
+                        raise _Failure("protocol", "guardian startup mismatch")
+                    os.write(write_control, b"G")
+                    return
+        raise _Failure("transport", "guardian startup deadline")
+
+    def _terminal(self, process, profile, job):
+        data = bytearray()
+        fd = process.stdout.fileno()
+        while True:
+            self._host_checkpoint()
+            try:
+                latest = _metadata(_read_owned(job / "journal.json"))
+            except _OwnedFileReplaced:
+                # Mutable journal snapshots are atomically replaced. Discard
+                # the unlinked bytes, keeping the same cap/checkpoint loop.
+                continue
+            self._latch_cleanup(latest)
+            ready, _, _ = select.select([fd], [], [], 0.01)
+            if not ready:
+                continue
+            chunk = os.read(fd, 4097 - len(data))
+            if not chunk:
+                raise _Failure("cleanup", "guardian EOF before terminal ACK")
+            data.extend(chunk)
+            if len(data) > 4096:
+                raise _Failure("protocol", "terminal ACK byte cap")
+            if b"\n" not in data:
+                continue
+            frame = bytes(data)
+            _parse_terminal_ack(frame)
+            # Commit validates the complete current transaction, not file presence.
+            self._latch_cleanup(_metadata(_read_owned(job / "journal.json")))
+            outcome = _commit_finalization(
+                profile, job, self._journal, process.pid, frame, suppress_outcome=True)
+            self._state = "DRAINED"
+            _owned_wait(process, self._cap)
+            if not process._creator_waited or process._creator_ambiguous or process.returncode != 0:
+                raise _Failure("cleanup", "actual guardian wait absent/unsuccessful")
+            self._host_checkpoint()
+            if os.read(fd, 1):
+                raise _Failure("protocol", "duplicate terminal output")
+            _validate_finalization(
+                profile, _read_owned(profile.shared_state_dir / (
+                    "FINALIZATION-PENDING-" + self.invocation_id.hex + ".json")),
+                _parse_terminal_ack(frame), job=job, guardian_pid=process.pid, current=True,
+                suppress_outcome=True)
+            self._proof = (job, frame, process.pid)
+            self._state = "GUARDIAN_REAPED"
+            return outcome, hashlib.sha256(frame).hexdigest()
+
+    def _latch_cleanup(self, latest):
+        if not isinstance(latest, dict):
+            raise ValueError("owned journal required")
+        if "cleanup_deadline" not in latest:
+            if "cleanup_deadline" in self._journal:
+                raise _Failure("cleanup", "owned cleanup budget disappeared")
+            return
+        trigger = _finalization_time(latest["cleanup_trigger"])
+        end = _finalization_time(latest["cleanup_deadline"])
+        if not 0 <= end - trigger <= 12:
+            raise _Failure("cleanup", "invalid owned cleanup budget")
+        with self._lock:
+            if (end > self._journal.get("cleanup_deadline", end)
+                    or trigger > self._journal.get("cleanup_trigger", trigger)):
+                raise _Failure("cleanup", "owned cleanup budget extended")
+            self._journal["cleanup_trigger"] = trigger
+            self._journal["cleanup_deadline"] = end
+
+    def _controller(self, binding):
+        profile, executor = self.executor.profile, self.executor
+        lock_fd = None
+        read_control = write_control = None
+        cancel_read = None
+        log = None
+        job = None
+        reservation = False
+        clean = False
+        try:
+            with self._lock:
+                if self._intent is not None:
+                    self._candidate = (None, "cancelled", None, ())
+                    return
+            _secure_directory(executor.state_dir)
+            _secure_directory(profile.shared_state_dir)
+            lock_fd = os.open(profile.shared_state_dir / "lock",
+                              os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+            self._resources.append(lock_fd)
+            _owned_stat(os.fstat(lock_fd))
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                with self._lock:
+                    self._candidate = (None, "admission", None, ())
+                clean = True
+                return
+            _admit_finalizations(profile)
+            nonce = self.invocation_id.hex
+            job = executor.state_dir / nonce
+            _secure_directory(job)
+            _stage_sources(profile, job)
+            _stage_database(self.db_path, self.request.db_sha256, job)
+            raw_profile = execution_profile_canonical_bytes(profile)
+            _write_owned(job / "profile.json", raw_profile, mode=0o400)
+            _write_owned(job / "request.wire",
+                         encode_wire_message(self.role, "request", self.request), mode=0o400)
+            config = _container_config(profile, self.role, job, nonce)
+            journal = {
+                "nonce": nonce, "name": "co-train-sql-" + nonce, "role": self.role, "cid": None,
+                "config": config, "config_sha256": hashlib.sha256(canonical_json_bytes(config)).hexdigest(),
+                "binding": execution_binding_to_dict(binding), "profile_sha256": self.profile_digest,
+                "request_sha256": self.request_digest, "db_sha256": self.request.db_sha256,
+                "controller": os.getpid(), "guardians": [], "bootstrap": None,
+                "actors_initialized": True, "create_attempted": False, "start_attempted": False,
+                "kill_attempted": False,
+                "deadline": time.monotonic() + limits_for(self.role).deadline_ms / 1000,
+                "state": "RESERVED"}
+            with self._lock:
+                self._journal = journal
+                self._state = "SPAWNING"
+            _save_journal(job, journal)
+            _event(job, "ACTORS_INITIALIZED", nonce=nonce)
+            # From the first reservation attempt on, failures retain ownership.
+            reservation = True
+            _write_owned(profile.shared_state_dir / "active.json",
+                         canonical_json_bytes({"nonce": nonce, "job": str(job)}) + b"\n")
+            _event(job, "RESERVATION_DURABLE", deadline=journal["deadline"])
+            self._host_read, _ = self._register_pipe()
+            log = open(job / "guardian.log", "xb", buffering=0)
+            self._resources.append(log)
+            for attempt in range(2):
+                read_control, write_control = os.pipe()
+                cancel_read, endpoint = self._register_pipe()
+                self._resources.extend((read_control, write_control, cancel_read))
+                before = len(self._children)
+                try:
+                    process = _spawn_owned_guardian(
+                        self, job, read_control, cancel_read, lock_fd, log, bool(attempt))
+                except BaseException:
+                    created = self._children[before:]
+                    if (len(created) != 1 or created[0]._creator_ambiguous
+                            or getattr(created[0], "stdout", None) is None
+                            or getattr(created[0], "pid", None) is None):
+                        raise
+                    # Retained object, not an unassigned local/PID. A live
+                    # normal bootstrap receives the runner-close intent and
+                    # follows the same canonical cleanup transaction.
+                    process = created[0]
+                    self.request_cancel("runner_closed")
+                if process not in self._children:
+                    raise _Failure("cleanup", "guardian creation not creator-registered")
+                # Parent must not keep a reader alive after actual inheritance.
+                os.close(cancel_read)
+                self._resources.remove(cancel_read)
+                cancel_read = None
+                try:
+                    self._state = "STARTING"
+                    self._wait_startup(process, write_control, emergency=bool(attempt))
+                    self._state = "RUNNING" if not attempt else "CLEANING"
+                    outcome, terminal = self._terminal(process, profile, job)
+                    break
+                except _Failure:
+                    if process.poll() is None:
+                        raise  # Never replace a live unresolved owner.
+                    _owned_wait(process, self._cap)
+                    latest = _metadata(_read_owned(job / "journal.json"))
+                    names = _shared_names(profile)
+                    if (attempt or latest.get("state") in ("CLOSED", "UNRESOLVED")
+                            or any(name.startswith((
+                                "FINALIZATION-PENDING-" + nonce,
+                                "FINALIZATION-COMMITTED-" + nonce,
+                                ".FINALIZATION-PENDING-" + nonce,
+                                ".FINALIZATION-COMMITTED-" + nonce)) for name in names)
+                            or "UNRESOLVED-" + nonce + ".json" in names
+                            or (job / "outcome.json").exists()):
+                        raise
+                    _event(job, "GUARDIAN_REAPED", pid=process.pid,
+                           returncode=process.returncode)
+                    process.stdout.close()
+                    self._latch_cleanup(latest)
+                    _begin_cleanup(latest)
+                    with self._lock:
+                        latest["cleanup_deadline"] = min(latest["cleanup_deadline"], self._cap())
+                        if self._intent is not None:
+                            latest["cleanup_trigger"] = min(
+                                latest["cleanup_trigger"], self._intent.requested_ns / 1e9)
+                        self._journal = latest
+                        journal = latest
+                        # Retire the old pipe under the producer's same lock.
+                        # Replacement gets independent readers and one delivery.
+                        endpoint.close()
+                        os.close(read_control); os.close(write_control)
+                        self._resources.remove(read_control)
+                        self._resources.remove(write_control)
+                        read_control = write_control = None
+                    _save_journal(job, latest)
+            reaps = tuple((p.pid, p.returncode) for p in self._children
+                          if p._creator_waited and not p._creator_ambiguous)
+            if len(reaps) != len(self._children):
+                raise _Failure("cleanup", "missing creator guardian wait")
+            detail = outcome.abort.reason if outcome.abort is not None else None
+            clean = True
+            with self._lock:
+                self._candidate = (outcome if detail is None else None, detail, terminal, reaps)
+        except BaseException as exc:
+            if not reservation and not self._children:
+                clean = True
+                with self._lock:
+                    self._candidate = (None, exc.reason if isinstance(exc, _Failure) else "binding",
+                                       None, ())
+            else:
+                # No inherited legacy finally-release, kill or post-ACK grace.
+                for child in self._children:
+                    try:
+                        if (not child._creator_waited and not child._creator_ambiguous
+                                and child.poll() is not None):
+                            _owned_wait(child, self._cap)
+                    except BaseException:
+                        pass  # No signal authority or completion claim follows.
+                with self._lock:
+                    self._incomplete = True
+                    self._state = "UNRESOLVED_OWNED"
+                # Preserve actual resources, control liveness and mitigation.
+                self._retained.wait()
+        finally:
+            if clean:
+                try:
+                    with self._lock:
+                        for endpoint in self._endpoints:
+                            endpoint.close()
+                        for fd in (self._host_read, read_control, write_control, cancel_read):
+                            if fd is not None:
+                                os.close(fd)
+                        self._host_read = None
+                        for child in self._children:
+                            if child._creator_waited and child.stdout is not None:
+                                child.stdout.close()
+                        if log is not None:
+                            log.close()
+                        if lock_fd is not None and self._children:
+                            self._seal_lock_fd = lock_fd
+                        elif lock_fd is not None:
+                            os.close(lock_fd)
+                        self._resources[:] = ([self._seal_lock_fd]
+                                              if self._seal_lock_fd is not None else [])
+                except BaseException:
+                    with self._lock:
+                        self._candidate = None
+                        self._incomplete = True
+                        self._state = "UNRESOLVED_OWNED"
+                    self._retained.wait()
+
+
+def _internal_guardian_entry():
+    owned = len(sys.argv) == 6 and sys.argv[1] == "--owned-guardian"
+    legacy = len(sys.argv) == 5 and sys.argv[1] == "--guardian"
+    if not (owned or legacy) or sys.argv[-1] not in ("normal", "emergency"):
         raise SystemExit("internal guardian entry point only")
-    _guardian(Path(sys.argv[2]), int(sys.argv[3]), sys.argv[4] == "emergency")
+    job = Path(sys.argv[2])
+    _path(job)
+    if owned and (str(job) != sys.argv[2] or ".." in job.parts or job == Path("/")):
+        raise SystemExit("canonical owned guardian job required")
+    raw_fds = sys.argv[3:5] if owned else sys.argv[3:4]
+    if any(re.fullmatch(r"[0-9]+", value) is None for value in raw_fds):
+        raise SystemExit("invalid internal guardian descriptors")
+    fds = tuple(int(value) for value in raw_fds)
+    if (any(fd < 3 for fd in fds) or len(set(fds)) != len(fds)
+            or owned and any(str(fd) != raw for fd, raw in zip(fds, raw_fds))):
+        raise SystemExit("invalid internal guardian descriptors")
+    for fd in fds:
+        if not stat.S_ISFIFO(os.fstat(fd).st_mode):
+            raise SystemExit("internal guardian pipe required")
+        if owned and fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE != os.O_RDONLY:
+            raise SystemExit("owned guardian read capability required")
+        os.set_inheritable(fd, False)
+    if owned:
+        _owned_guardian(job, fds[0], fds[1], sys.argv[-1] == "emergency")
+    else:
+        _guardian(job, fds[0], sys.argv[-1] == "emergency")
+
+
+if __name__ == "__main__":
+    _internal_guardian_entry()
