@@ -9,6 +9,10 @@ Re-execution runs the existing real bash/PTC channels. Its literal-True opt-in
 prevents accidents; it is NOT a shell sandbox. Only replay trusted scripts.
 Database checks require a stable caller-owned snapshot and do not defend against
 malicious concurrent ABA writes or provide filesystem snapshot isolation.
+
+Episode v2 is opt-in reporting-enabled scripted evidence bound to the shared
+contract in `train/sql_reporting`; the default v1 record, codec and replay paths
+never import reporting or QA modules.
 """
 
 from __future__ import annotations
@@ -23,8 +27,12 @@ import re
 import sqlite3
 import tempfile
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from train.sql_reporting import ReportingConfig, ReportingSnapshot
 
 from bench.score import ExResult, INVALID_STATUSES, execution_accuracy, extract_sql
 from bench.task import SqlTask
@@ -40,6 +48,8 @@ __all__ = [
 
 MAX_BYTES = 8 * 1024 * 1024
 SCHEMA_VERSION = 1
+REPORTING_VERSION = 2
+_REPORTING_FIELDS = ("reporting", "telemetry")
 SOURCE_PATHS = (
     "bench/score.py",
     "ptc/sql_arms.py",
@@ -95,7 +105,7 @@ def _digest(value, name):
 
 def _version(value):
     _integer(value, "schema_version", minimum=1)
-    if value != SCHEMA_VERSION:
+    if value not in (SCHEMA_VERSION, REPORTING_VERSION):
         raise ValueError("unsupported episode schema version")
 
 
@@ -231,6 +241,8 @@ class SqlEpisode:
     extracted_sql: str
     terminal_label: str
     result: ExResult
+    reporting: ReportingConfig | None = None
+    telemetry: ReportingSnapshot | None = None
 
     def __post_init__(self):
         _validate_episode(self)
@@ -260,6 +272,17 @@ def _validate_episode(episode):
     if type(episode.terminal_label) is not str or episode.terminal_label != "scripted_final":
         raise ValueError("unsupported scripted terminal label")
     _validate_result(episode.result)
+    if episode.schema_version == SCHEMA_VERSION:
+        if episode.reporting is not None or episode.telemetry is not None:
+            raise ValueError("legacy episodes cannot carry reporting fields")
+    else:
+        if episode.reporting is None or episode.telemetry is None:
+            raise ValueError("reported episodes require reporting and telemetry")
+        from train import sql_reporting
+        sql_reporting.validate_config(episode.reporting)
+        sql_reporting.validate_snapshot(
+            episode.telemetry, episode.reporting, arm=episode.arm,
+        )
 
 
 @dataclass(frozen=True)
@@ -268,6 +291,8 @@ class ReexecutionResult:
     result: ExResult
     observations_match: bool
     score_matches: bool
+    telemetry: ReportingSnapshot | None = None
+    telemetry_matches: bool | None = None
 
     def __post_init__(self):
         if type(self.observations) is not tuple:
@@ -277,15 +302,36 @@ class ReexecutionResult:
         _validate_result(self.result)
         if type(self.observations_match) is not bool or type(self.score_matches) is not bool:
             raise TypeError("match flags must be booleans")
+        if self.telemetry is None:
+            if self.telemetry_matches is not None:
+                raise ValueError("a telemetry match flag requires a snapshot")
+        else:
+            from train import sql_reporting
+            if type(self.telemetry) is not sql_reporting.ReportingSnapshot:
+                raise TypeError("telemetry must be a ReportingSnapshot")
+            if type(self.telemetry_matches) is not bool:
+                raise TypeError("telemetry_matches must be a boolean")
+
+
+def _episode_payload(episode):
+    payload = asdict(episode)
+    if episode.schema_version == SCHEMA_VERSION:
+        for name in _REPORTING_FIELDS:
+            del payload[name]
+    else:
+        from train import sql_reporting
+        payload["reporting"] = sql_reporting.config_to_dict(episode.reporting)
+        payload["telemetry"] = sql_reporting.snapshot_to_dict(episode.telemetry)
+    return payload
 
 
 def encode_episode(episode: SqlEpisode) -> bytes:
     """Canonical UTF-8 JSON, with a corruption digest of the canonical payload."""
     _validate_episode(episode)
-    payload = asdict(episode)
+    payload = _episode_payload(episode)
     digest = hashlib.sha256(_json_bytes(payload)).hexdigest()
     return _json_bytes({
-        "schema_version": SCHEMA_VERSION, "payload": payload, "sha256": digest,
+        "schema_version": episode.schema_version, "payload": payload, "sha256": digest,
     })
 
 
@@ -315,7 +361,19 @@ def _record_object(value, cls):
 
 
 def _from_payload(payload):
-    values = _record_object(payload, SqlEpisode).copy()
+    if type(payload) is not dict:
+        raise TypeError("episode payload must be an object")
+    version = payload.get("schema_version")
+    _version(version)
+    names = tuple(
+        field.name for field in fields(SqlEpisode)
+        if version == REPORTING_VERSION or field.name not in _REPORTING_FIELDS
+    )
+    values = _object(payload, names).copy()
+    if version == REPORTING_VERSION:
+        from train import sql_reporting
+        values["reporting"] = sql_reporting.config_from_dict(values["reporting"])
+        values["telemetry"] = sql_reporting.snapshot_from_dict(values["telemetry"])
     values["ids"] = EpisodeIds(**_record_object(values["ids"], EpisodeIds))
     instrument = _record_object(values["instrument"], InstrumentSettings).copy()
     if type(instrument["source_paths"]) is not list:
@@ -349,6 +407,8 @@ def decode_episode(data: bytes) -> SqlEpisode:
     _version(envelope["schema_version"])
     _digest(envelope["sha256"], "sha256")
     episode = _from_payload(envelope["payload"])
+    if episode.schema_version != envelope["schema_version"]:
+        raise ValueError("episode envelope/payload versions differ")
     expected = hashlib.sha256(_json_bytes(envelope["payload"])).hexdigest()
     if envelope["sha256"] != expected:
         raise ValueError("episode payload digest mismatch")
@@ -443,6 +503,16 @@ def _instrument(pair, cap):
     )
 
 
+def _reporting_instrument(pair, cap):
+    """The instrument bound to expanded reporting sources; opt-in paths only."""
+    from train import sql_reporting
+    instrument = _instrument(pair, cap)
+    paths, digest = sql_reporting.instrument_sources(
+        _ROOT, SOURCE_PATHS + ("train/sql_episodes.py",),
+    )
+    return replace(instrument, source_paths=paths, source_sha256=digest)
+
+
 def _admit_actions(actions, cap):
     if isinstance(actions, (str, bytes, bytearray)) or not isinstance(actions, Sequence):
         raise TypeError("actions must be a complete sequence of strings")
@@ -476,7 +546,7 @@ def _score(extracted_sql, task, instrument):
 
 def record_scripted(
     task: SqlTask, *, arm: str, actions: Sequence[str], final_answer: str,
-    ids: EpisodeIds,
+    ids: EpisodeIds, reporting: ReportingConfig | None = None,
 ) -> SqlEpisode:
     """Admit the entire script before building arms; FINAL is not an action."""
     _arm(arm)
@@ -492,17 +562,29 @@ def record_scripted(
         "task": task_payload, "ids": asdict(ids),
         "actions": admitted, "final_answer": final_answer,
     })
+    sql_reporting = None
+    channel = None
+    if reporting is not None:
+        from train import sql_reporting as reporting_contract
+        sql_reporting = reporting_contract
+        sql_reporting.validate_config(reporting)
+        channel = sql_reporting.make_channel(reporting)
     db_sha256 = _db_digest(task)
-    pair = sql_arms.build_sql_arms(task)
-    instrument = _instrument(pair, cap)
+    pair = (sql_arms.build_sql_arms(task) if channel is None
+            else sql_arms.build_sql_arms(task, qa=channel))
+    instrument = (_instrument(pair, cap) if channel is None
+                  else _reporting_instrument(pair, cap))
     extracted = extract_sql(final_answer)
     _check_database(task, db_sha256)
     observations = _run_actions(pair, arm, admitted)
     _check_database(task, db_sha256)
     result = _score(extracted, task, instrument)
     _check_database(task, db_sha256)
+    telemetry = (None if channel is None else sql_reporting.snapshot_channel(
+        channel, reporting, arm=arm))
     episode = SqlEpisode(
-        schema_version=SCHEMA_VERSION, origin="scripted", ids=ids, arm=arm,
+        schema_version=SCHEMA_VERSION if channel is None else REPORTING_VERSION,
+        origin="scripted", ids=ids, arm=arm,
         task_id=task.name, task_fingerprint=_fingerprint(task_payload),
         db_sha256=db_sha256, schema=pair.schema, prompt=pair.prompt(arm),
         backend=pair.backend.name, instrument=instrument,
@@ -512,24 +594,37 @@ def record_scripted(
         ),
         final_answer=final_answer, extracted_sql=extracted,
         terminal_label="scripted_final", result=result,
+        reporting=reporting, telemetry=telemetry,
     )
     encode_episode(episode)
     return episode
 
 
-def _bind(episode, task, ids):
+def _bind(episode, task, ids, expected_reporting=None):
     # Validate even manually constructed records, without relying on an envelope
     # or treating a recomputed self-digest as external evidence.
     encode_episode(episode)
     _validate_ids(ids)
+    sql_reporting = None
+    if episode.reporting is not None or expected_reporting is not None:
+        # The caller's independent expectation, never the artifact's own claim.
+        from train import sql_reporting as reporting_contract
+        sql_reporting = reporting_contract
+        sql_reporting.require_expected(episode.reporting, expected_reporting)
     task_payload = _task_payload(task)
     if episode.ids != ids:
         raise ValueError("caller IDs do not match episode IDs")
     if episode.task_id != task.name or episode.task_fingerprint != _fingerprint(task_payload):
         raise ValueError("current task does not match the recorded task")
     _check_database(task, episode.db_sha256)
-    pair = sql_arms.build_sql_arms(task)
-    current = _instrument(pair, guards.eval_max_turns())
+    channel = None
+    if episode.reporting is not None:
+        channel = sql_reporting.make_channel(episode.reporting)
+    pair = (sql_arms.build_sql_arms(task) if channel is None
+            else sql_arms.build_sql_arms(task, qa=channel))
+    cap = guards.eval_max_turns()
+    current = (_instrument(pair, cap) if channel is None
+               else _reporting_instrument(pair, cap))
     if current != episode.instrument:
         raise ValueError("current instrument sources/runtime/settings differ")
     if (
@@ -540,12 +635,15 @@ def _bind(episode, task, ids):
     if extract_sql(episode.final_answer) != episode.extracted_sql:
         raise ValueError("recorded extracted SQL disagrees with final answer")
     _check_database(task, episode.db_sha256)
-    return pair
+    return pair, channel
 
 
-def rescore_sql(episode: SqlEpisode, task: SqlTask, *, ids: EpisodeIds) -> ExResult:
+def rescore_sql(
+    episode: SqlEpisode, task: SqlTask, *, ids: EpisodeIds,
+    expected_reporting: ReportingConfig | None = None,
+) -> ExResult:
     """Run protected final/gold SQL only, never any recorded backend action."""
-    _bind(episode, task, ids)
+    _bind(episode, task, ids, expected_reporting)
     result = _score(episode.extracted_sql, task, episode.instrument)
     _check_database(task, episode.db_sha256)
     return result
@@ -553,20 +651,31 @@ def rescore_sql(episode: SqlEpisode, task: SqlTask, *, ids: EpisodeIds) -> ExRes
 
 def reexecute_sql(
     episode: SqlEpisode, task: SqlTask, *, ids: EpisodeIds,
-    allow_execution=False,
+    allow_execution=False, expected_reporting: ReportingConfig | None = None,
 ) -> ReexecutionResult:
     """Replay trusted actions once through a fresh arm, without normalization."""
     if allow_execution is not True:
         raise ValueError("re-execution requires allow_execution is True")
-    pair = _bind(episode, task, ids)
+    pair, channel = _bind(episode, task, ids, expected_reporting)
     observations = _run_actions(
         pair, episode.arm, tuple(step.action for step in episode.steps),
     )
     _check_database(task, episode.db_sha256)
     result = _score(episode.extracted_sql, task, episode.instrument)
     _check_database(task, episode.db_sha256)
+    telemetry = None
+    telemetry_matches = None
+    if channel is not None:
+        from train import sql_reporting
+        telemetry = sql_reporting.snapshot_channel(
+            channel, episode.reporting, arm=episode.arm,
+        )
+        telemetry_matches = (
+            sql_reporting.snapshots_equal(telemetry, episode.telemetry) is True
+        )
     return ReexecutionResult(
         observations=observations, result=result,
         observations_match=observations == tuple(step.observation for step in episode.steps),
         score_matches=result == episode.result,
+        telemetry=telemetry, telemetry_matches=telemetry_matches,
     )

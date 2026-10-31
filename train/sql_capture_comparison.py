@@ -29,7 +29,7 @@ OutcomeState = Literal[
 Change = Literal["improvement", "regression", "tie", "unavailable"]
 _PAIR_FIELDS = (
     "task_id", "task_fingerprint", "db_sha256", "schema", "prompt", "backend",
-    "instrument", "schema_version", "execution_binding",
+    "instrument", "schema_version", "execution_binding", "reporting",
 )
 
 

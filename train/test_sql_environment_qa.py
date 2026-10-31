@@ -335,7 +335,7 @@ def test_default_no_qa_import(tmp_path):
         "print('CHILD_OK')\n"
     )
     result = subprocess.run(
-        [sys.executable, "-I", "-c", child, str(db)],
+        [sys.executable, "-I", "-B", "-c", child, str(db)],
         capture_output=True, text=True, timeout=60,
     )
     assert result.returncode == 0, result.stderr

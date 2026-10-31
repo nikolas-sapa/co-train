@@ -1,3 +1,30 @@
+# Source-bound reporting evidence, 2026-10-30
+
+Base `aefe666`, branch `feat/sql-reporting-evidence`. Episode v2/capture v3
+bind explicit reporting configuration and bounded telemetry to current sources,
+task/database/prompt and caller IDs. Expected configuration is caller-retained,
+not artifact-derived. Capture sessions rebind before actions/final submission;
+diagnostic snapshots survive invalidation. Replay reports telemetry matching
+separately from observation/score matching. Legacy wire shapes/defaults stay.
+Reporting plus isolated executors refuses before binding/dispatch.
+
+Actual offline evidence: 3,393 existing passes (43 files, 350.64s, 10 fork
+warnings), then 170 new passes (1.79s). The 688 legacy and final 19 environment
+passes overlap the existing selection. Not a full repository/native result.
+Controls: baseline/restored 26 GREEN each; expected-config bypass 9 RED,
+source bypass 12 RED (four prompt checks still GREEN), telemetry bypass one RED.
+Eight source/test hashes unchanged. Initial test fixture failures and the
+control-classification correction are recorded in the
+[evidence](docs/2026-10-30-sql-reporting-evidence.md). Security/Python approved.
+
+No gates relaxed, historical receipts repinned, model/training/native execution
+or current BIRD baseline. Stage 4 remains PARTIAL: production verifier routing,
+framework/CLI activation, isolated reporting and actual TRL adapter remain.
+Next offline stage-5 work is draw/gold-validation preparation with fixture-only
+checks, not a real corpus experiment. Stages 5/6 remain PARTIAL/BLOCKED.
+
+Earlier checkpoints retained below.
+
 # Task-bound SQL environment reporting, 2026-10-30
 
 Base `0a14352`, feature branch `feat/sql-environment-qa`. Optional keyword-only

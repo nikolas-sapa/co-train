@@ -13,7 +13,7 @@ engineering evidence, not completion of those research milestones.
 
 | Stage | Current status and existing work | Remaining gap / next priority |
 |---|---|---|
-| 4: environment + escalation channel | **PARTIAL.** Opt-in reporting is implemented in the in-process PTC catalog and the actual shell runner, plus constructor-only `qa_factory` on `PTCHarness.launch` and keyword-only `qa` on the task-bound SQL environment; a controlled real-SQLite shortcut fixture exists. See the [escalation evidence](docs/2026-10-30-agent-defect-escalation.md). | Wire the remaining pieces before live experiments: production verifiers-bash routing, isolated transport/wire reporting, sealed capture and SqlEpisode configuration binding, and TRL rollout/training integration. Launch activation is constructor-only, not a CLI/config flag; shell telemetry remains forgeable. |
+| 4: environment + escalation channel | **PARTIAL.** Opt-in reporting reaches both SQL arms, `PTCHarness.launch` and the task-bound SQL environment. [Episode v2 / capture v3](docs/2026-10-30-sql-reporting-evidence.md) bind configuration, sources and bounded telemetry; a controlled real-SQLite shortcut fixture exists. See the [escalation evidence](docs/2026-10-30-agent-defect-escalation.md). | Production verifiers-bash routing, framework/CLI activation, isolated reporting transport/binding and actual TRL rollout/training integration remain. Launch activation is constructor-only; shell telemetry remains forgeable. |
 | 5: two harnesses, measure untrained first | **PARTIAL.** Both bash/PTC SQL harnesses exist behind the [parity contract](docs/harness-parity.md). The [retired `ledger` premise check](docs/results-untrained.md) ran and did not reproduce the published gap. The paired untrained baseline on the current BIRD taskset/frontier is **missing, not zero**. | Next actionable order per [stage-5 readiness](docs/2026-10-30-baseline-readiness.md): offline exact draw (`bench.suite.select` seed/counts), `validate_golds()` under recorded bounds, then draw provenance — before any authorized matched-G baseline rollouts. Match information, tools, budgets and metric before training; retain every planned task and distinguish error categories/invalid gold. |
 | 6: co-train, then cross-harness evaluation | **BLOCKED, not complete.** [Training guards](train/guards.py) require the absent `bench/frontier/manifest.json`; the [main CLI](train/grpo_ptc.py) still raises `NotImplementedError` after real preflight. | Satisfy the existing gates unchanged — legitimate frontier measurements (a real manifest), compatible stack/template and completed/verified CLI integration — before preregistered training and cross-harness evaluation. Separate MLX updates do not establish this result. |
 
@@ -21,6 +21,9 @@ See [stage 4 reporting usage and evidence](docs/2026-10-30-agent-defect-escalati
 at `ae2323d` the recorded evidence is 813 targeted passes (14 launch-lifecycle
 tests plus 799 existing), two controls that went RED and were restored, and no
 full-suite rerun — increments are recorded separately, not as a post-feature suite.
+The [reporting-evidence follow-on](docs/2026-10-30-sql-reporting-evidence.md)
+records 3,393 existing and 170 new passes in separate runs, plus three
+guard-bypass controls that failed and passed after restoration.
 
 The [frontier measurement source](bench/frontier/probe.py) and
 [taskset contract](docs/bench-taskset.md) describe baseline preparation, not a
@@ -182,7 +185,7 @@ above for the separate SQL and MLX checkpoints.
 | **1 — adversarial non-solvers + the gate** | ✅ done, 51 tests | `src/cotrain/`, `tests/` |
 | **2 — prove the loop on free hardware** | ✅ done — **`STEP 2 PASS`, fp16 stable on T4** | `step2/`, result in `step2/results/` |
 | **3 — verifier before environment** | ✅ **built** — BIRD-SQL eval harness + co-training pipeline, probe run, gate shut | `bench/`, `train/` |
-| 4 — environment + escalation channel | **PARTIAL** — opt-in reporting in the PTC catalog and real shell runner, constructor-only `qa_factory` on `PTCHarness.launch`, and keyword-only `qa` on the task-bound SQL environment; production routing, isolated-wire reporting, sealed capture and TRL rollout/training integration remain | [escalation evidence](docs/2026-10-30-agent-defect-escalation.md), [current table](#current-research-milestones-4-6) |
+| 4 — environment + escalation channel | **PARTIAL**: both arms, launch/environment reporting and source-bound episode v2/capture v3 exist; production verifier routing, framework/CLI activation, isolated reporting and actual TRL integration remain | [reporting evidence](docs/2026-10-30-sql-reporting-evidence.md), [escalation evidence](docs/2026-10-30-agent-defect-escalation.md), [current table](#current-research-milestones-4-6) |
 | 5 — two harnesses, measure untrained first | **PARTIAL** — both harnesses exist under the parity contract; the BIRD paired untrained baseline is missing, not zero | [baseline readiness](docs/2026-10-30-baseline-readiness.md), [parity contract](docs/harness-parity.md) |
 | 6 — co-train, then cross-harness eval | **BLOCKED** — guards require the absent `bench/frontier/manifest.json`; the main CLI still raises `NotImplementedError` after preflight | [`train/guards.py`](train/guards.py), [`train/grpo_ptc.py`](train/grpo_ptc.py) |
 

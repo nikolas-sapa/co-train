@@ -2,9 +2,10 @@
 
 Stage 4 remains PARTIAL. The opt-in in-process PTC catalog and actual shell
 runner now carry structured reports and controlled shortcut telemetry.
-Production verifiers bash routing, isolated-wire reporting, capture/SqlEpisode
-configuration binding and TRL integration remain unfinished. Next: cover those
-routes and bind reporting configuration before live experiments. Priority stays
+The [source-bound evidence follow-on](2026-10-30-sql-reporting-evidence.md)
+adds opt-in episode v2/capture v3 configuration and telemetry binding.
+Production verifiers bash routing, framework/CLI activation, isolated reporting
+and actual TRL integration remain unfinished. Cover those before live experiments. Priority stays
 4 -> 5 -> 6; the current BIRD paired baseline is absent and stage 6 is blocked.
 Further SQL-native acceptance is not a stage 4 prerequisite.
 

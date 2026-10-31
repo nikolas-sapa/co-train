@@ -358,6 +358,11 @@ class QaChannel:
     # -- snapshots ------------------------------------------------------------
 
     @property
+    def shortcut_ids(self) -> tuple[str, ...]:
+        """The caller-allowlisted shortcut IDs as a sorted immutable tuple."""
+        return tuple(sorted(self._shortcut_ids))
+
+    @property
     def events(self) -> tuple:
         """All stored events, ordered by sequence, as read-only copies."""
         with self._lock:

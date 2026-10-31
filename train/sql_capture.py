@@ -5,6 +5,10 @@ or an OS sandbox. Caller IDs and payload hashes are not authentication. Selected
 on-disk sources/settings are audit bindings, not in-memory-code attestation.
 Database binding requires a stable caller-owned snapshot, not malicious ABA
 mutation or filesystem snapshot isolation. No native tools are registered here.
+
+Capture v3 is opt-in reporting-enabled in-process evidence bound to the shared
+contract in `train/sql_reporting`; default v1 and isolated v2 records, codecs
+and sessions never import reporting or QA modules.
 """
 
 from __future__ import annotations
@@ -14,6 +18,10 @@ import json
 import threading
 from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from train.sql_reporting import ReportingConfig, ReportingSnapshot
 
 from bench.score import ExResult
 from bench.task import SqlTask
@@ -29,6 +37,7 @@ __all__ = [
 MAX_BYTES = evidence.MAX_BYTES
 MAX_EXTRACTION_WORK_BYTES = 64 * 1024 * 1024
 SCHEMA_VERSION = 1
+REPORTING_VERSION = 3
 FORMAT = "sql_execution_capture"
 _EXTRA_SOURCES = (
     "train/sql_capture.py",
@@ -40,10 +49,11 @@ _EXTRA_SOURCES = (
 SOURCE_PATHS = evidence.SOURCE_PATHS + _EXTRA_SOURCES
 _ROOT = Path(__file__).resolve().parents[1]
 _ISOLATED_FIELDS = ("execution_binding", "runtime_receipts", "execution_abort")
+_REPORTING_FIELDS = ("reporting", "telemetry")
 
 
 def _capture_version(value):
-    if type(value) is not int or value not in (1, 2):
+    if type(value) is not int or value not in (1, 2, 3):
         raise ValueError("unsupported capture schema version")
 
 
@@ -97,6 +107,8 @@ class SqlCapture:
     execution_binding: isolation.ExecutionBinding | None = None
     runtime_receipts: tuple[isolation.RuntimeReceipt, ...] = ()
     execution_abort: isolation.AbortInfo | None = None
+    reporting: ReportingConfig | None = None
+    telemetry: ReportingSnapshot | None = None
 
     def __post_init__(self):
         _validate_capture(self)
@@ -111,7 +123,19 @@ def _validate_capture(capture):
     if capture.schema_version == 1:
         if capture.execution_binding is not None or capture.runtime_receipts or capture.execution_abort is not None:
             raise ValueError("v1 captures require empty isolation defaults")
+        if capture.reporting is not None or capture.telemetry is not None:
+            raise ValueError("v1 captures cannot carry reporting fields")
+    elif capture.schema_version == 3:
+        if capture.execution_binding is not None or capture.runtime_receipts or capture.execution_abort is not None:
+            raise ValueError("v3 captures omit isolated-only fields")
+        from train import sql_reporting
+        sql_reporting.validate_config(capture.reporting)
+        sql_reporting.validate_snapshot(
+            capture.telemetry, capture.reporting, arm="ptc",
+        )
     else:
+        if capture.reporting is not None or capture.telemetry is not None:
+            raise ValueError("v2 captures cannot carry reporting fields")
         isolation.execution_binding_to_dict(capture.execution_binding)
         for receipt in capture.runtime_receipts:
             isolation.runtime_receipt_to_dict(receipt)
@@ -186,9 +210,11 @@ def _validate_capture(capture):
 def _capture_payload(capture):
     payload = asdict(capture)
     if capture.schema_version == 1:
-        for name in _ISOLATED_FIELDS:
+        for name in _ISOLATED_FIELDS + _REPORTING_FIELDS:
             del payload[name]
-    else:
+    elif capture.schema_version == 2:
+        for name in _REPORTING_FIELDS:
+            del payload[name]
         payload["execution_binding"] = isolation.execution_binding_to_dict(capture.execution_binding)
         payload["runtime_receipts"] = [
             isolation.runtime_receipt_to_dict(r) for r in capture.runtime_receipts
@@ -197,6 +223,12 @@ def _capture_payload(capture):
             None if capture.execution_abort is None
             else isolation.abort_info_to_dict(capture.execution_abort)
         )
+    else:
+        for name in _ISOLATED_FIELDS:
+            del payload[name]
+        from train import sql_reporting
+        payload["reporting"] = sql_reporting.config_to_dict(capture.reporting)
+        payload["telemetry"] = sql_reporting.snapshot_to_dict(capture.telemetry)
     return payload
 
 
@@ -217,9 +249,16 @@ def _from_payload(payload):
         raise TypeError("capture payload must be an object")
     version = payload.get("schema_version")
     _capture_version(version)
-    names = tuple(f.name for f in fields(SqlCapture)
-                  if version == 2 or f.name not in _ISOLATED_FIELDS)
+    names = tuple(
+        f.name for f in fields(SqlCapture)
+        if (version == 2 or f.name not in _ISOLATED_FIELDS)
+        and (version == 3 or f.name not in _REPORTING_FIELDS)
+    )
     values = evidence._object(payload, names).copy()
+    if version == 3:
+        from train import sql_reporting
+        values["reporting"] = sql_reporting.config_from_dict(values["reporting"])
+        values["telemetry"] = sql_reporting.snapshot_from_dict(values["telemetry"])
     if version == 2:
         values["execution_binding"] = isolation.execution_binding_from_dict(values["execution_binding"])
         if type(values["runtime_receipts"]) is not list:
@@ -284,11 +323,15 @@ def decode_capture(data: bytes) -> SqlCapture:
     return capture
 
 
-def _instrument(pair, cap, executor=None):
+def _instrument(pair, cap, executor=None, reporting=None):
     # Reuse the existing instrument and its selected-source digest, then bind
     # the additional actual capture/environment/budget owners as well.
     _execution_binding(executor)
     instrument = evidence._instrument(pair, cap)
+    if reporting is not None:
+        from train import sql_reporting
+        paths, digest = sql_reporting.instrument_sources(_ROOT, SOURCE_PATHS)
+        return replace(instrument, source_paths=paths, source_sha256=digest)
     try:
         extra = tuple(
             (name, hashlib.sha256((_ROOT / name).read_bytes()).hexdigest())
@@ -302,10 +345,23 @@ def _instrument(pair, cap, executor=None):
     return replace(instrument, source_paths=SOURCE_PATHS, source_sha256=digest)
 
 
-def _bind(capture, task, ids, executor=None):
+def _bind(capture, task, ids, executor=None, expected_reporting=None):
     encode_capture(capture)
+    sql_reporting = None
+    if capture.reporting is not None or expected_reporting is not None:
+        # The caller's independent expectation, never the artifact's own claim.
+        # Reporting is in-process only: refuse before any executor is inspected.
+        from train import sql_reporting as reporting_contract
+        sql_reporting = reporting_contract
+        sql_reporting.require_expected(capture.reporting, expected_reporting)
+        if executor is not None:
+            raise ValueError("reporting captures cannot bind an isolated executor")
     binding = _execution_binding(executor)
-    if capture.schema_version != (1 if executor is None else 2) or capture.execution_binding != binding:
+    expected_version = (
+        REPORTING_VERSION if capture.reporting is not None
+        else SCHEMA_VERSION if executor is None else 2
+    )
+    if capture.schema_version != expected_version or capture.execution_binding != binding:
         raise ValueError("capture isolation binding/executor differs")
     evidence._validate_ids(ids)
     payload = evidence._task_payload(task)
@@ -317,8 +373,14 @@ def _bind(capture, task, ids, executor=None):
     ):
         raise ValueError("current task does not match the captured task")
     evidence._check_database(task, capture.db_sha256)
-    pair = evidence.sql_arms.build_sql_arms(task)
-    if _instrument(pair, guards.eval_max_turns(), executor) != capture.instrument:
+    channel = None
+    if capture.reporting is not None:
+        channel = sql_reporting.make_channel(capture.reporting)
+    pair = (evidence.sql_arms.build_sql_arms(task) if channel is None
+            else evidence.sql_arms.build_sql_arms(task, qa=channel))
+    if _instrument(
+        pair, guards.eval_max_turns(), executor, reporting=capture.reporting,
+    ) != capture.instrument:
         raise ValueError("current capture sources/runtime/settings differ")
     if (
         pair.schema != capture.schema or pair.backend.name != capture.backend
@@ -408,18 +470,45 @@ def _score_outcome(executor, sql, capture, task):
 class _CaptureSession:
     """Synchronous host session; per-session locking serializes submissions."""
 
-    def __init__(self, task, ids, capture, environment, executor=None):
+    def __init__(self, task, ids, capture, environment, executor=None,
+                 channel=None, reporting=None):
         self._task = task
         self._ids = ids
         self._capture = capture
         self._environment = environment
         self._executor = executor
+        self._channel = channel
+        self._reporting = reporting
         self._state = "active"
         self._lock = threading.Lock()
 
     @property
     def prompt(self) -> str:
         return self._capture.prompt
+
+    @property
+    def reporting_snapshot(self):
+        """Current validated diagnostic telemetry, or None on disabled sessions.
+
+        Read-only even on finished, aborted or invalidated sessions; it never
+        performs an action, scorer call or re-seal of the retained capture.
+        """
+        if self._channel is None:
+            return None
+        from train import sql_reporting
+        return sql_reporting.snapshot_channel(
+            self._channel, self._reporting, arm="ptc",
+        )
+
+    def _with_telemetry(self, capture):
+        if self._channel is None:
+            return capture
+        from train import sql_reporting
+        return replace(
+            capture, telemetry=sql_reporting.snapshot_channel(
+                self._channel, self._reporting, arm="ptc",
+            ),
+        )
 
     def _require_active(self):
         if self._state != "active":
@@ -445,7 +534,10 @@ class _CaptureSession:
             self._require_active()
             try:
                 self._admit_text(code, "code")
-                _bind(self._capture, self._task, self._ids, self._executor)
+                _bind(
+                    self._capture, self._task, self._ids, self._executor,
+                    expected_reporting=self._reporting,
+                )
                 if self._executor is not None:
                     return self._isolated_step(code)
                 environment = self._environment
@@ -464,6 +556,7 @@ class _CaptureSession:
                 capture = replace(self._capture, **{
                     name: getattr(self._capture, name) + (step,),
                 })
+                capture = self._with_telemetry(capture)
                 encode_capture(capture)
                 self._capture = capture
                 return observation
@@ -503,7 +596,10 @@ class _CaptureSession:
             self._require_active()
             try:
                 self._admit_text(final_answer, "final_answer")
-                _bind(self._capture, self._task, self._ids, self._executor)
+                _bind(
+                    self._capture, self._task, self._ids, self._executor,
+                    expected_reporting=self._reporting,
+                )
                 extracted = _bounded_extract_sql(final_answer)
                 if self._executor is not None:
                     outcome = _score_outcome(self._executor, extracted, self._capture, self._task)
@@ -532,6 +628,7 @@ class _CaptureSession:
                     self._capture, terminal_label="final_submitted",
                     final_answer=final_answer, extracted_sql=extracted, result=result,
                 )
+                capture = self._with_telemetry(capture)
                 encode_capture(capture)
                 self._capture = capture
                 self._state = "final_submitted"
@@ -545,10 +642,12 @@ class _CaptureSession:
         with self._lock:
             self._require_active()
             try:
-                encode_capture(self._capture)
+                capture = self._with_telemetry(self._capture)
+                encode_capture(capture)
+                self._capture = capture
                 self._state = "aborted"
                 self._environment = None
-                return self._capture
+                return capture
             except BaseException:
                 self._invalidate()
                 raise
@@ -558,10 +657,21 @@ def start_capture(
     task: SqlTask, *, ids: evidence.EpisodeIds, allow_execution=False,
     executor: isolation.PilotExecutor | None = None,
     expected_db_sha256: str | None = None,
+    reporting: ReportingConfig | None = None,
 ) -> _CaptureSession:
     """Admit trusted execution explicitly, then bind a fresh canonical environment."""
     if allow_execution is not True:
         raise ValueError("capture requires allow_execution is True")
+    sql_reporting = None
+    channel = None
+    if reporting is not None:
+        # Reporting is in-process only: refuse before the executor is inspected.
+        if executor is not None:
+            raise ValueError("reporting captures cannot bind an isolated executor")
+        from train import sql_reporting as reporting_contract
+        sql_reporting = reporting_contract
+        sql_reporting.validate_config(reporting)
+        channel = sql_reporting.make_channel(reporting)
     if expected_db_sha256 is not None:
         evidence._digest(expected_db_sha256, "expected_db_sha256")
     binding = _execution_binding(executor)
@@ -573,42 +683,57 @@ def start_capture(
     else:
         db_sha256 = expected_db_sha256
         evidence._check_database(task, db_sha256)
-    pair = evidence.sql_arms.build_sql_arms(task)
+    pair = (evidence.sql_arms.build_sql_arms(task) if channel is None
+            else evidence.sql_arms.build_sql_arms(task, qa=channel))
     if executor is None:
-        prompt, environment = grpo_ptc.sql_environment(task)
+        prompt, environment = (
+            grpo_ptc.sql_environment(task) if channel is None
+            else grpo_ptc.sql_environment(task, qa=channel)
+        )
     else:
         prompt, environment = pair.prompt("ptc"), None
     cap = guards.eval_max_turns()
-    instrument = _instrument(pair, cap, executor)
+    instrument = _instrument(pair, cap, executor, reporting=reporting)
     if prompt != pair.prompt("ptc") or (environment is not None and environment.max_turns != cap):
         raise ValueError("canonical execution environment differs from capture binding")
     evidence._check_database(task, db_sha256)
+    telemetry = (None if channel is None else sql_reporting.snapshot_channel(
+        channel, reporting, arm="ptc"))
     capture = SqlCapture(
-        schema_version=SCHEMA_VERSION if executor is None else 2, origin="incremental_execution",
+        schema_version=(
+            SCHEMA_VERSION if executor is None and channel is None
+            else REPORTING_VERSION if channel is not None else 2
+        ),
+        origin="incremental_execution",
         ids=replace(ids), arm="ptc", task_id=task.name,
         task_fingerprint=evidence._fingerprint(payload), db_sha256=db_sha256,
         schema=pair.schema, prompt=prompt, backend=pair.backend.name,
         instrument=instrument, steps=(), refusals=(), final_answer=None,
         extracted_sql=None, terminal_label="aborted", result=None,
         execution_binding=binding,
+        reporting=reporting, telemetry=telemetry,
     )
     encode_capture(capture)
     if expected_db_sha256 is not None:
         if capture.db_sha256 != expected_db_sha256:
             raise ValueError("constructed capture differs from expected database snapshot")
         evidence._check_database(task, expected_db_sha256)
-    return _CaptureSession(task, ids, capture, environment, executor)
+    return _CaptureSession(
+        task, ids, capture, environment, executor,
+        channel=channel, reporting=reporting,
+    )
 
 
 def rescore_capture(
     capture: SqlCapture, task: SqlTask, *, ids: evidence.EpisodeIds,
     executor: isolation.PilotExecutor | None = None,
+    expected_reporting: ReportingConfig | None = None,
 ) -> ExResult:
     """Recheck external bindings, then score final/gold SQL, never recorded actions."""
     _validate_capture(capture)
     if capture.terminal_label != "final_submitted":
         raise ValueError("aborted capture has no submitted final to rescore")
-    _bind(capture, task, ids, executor)
+    _bind(capture, task, ids, executor, expected_reporting)
     if executor is not None:
         outcome = _score_outcome(executor, capture.extracted_sql, capture, task)
         if outcome.abort is not None:
