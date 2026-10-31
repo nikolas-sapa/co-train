@@ -43,6 +43,9 @@ from cotrain_bash_qa_env import run_bash_qa_eval
 episodes = await run_bash_qa_eval(config)
 ```
 
+The [project JSON CLI](2026-10-31-bash-qa-eval-cli.md) delegates an explicit
+config file to this same API; it does not enable stock `vf-eval`.
+
 The SDK still creates/scores episodes, assigns its run identity and writes its
 normal output. No alternate evaluation loop, JSONL writer or completion policy.
 

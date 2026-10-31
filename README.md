@@ -43,6 +43,10 @@ passes (100 unit, six startup, eight real SDK evaluation integrations), 161
 existing passes separately, and four actual intended RED/restored controls.
 Project `run_bash_qa_eval` preserves the SDK episode/scoring/JSONL lifecycle;
 bare stock CLI/direct SDK admission remains unsupported.
+The [project JSON CLI](docs/2026-10-31-bash-qa-eval-cli.md) now delegates an
+explicit EvalConfig file to that same wrapper: 125 affected passes, including
+11 new CLI cases, plus actual delegation RED/restored GREEN. No implicit
+model/budget choices or stock `vf-eval` support.
 
 The [frontier measurement source](bench/frontier/probe.py) and
 [taskset contract](docs/bench-taskset.md) describe baseline preparation, not a

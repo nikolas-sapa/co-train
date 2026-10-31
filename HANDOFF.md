@@ -1,3 +1,29 @@
+# Main integration and project evaluation CLI, 2026-10-31
+
+User authorized main integration. Normal merge `e5f013e` parents
+`0a14352` / `5b8cabc` retains all seven reviewed feature commits.
+Combined affected suites: 1,195 passed in 55.66s. Merge tree exactly matched
+the tested feature; remote main verified, no force push or gate changes.
+
+Next increment on `feat/bash-qa-eval-cli`: root `cotrain_bash_qa_eval.py`
+requires one explicit JSON config and delegates the exact validated EvalConfig
+once through existing `run_bash_qa_eval`. Lazy imports keep help framework-free.
+Narrow file/schema errors omit raw input; execution errors propagate unchanged.
+No new defaults, writer or result policy; project CLI, not stock vf-eval.
+125 affected passes in 10.66s (11 new CLI, 114 existing eval cases), including
+actual runpy entrypoint -> SDK episode Agent/Bash child/tool gate/SDK JSONL.
+Actual delegation suppression: one hit, intended call-phase assertion RED,
+baseline/restored GREEN, seven source-bound hashes unchanged.
+Architect/Python/security static APPROVE; runtime evidence parent-executed.
+See [contract](spec/bash-qa-eval-cli.md) and
+[usage/evidence](docs/2026-10-31-bash-qa-eval-cli.md).
+
+Only approved temporary loopback synthetic fixtures. No provider/corpus,
+training/native campaign, downloads/installs, SDK edit, gate relaxation,
+historical repinning or app deployment. Research remains 4 PARTIAL /
+5 PARTIAL / 6 BLOCKED. Earlier dated checkpoints retain their exact bytes;
+their earlier no-main-merge statements describe the historical state.
+
 # Bash QA evaluation integration, 2026-10-31
 
 Base `95a4596`, branch `feat/bash-qa-eval`. New flat Env
