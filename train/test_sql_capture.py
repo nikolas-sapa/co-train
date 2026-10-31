@@ -738,8 +738,10 @@ def test_canonical_frozen_roundtrip_and_distinct_scripted_format(task):
     assert envelope["format"] == FORMAT
     assert envelope["schema_version"] == capture.schema_version == 1
     assert encoded == _canonical(envelope)
+    assert capture.reporting is None and capture.telemetry is None
     historical = dataclasses.asdict(capture)
-    for name in ("execution_binding", "runtime_receipts", "execution_abort"):
+    for name in ("execution_binding", "runtime_receipts", "execution_abort",
+                 "reporting", "telemetry"):
         del historical[name]
     assert envelope["payload"] == json.loads(_canonical(historical))
     assert envelope["sha256"] == hashlib.sha256(_canonical(envelope["payload"])).hexdigest()
@@ -1336,8 +1338,10 @@ def test_isolated_closed_v2_and_byte_exact_v1(task, tmp_path, monkeypatch):
     api = _api()
     assert "executor" in inspect.signature(api.start_capture).parameters, "v2 codec missing"
     legacy = _finished(api, task)
+    assert legacy.reporting is None and legacy.telemetry is None
     historical = dataclasses.asdict(legacy)
-    for name in ("execution_binding", "runtime_receipts", "execution_abort"):
+    for name in ("execution_binding", "runtime_receipts", "execution_abort",
+                 "reporting", "telemetry"):
         historical.pop(name)
     assert api.encode_capture(legacy) == _envelope(historical)
     for name, value in (("execution_binding", None), ("runtime_receipts", []),

@@ -1,3 +1,197 @@
+# Bash QA evaluation integration, 2026-10-31
+
+Base `95a4596`, branch `feat/bash-qa-eval`. New flat Env
+`cotrain_bash_qa_env` plus project `run_bash_qa_eval(EvalConfig)` activate
+the existing configured runner through actual SDK episode Agents. Caller
+explicitly selects finite positive counts/turns and fresh subprocess-only
+settings. Wrapper refuses unsupported modes before SDK work; one revocable
+Env/config admission excludes bare, nested and stale-child execution.
+Pre-base canonical Taskset/Task hooks prevent unsupported shared tool startup.
+Explicit seed builder preserves concrete type and exact data/config.
+Fresh local channel export persists at `trace.info["cotrain_bash_qa"]`
+through the normal SDK JSONL writer, including returned failed Traces.
+No second loop/writer, reward change or manufactured telemetry.
+
+Actual evidence: 114 new passes (100 unit, six startup, eight real SDK
+evaluation integrations) in 11.08s. Prior 161 affected regressions passed
+in 24.29s separately, not a full-suite or combined 275-test run.
+Four actual activation/receipt/metadata/pre-start controls each hit once,
+intended call-phase assertion RED, baseline/restored GREEN. Fourteen
+control-bound hashes and fifteen existing product/fixture/guard/SDK hashes
+unchanged. Three additional identity/binding unit controls proved formerly
+masked refusals after parent repairs. Final Python/security static APPROVE.
+See [contract](spec/bash-qa-eval.md) and
+[usage/evidence](docs/2026-10-31-bash-qa-eval.md).
+
+Actual SWE-2 High product/unit deliveries inspected and repaired. Integration
+worker stopped without a file; parent authored/executed that suite. File-only
+instructions are not a capability sandbox. Temporary 127.0.0.1 scripted
+listeners only; fixture-owned transport draining is not product SDK reaping.
+Bounded export is not redacted, markers remain forgeable allegations.
+No stock CLI support, isolated reporting, toolset-bearing Ledger support,
+external model/corpus/training/native jobs, gate changes, historical repinning,
+main merge or app deployment. Stages stay 4 PARTIAL / 5 PARTIAL / 6 BLOCKED.
+Earlier checkpoints below retain their exact historical bytes.
+
+# Configured Bash QA activation, 2026-10-31
+
+Base `6abc2a8`, branch `feat/bash-qa-activation`. Flat canonical plugin
+`cotrain_bash_qa` survives real SDK AgentConfig JSON loading. Unbound setup
+and launch refuse, never silently disable reporting. Project-owned
+`run_configured_bash_qa` claims the Agent, builds one fresh shared binding,
+checks config snapshots and pairs an explicit Task before delegating to
+existing `run_bash_qa`. Exact original harness restored on every exit.
+No serialized callbacks, credentials, channel/export paths or activation flag.
+
+Actual evidence: 29 new passes (23 unit, 6 real loopback integrations) in
+8.72s; 132 existing affected passes in 14.12s, separate runs. Actual new
+bound-construction suppression and receipt-forwarding suppression each hit
+once and produced intended call-phase assertion RED, baseline/restored GREEN.
+Eight control-bound hashes and twelve legacy/guard/SDK hashes unchanged.
+Python re-review and security static review APPROVE. No full-suite rerun.
+See [contract](spec/bash-qa-activation.md) and
+[usage/evidence](docs/2026-10-31-bash-qa-activation.md).
+
+Three actual SWE-2 High delivery tracks, parent inspection/repairs and checks.
+File-only worker instructions are not a capability sandbox; one earlier
+strategy-session `ls` executed read-only outside its brief, recorded in local
+worker observations. Do not claim all execution attempts were denied.
+Fixtures reuse ownership-filtered foreground transport draining, not product
+SDK reaping. Only approved temporary 127.0.0.1 scripted framework listeners.
+
+No stock vf-eval/run_eval integration, toolset-bearing Ledger support,
+external model/corpus/training/native jobs, gate changes, historical repinning,
+merge to main or app deployment. Stages remain 4 PARTIAL / 5 PARTIAL / 6 BLOCKED.
+Earlier checkpoints below retain their exact historical bytes.
+
+# Production Bash launch reporting, 2026-10-31
+
+Base `28570dc`, branch `feat/bash-launch-reporting`. Actual SWE-2 High product,
+unit and integration tracks delivered `ptc/bash_qa.py` plus two test modules.
+Paired Task Request/Trace interceptor forwards report feedback before the next
+model action through actual framework Bash/child HTTP, not a post-run scan.
+Strict `run_bash_qa` admission, private clone intent marker, original task-data
+factory, existing atomic channel claim, runtime-resident ownership, scoped
+wrapper/PATH cleanup and 64 pending occurrence cache. Fresh subprocess only.
+
+Final evidence: 38 new tests passed (9.50s), including 8 actual loopback Bash
+integrations; 94 existing collector/launch regressions passed (3.08s), separate
+runs. Actual forwarding baseline GREEN, suppressed returned Request intended
+call-phase RED, restored GREEN; five source/test/spec hashes unchanged.
+Final static Python/security reviews APPROVE. No full-suite rerun.
+See [contract](spec/bash-launch-reporting.md) and
+[usage/evidence](docs/2026-10-31-bash-launch-reporting.md).
+
+User approved only temporary 127.0.0.1 ephemeral test listeners, auto-closed,
+with scripted in-process clients and zero external fixture provider calls.
+Installed interpreter cache seed avoids installs/downloads. Fixture-owned
+foreground transport drain compensates installed SDK kill-without-wait on
+cancellation; do not mislabel that as product transport reaping.
+SDK truncation retains 20,000 payload bytes plus headers, not a wire ceiling.
+No marker-authenticity claim, gate change, corpus draw, model experiment,
+training/native job, historical repinning, merge to main or app deployment.
+Stages remain 4 PARTIAL / 5 PARTIAL / 6 BLOCKED. Earlier checkpoints follow
+unchanged, including their dated pending-state statements.
+
+# Cross-instance reporting ownership, 2026-10-31
+
+Base `0d05046`, branch `feat/qa-launch-claim`. Channel-local atomic one-shot
+claim under its existing lock closes cross-instance PTC factory reuse, including
+after completed/failed setup. Existing instance guard stays; defaults, collector
+wire bytes/quotas, direct SQL-arm reuse and budgets remain unchanged.
+
+Actual evidence: 334 existing affected passes (19.70s), six new passes (2.70s),
+separate runs. Real cross-instance claim bypass RED (`DID NOT RAISE`), baseline/
+restored GREEN; four source/test/spec hashes unchanged. Static Python approved.
+See [evidence](docs/2026-10-31-qa-launch-claim.md) and
+[contract](spec/qa-launch-claim.md). No full-suite/model/training/native claim.
+
+Parallel SWE-2 investigations verified installed verifiers0.3.2.dev137 only
+discovers task interceptors. Harness-only post-hoc Bash scanning cannot deliver
+mid-run acknowledgment, so it is NOT a completed integration. Exact task/harness
+composition remains under architectural review. Existing in-process bash QA is
+not a substitute for the production framework route. Earlier checkpoints follow.
+
+# Fixture-only baseline preparation, 2026-10-31
+
+Base `8dc8d15`, branch `feat/bench-preparation`. New `bench/prepare.py`
+freezes a draw once, then validates only its planned gold queries into a
+separate create-only supplement. Require caller-retained exact-byte draw SHA
+before parsing/corpus access. Bind manifest/universe/tasks/12 source files/
+runtime/selected DBs before and after work. No redraw/backfill, raw task/SQL/
+path/error export, existing consumer changes or gate relaxation.
+
+Actual evidence: 239 affected passes in 9.84s (98 new, 141 existing), then
+three focused additions passed in 0.08s (101 new total, separate runs).
+Three negative controls each produced intended RED, baseline/restored three
+GREEN each; 14 source/test/spec hashes unchanged. Static Python/security
+reviews approved, including final test-only additions. Not a full suite.
+See [usage/evidence](docs/2026-10-31-bench-preparation.md) and
+[test-first contract](spec/bench-preparation.md).
+
+Atomic exclusive hard-link publication, no overwrite rename. Postcommit
+failure raises publication-indeterminate and preserves intact final output.
+Require quiescent source/corpus/output and fresh interpreter after edits.
+Before/after checks are not hostile-race immunity or hard process bounds.
+
+No real corpus draw/query, model/provider experiment, training, native job,
+frontier manifest or measured baseline. Fixture seed/counts are not experiment
+choices. Stage 5 remains PARTIAL and stage 6 BLOCKED. Remaining stage 4:
+production verifier routing, framework/CLI activation, isolated reporting,
+actual TRL rollout adapter. Earlier checkpoints retained below.
+
+# Source-bound reporting evidence, 2026-10-30
+
+Base `aefe666`, branch `feat/sql-reporting-evidence`. Episode v2/capture v3
+bind explicit reporting configuration and bounded telemetry to current sources,
+task/database/prompt and caller IDs. Expected configuration is caller-retained,
+not artifact-derived. Capture sessions rebind before actions/final submission;
+diagnostic snapshots survive invalidation. Replay reports telemetry matching
+separately from observation/score matching. Legacy wire shapes/defaults stay.
+Reporting plus isolated executors refuses before binding/dispatch.
+
+Actual offline evidence: 3,393 existing passes (43 files, 350.64s, 10 fork
+warnings), then 170 new passes (1.79s). The 688 legacy and final 19 environment
+passes overlap the existing selection. Not a full repository/native result.
+Controls: baseline/restored 26 GREEN each; expected-config bypass 9 RED,
+source bypass 12 RED (four prompt checks still GREEN), telemetry bypass one RED.
+Eight source/test hashes unchanged. Initial test fixture failures and the
+control-classification correction are recorded in the
+[evidence](docs/2026-10-30-sql-reporting-evidence.md). Security/Python approved.
+
+No gates relaxed, historical receipts repinned, model/training/native execution
+or current BIRD baseline. Stage 4 remains PARTIAL: production verifier routing,
+framework/CLI activation, isolated reporting and actual TRL adapter remain.
+Next offline stage-5 work is draw/gold-validation preparation with fixture-only
+checks, not a real corpus experiment. Stages 5/6 remain PARTIAL/BLOCKED.
+
+Earlier checkpoints retained below.
+
+# Task-bound SQL environment reporting, 2026-10-30
+
+Base `0a14352`, feature branch `feat/sql-environment-qa`. Optional keyword-only
+`qa` now reaches the existing arm collector through `sql_environment`; a concrete
+channel is required before environment construction. Default imports, prompt,
+single program tool and submission cap stay unchanged. Use fresh caller-owned
+channels for independent rollouts; this factory does not detect cross-rollout
+reuse or persist reports.
+
+Final affected selection: 1,446 passed in 46.43s (19 new, 1,427 existing), not a
+full suite or native result. Five initial invalid-channel failures were fixed.
+Dropping real forwarding made the enabled-report test RED; restored execution
+passed, with source hashes unchanged. Python review approved source/tests.
+See [usage and evidence](docs/2026-10-30-agent-defect-escalation.md#opt-in-through-the-task-bound-sql-environment)
+and the [test-first contract](spec/agent-defect-escalation-sql-environment.md).
+
+Stage 4 remains PARTIAL: production Bash routing, framework/CLI activation,
+isolated transport, sealed capture/report-config binding and actual TRL rollout
+integration remain. Stages 5/6 stay PARTIAL/BLOCKED. Training gates, scorer,
+capture schemas and native budgets are unchanged. No product-provider call,
+training or native job ran; consumed permissions/old receipts are not replayed.
+All prior checkpoint bytes follow unchanged.
+
+---
+
 # Main integration checkpoint, 2026-10-30
 
 Combined published main `2f1a627` with feature `ffb4d21` using an ordinary

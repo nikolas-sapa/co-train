@@ -93,6 +93,13 @@ def _canonical(value):
     ).encode("utf-8")
 
 
+def _legacy_payload(episode):
+    payload = dataclasses.asdict(episode)
+    assert payload.pop("reporting") is None
+    assert payload.pop("telemetry") is None
+    return payload
+
+
 def _envelope(payload, *, version=1):
     return _canonical({
         "schema_version": version,
@@ -447,7 +454,7 @@ def test_canonical_utf8_sha_envelope_roundtrips_byte_for_byte(task):
     envelope = json.loads(encoded)
     assert set(envelope) == {"schema_version", "payload", "sha256"}
     assert envelope["schema_version"] == 1
-    assert envelope["payload"] == json.loads(_canonical(dataclasses.asdict(episode)))
+    assert envelope["payload"] == json.loads(_canonical(_legacy_payload(episode)))
     assert encoded == _canonical(envelope)
     assert envelope["sha256"] == hashlib.sha256(_canonical(envelope["payload"])).hexdigest()
     assert "ελληνικά".encode("utf-8") in encoded
@@ -585,7 +592,7 @@ def test_encoding_and_decoding_enforce_eight_mib_limit(task):
     with pytest.raises(REJECT):
         oversized = dataclasses.replace(episode, final_answer="x" * MAX_BYTES)
         api.encode_episode(oversized)
-    payload = dataclasses.asdict(episode)
+    payload = _legacy_payload(episode)
     payload["final_answer"] = "x" * MAX_BYTES
     with pytest.raises(REJECT):
         api.decode_episode(_envelope(payload))
@@ -599,7 +606,7 @@ def test_decoding_does_not_execute_a_recomputed_artifact(task, tmp_path, monkeyp
         episode.steps[0], action="printf unsafe > " + shlex.quote(str(marker)),
     )
     changed = dataclasses.replace(episode, steps=(step,))
-    encoded = _envelope(dataclasses.asdict(changed))
+    encoded = _envelope(_legacy_payload(changed))
     calls = _forbid_dispatch(monkeypatch)
     restored = api.decode_episode(encoded)
     assert restored.steps[0].action == step.action

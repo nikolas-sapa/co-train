@@ -2,14 +2,16 @@
 
 Stage 4 remains PARTIAL. The opt-in in-process PTC catalog and actual shell
 runner now carry structured reports and controlled shortcut telemetry.
-Production verifiers bash routing, isolated-wire reporting, capture/SqlEpisode
-configuration binding and TRL integration remain unfinished. Next: cover those
-routes and bind reporting configuration before live experiments. Priority stays
+The [source-bound evidence follow-on](2026-10-30-sql-reporting-evidence.md)
+adds opt-in episode v2/capture v3 configuration and telemetry binding.
+Production verifiers bash routing, framework/CLI activation, isolated reporting
+and actual TRL integration remain unfinished. Cover those before live experiments. Priority stays
 4 -> 5 -> 6; the current BIRD paired baseline is absent and stage 6 is blocked.
 Further SQL-native acceptance is not a stage 4 prerequisite.
 
 The original collector/arm work used base `91336c8`; the launch follow-on uses
-base `1ded101`. Validation below separates those increments.
+base `1ded101`; the task-bound SQL environment follow-on uses base `0a14352`.
+Validation below separates those increments.
 Implementation: [collector](../ptc/sql_qa.py),
 [arm API](../ptc/sql_arms.py), [core tests](../ptc/test_sql_qa.py) and
 [real-route integration tests](../ptc/test_sql_qa_integration.py).
@@ -81,6 +83,37 @@ reporting after constructing a disabled harness is explicitly unsupported.
 This covers the in-process launch entrypoint, not config-driven activation,
 production bash, isolated reporting, sealed captures or TRL.
 
+## Opt in through the task-bound SQL environment
+
+The [environment contract](../spec/agent-defect-escalation-sql-environment.md)
+adds keyword-only `qa` to `train.grpo_ptc.sql_environment`. It uses the existing
+arm callback and quotas, with the same single program tool and submission cap:
+
+```python
+from ptc.sql_qa import QaChannel
+from train.grpo_ptc import sql_environment
+
+channel = QaChannel()
+prompt, environment = sql_environment(existing_task, qa=channel)
+observation = environment.step(
+    'print(report_defect(kind="other", detail="Example unverified allegation"))'
+)
+snapshot = channel.export()  # Canonical bytes; caller owns persistence.
+```
+
+Supply a concrete `QaChannel`; classes, factories and other types refuse before
+environment construction. Use a fresh channel for each independent rollout.
+Unlike `PTCHarness.launch`,
+this factory does not reject sharing a channel across environments. The live
+environment references its channel; neither a global registry nor a persistent
+sink is created. Omitted `qa` and `qa=None` preserve the disabled route.
+
+This is the task-bound environment seam, not a completed TRL rollout adapter or
+training activation. The unbound `environment_factory`, training gate and main
+CLI remain unchanged. Sealed capture/SqlEpisode APIs still use disabled reporting;
+this addition does not bind reporting configuration into their evidence or add
+native/isolated report transport.
+
 ## Payload, bounds and trust
 
 The closed JSON object has exactly `kind` and `detail`. Kind is one of
@@ -117,6 +150,32 @@ not source-substring detection. The test-only helper reads real SQLite:
 PTC uses the callback; shell telemetry remains forgeable output. This proves a
 controlled rule-legal shortcut fixture, not a general exploit detector,
 production gold oracle or kernel acceptance.
+
+## Task-bound environment validation, base `0a14352`
+
+Final affected selection: **1,446 passed in 46.43s**, across
+`train/test_sql_environment_qa.py`, `train/test_train.py`,
+`train/test_frontier_measurement.py`, `train/test_native_training.py`,
+`train/test_sql_episodes.py`, `train/test_execution_binding.py`,
+`train/test_sql_capture.py`, `train/test_sql_skill_sdk_acceptance.py`,
+`train/test_sql_capture_comparison.py`, `train/test_sql_pilot_api.py`,
+`train/test_sql_skill_workflow.py`, `ptc/test_sql_arms.py`, `ptc/test_sql_qa.py`
+and `ptc/test_sql_qa_integration.py`. No failures, skips or warnings reported.
+This is 19 new cases plus 1,427 existing cases, not a full-suite/native result.
+
+The first new-test run caught five invalid channels becoming program errors
+instead of construction refusals. Early concrete-channel validation now rejects
+those inputs, including false-valued inputs; the disabled route stays lazy.
+An actual enabled-report test went RED at call phase when arm-builder forwarding
+was dropped in memory, then passed in a fresh restored interpreter. Source
+hashes stayed unchanged. Python review approved the final source/tests statically.
+
+SWE-2 sessions `gaudy-chef` and `empty-backpack` supplied implementation and tests;
+the parent corrected admission, tightened tests and ran validation. Local receipts:
+`~/scratch/co-train-2026-10-30/sql-environment-qa-0a14352/forwarding-control-receipt.json`
+and `final-suite-receipt.json`. These local artifacts are not shipped in a clone.
+`train/grpo_ptc.py` bytes changed; old source-bound profiles/receipts stay historical,
+not repinned or replayed. No product-provider call, training or native job ran.
 
 ## Launch follow-on validation, base `1ded101`
 

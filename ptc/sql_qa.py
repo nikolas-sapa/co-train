@@ -240,6 +240,27 @@ class QaChannel:
         self._dropped_saturated: dict[str, bool] = {arm: False for arm in ARMS}
         self._seq = 0
         self._total_events = 0
+        self._launch_claimed = False
+
+    # -- one-shot launch ownership ------------------------------------------
+
+    def _claim_launch(self) -> None:
+        """Claim this channel for exactly one launch; later calls refuse.
+
+        The first caller gets `None`; every later caller gets a neutral
+        `ValueError`. The flag lives on the channel under the same lock that
+        serialises recording, so the claim survives the claiming launch's
+        completion or setup failure and holds across harness instances --
+        the factory's fresh-per-launch contract is enforced here rather than
+        trusted. The flag is launch-admission state only: it is not an event,
+        is never exported, and consumes no quota.
+        """
+        with self._lock:
+            if self._launch_claimed:
+                raise ValueError(
+                    "reporting channel is already claimed by a launch"
+                )
+            self._launch_claimed = True
 
     # -- the structured callback route (catalog_callback provenance) --------
 
@@ -356,6 +377,11 @@ class QaChannel:
                 )
 
     # -- snapshots ------------------------------------------------------------
+
+    @property
+    def shortcut_ids(self) -> tuple[str, ...]:
+        """The caller-allowlisted shortcut IDs as a sorted immutable tuple."""
+        return tuple(sorted(self._shortcut_ids))
 
     @property
     def events(self) -> tuple:
