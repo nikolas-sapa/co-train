@@ -1,3 +1,33 @@
+# PTC SQL ownership reference, 2026-10-31
+
+Base `286a461`, branch `feat/ptc-sql-owned-programs`. Reference only under
+`spec/spikes/reference/ptc-sql-ownership/`, no canonical runtime changes.
+Six isolated fixture gates passed: missing-progress counterexample (owned
+2s safety kill), SQLite progress/tracer interruption under a 0.1s program
+budget, separate fixture-only 0.2s query deadline, native typed rows/errors,
+repeated-cancellation worker joining, and cancellation during normal cleanup.
+The promoted `old` case explicitly suppresses progress registration in its
+isolated child; it is a negative diagnostic, not a canonical positive test.
+
+A second directed diagnostic injects a tracer exception at connection close,
+verifies the actual retained connection remains open, then closes it itself.
+Thus progress callbacks plus thread joining are NOT a sufficient production
+resource-ownership solution. No natural-timing or SDK cleanup claim.
+Python review approved this bounded reference. Separate local runner spikes
+passed 49 tests; those broader spikes are not all promoted by this increment.
+
+Architecture review recommends reusing the existing PROGRAM/scorer isolation
+through an optional owned-runner seam in ordinary PTCHarness, not adopting the
+thread prototype as production architecture. Existing PROGRAM requests already
+carry one live action without gold. Its cancellation/cleanup acknowledgment,
+timeout fidelity, configured binding and SDK integration still need proof.
+An unresolved guardian journal is an admission barrier, not cleanup completion.
+No installed SDK edits, runtime/profile activation, corpus/model/baseline or
+training execution. Native authorization remains closed. Research 4/5 PARTIAL,
+6 BLOCKED; paired baseline remains missing.
+
+---
+
 # Validated draw consumer, 2026-10-31
 
 Base `085f841`, branch `feat/bird-validated-draw`. New public
