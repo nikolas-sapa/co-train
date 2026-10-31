@@ -1,3 +1,30 @@
+# BIRD SDK composition reference, 2026-10-31
+
+Parent `960898d`, branch `feat/bird-sdk-binding-reference`. Previous PTC
+activation was published on its feature branch; main was not merged.
+Promoted fixture-only reference under `spec/spikes/reference/bird-sdk-binding/`.
+Actual SDK JSON loaders/run_eval, original Task setup/finalize/score, task-local
+Bash SQL wrapper or ordinary PTC SQL catalog, and SDK JSONL writer:
+2 synthetic episodes, 4 scripted requests, both observed 42 and scored valid
+matches. Persisted task/arm/hash, explicit named reward score/weight and status
+asserted. Exact oracle text absent from every captured request.
+
+Scratch reviewed 1 passed/3.70s; promoted 1 passed/3.24s; restored reference plus
+16 existing shared SDK integration cases 17 passed/9.63s, not full suite.
+Actual wrong-result catalog control: 1 callback hit, intended call-phase
+`SQL result reached next request` assertion RED, pytest exit 1. Restored GREEN.
+Python reviewer found no remaining issues after three bounded fixes; architecture
+approved the next read-only validated-draw consumer contract.
+Evidence: `~/scratch/co-train-2026-10-31/bird-sdk-binding/`.
+
+`spec/bird-validated-draw.md` fixes the next API and numeric test contract.
+It is NOT yet implemented. Reference manual harness assignment/module globals
+are explicit shortcuts, not an extension to report-only configured PTC QA.
+No shared-budget, concurrent-isolation or production runner claim. Subprocess
+debug fixture is not a security sandbox. No corpus/draw/model/training execution.
+Baseline remains missing; research 4 PARTIAL / 5 PARTIAL / 6 BLOCKED.
+The previous 114753-byte HANDOFF is preserved below without edits.
+
 # Configured PTC reporting activation, 2026-10-31
 
 Base `f5fb387`, branch `feat/ptc-qa-activation`. New `cotrain_ptc_qa.py` supplies
