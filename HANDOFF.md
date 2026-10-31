@@ -1,3 +1,22 @@
+# Cross-instance reporting ownership, 2026-10-31
+
+Base `0d05046`, branch `feat/qa-launch-claim`. Channel-local atomic one-shot
+claim under its existing lock closes cross-instance PTC factory reuse, including
+after completed/failed setup. Existing instance guard stays; defaults, collector
+wire bytes/quotas, direct SQL-arm reuse and budgets remain unchanged.
+
+Actual evidence: 334 existing affected passes (19.70s), six new passes (2.70s),
+separate runs. Real cross-instance claim bypass RED (`DID NOT RAISE`), baseline/
+restored GREEN; four source/test/spec hashes unchanged. Static Python approved.
+See [evidence](docs/2026-10-31-qa-launch-claim.md) and
+[contract](spec/qa-launch-claim.md). No full-suite/model/training/native claim.
+
+Parallel SWE-2 investigations verified installed verifiers0.3.2.dev137 only
+discovers task interceptors. Harness-only post-hoc Bash scanning cannot deliver
+mid-run acknowledgment, so it is NOT a completed integration. Exact task/harness
+composition remains under architectural review. Existing in-process bash QA is
+not a substitute for the production framework route. Earlier checkpoints follow.
+
 # Fixture-only baseline preparation, 2026-10-31
 
 Base `8dc8d15`, branch `feat/bench-preparation`. New `bench/prepare.py`

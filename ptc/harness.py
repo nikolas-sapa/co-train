@@ -405,6 +405,12 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                             "qa_factory returned a channel already claimed by "
                             "a live launch on this harness"
                         )
+                    # One-shot ownership lives on the channel itself: the
+                    # claim is atomic under the channel's own lock, survives
+                    # this launch's completion or a later setup failure, and
+                    # refuses reuse on ANY harness instance. The per-instance
+                    # weak set stays as the in-flight tracking it always was.
+                    channel._claim_launch()
                     live_channels.add(channel)
 
                 def report_defect(*, kind: str, detail: str) -> str:
