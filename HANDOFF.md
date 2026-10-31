@@ -1,3 +1,43 @@
+# Admitted retained-draw database records, 2026-10-31
+
+Base `2ab5a7b`, branch `feat/validated-draw-db-records`.
+`ValidatedDraw.databases` is a tuple of frozen `DrawDatabase` records with
+exactly `db_id`, `sha256`, `size_bytes`. The return boundary projects the
+original digest-admitted draw identity after both existing fresh identity
+checks, preserving all planned DBs and order, including excluded-only DBs.
+No extra hashes, persisted schema, SOURCE_KEYS or expected pins changed.
+Freely constructing either type is not draw authentication. Future composition
+must call the actual consumer with independently retained document digests.
+
+Seven new tests first failed at the missing API, then passed. All 207 affected
+draw/preparation checks passed in 4.87s. They preserve 8 planned / 7 eligible /
+1 excluded, one record per shared DB, two hashes per DB/two corpus loads,
+immutable fields/container, original settings/digests and drift refusal.
+These are affected checks, not a full-suite run.
+Python and security source reviews approved without findings.
+
+Portable control: `spec/spikes/reference/validated-draw-databases/control.py`.
+Two fresh isolated children delegate to the original consumer. A returned DB
+digest substitution hits exactly once and fails the named admitted-digest
+assertion; the restored positive has zero hits. Both require unchanged source/
+retained document bytes and zero consumer SQL/selection/gold/EX calls.
+Initial control execution failed before test setup because pytest requires
+`stdout.isatty`; adding that discard-stream method fixed the fixture, not a gate.
+
+Operative SDK source review (0.3.2.dev137) confirms finalize precedes score,
+Harness.cleanup exceptions are suppressed after trace.ok, and the original
+writer appends failed rows too. Next SDK binding needs rollout-local association
+for concurrent reuse of one Task and retained cleanup inside Env.run before
+writer completion. Cancellation requires zero successful writer rows, not a
+fabricated failed row or reliance on a transient trace.ok value.
+
+Contract: `spec/bird-validated-draw-databases.md`. Configured SDK binding and
+paired BIRD baseline remain missing. No native/profile/provider/model/real-corpus
+activation, source repinning or research milestone completion. Historical
+sections below are byte-exact.
+
+---
+
 # Owned SQL SCORER adapter source, 2026-10-31
 
 Base `441f362`, branch `feat/sql-owned-scorer-adapter`. New

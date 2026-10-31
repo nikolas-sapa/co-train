@@ -157,6 +157,15 @@ class DrawExclusion:
 
 
 @dataclass(frozen=True)
+class DrawDatabase:
+    """An admitted planned database record, not authority by construction."""
+
+    db_id: str
+    sha256: str
+    size_bytes: int
+
+
+@dataclass(frozen=True)
 class ValidatedDraw:
     """The immutable result of consuming a frozen draw plus its supplement.
 
@@ -165,7 +174,9 @@ class ValidatedDraw:
     planned order. The digests are the exact-byte SHA-256s of both admitted
     documents; `timeout_s`, `max_rows` and `comparison` are the bounds the
     published supplement was validated under. Tasks are host-side `SqlTask`
-    values with their existing fields, oracle SQL included."""
+    values with their existing fields, oracle SQL included. `databases`
+    projects all admitted planned DB records, including excluded-only DBs;
+    its expected digests come from the retained draw, not fresh observations."""
 
     planned: tuple[SqlTask, ...]
     eligible: tuple[SqlTask, ...]
@@ -176,6 +187,7 @@ class ValidatedDraw:
     timeout_s: float
     max_rows: int
     comparison: str
+    databases: tuple[DrawDatabase, ...]
 
 
 # --- canonical serialization -------------------------------------------------
@@ -1028,6 +1040,11 @@ def _load_validated_draw(
         timeout_s=supp_settings["timeout_s"],
         max_rows=supp_settings["max_rows"],
         comparison=supp_settings["comparison"],
+        databases=tuple(
+            DrawDatabase(db_id=entry["db_id"], sha256=entry["sha256"],
+                         size_bytes=entry["size_bytes"])
+            for entry in draw["identity"]["databases"]
+        ),
     )
 
 

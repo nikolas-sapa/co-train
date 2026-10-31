@@ -63,6 +63,10 @@ load_validated_draw(
 - `exclusions: tuple[DrawExclusion, ...]`, planned order.
 - `draw_sha256`, `supplement_sha256`, `fixture`, `timeout_s`, `max_rows`,
   `comparison`.
+- `databases: tuple[DrawDatabase, ...]`, added by the
+  [admitted DB-record projection](bird-validated-draw-databases.md). These
+  frozen records preserve all admitted planned DB identities in order,
+  including excluded-only DBs, with `db_id`, `sha256`, `size_bytes`.
 
 `DrawExclusion` is frozen with `id`, `status`, `category`. No mutable document
 dicts, raw query errors, gold result rows or host paths are added to receipts.

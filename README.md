@@ -33,6 +33,11 @@ The [validated-draw consumer](docs/2026-10-31-bird-validated-draw.md) now
 reads those two independently retained artifacts without SQL or reselection,
 preserving the original planned denominator. Its 297 affected tests passed
 (99 new, 198 existing), with actual digest/error-boundary bypass controls.
+Its [admitted DB-record projection](spec/bird-validated-draw-databases.md)
+exposes immutable expected DB digests from the retained draw, including
+excluded-only databases, without another hash or a new artifact schema.
+All 207 affected draw/preparation checks pass, including seven new cases.
+Constructing the result type directly does not authenticate a draw.
 The production paired SDK runner and current BIRD baseline remain missing;
 the [SDK binding reference](spec/spikes/reference/bird-sdk-binding/) is only
 a synthetic composition proof.
