@@ -1,3 +1,192 @@
+# Optional owned program runner, 2026-10-31
+
+Base `d8fd82b`, branch `feat/ptc-sql-owned-programs`. Ordinary PTCHarness now
+accepts an optional inert synchronous `program_runner_factory(data, catalog)`.
+One fresh trusted owner handles that launch's program actions and close.
+Configured timeout is validated/captured; observations remain native text.
+Unexpected failures/non-string responses are infrastructure-fatal before the
+legacy feedback handler. ProgramRejected stays ordinary tool data.
+Close is retained/shielded/joined through repeated cancellation; a new cancel
+during normal close propagates after completion. Failed/self-cancelled/non-None
+close acknowledgment is infrastructure failure. Disabled behavior is unchanged.
+
+Independent backend worker wrote unit/actual-SDK tests using file tools only;
+parent verified files, added four acknowledgment/snapshot regressions and ran
+295 affected tests/15.08s = 34 new unit + 2 new SDK + 56 existing harness +
+203 configured PTC QA. This is not a full-suite claim. Two fresh-isolated
+fault controls each reached exactly one intended call-phase assertion with
+one bypass hit; restored positives passed, source hashes unchanged.
+Control driver is preserved in `spec/spikes/reference/ptc-owned-program-runner/`.
+Python and security reviewers found no blockers in the bounded extension.
+
+Actual SDK tests retain original Task/hooks/data and normal eval/JSONL writer.
+A fixture process executes real Python SQL/catalog code, yields typed 42 and
+EX1. Cancellation follows a real SQLite VM-progress byte; caller stays held
+through close/group kill/drain/reap and an empty owned-group snapshot, then a
+fresh rollout succeeds. SDK fixture pipe compensation remains fixture-only.
+No manual agent.harness assignment, SDK file modification or forked model loop.
+
+This does NOT implement/activate the native PROGRAM/scorer adapter. Controller
+cleanup acknowledgment, unresolved-guardian abort paths, timeout fidelity and
+profile admission still need proof. A trusted factory's acknowledgment is not
+independent evidence of arbitrary resource cleanup. QA/MCP combinations refuse.
+No policy/runtime/G choice, native activation, corpus/model/baseline/training
+campaign, source/profile repinning or gate relaxation. Stages 4/5 PARTIAL,
+6 BLOCKED; current paired baseline remains missing.
+
+---
+
+# PTC SQL ownership reference, 2026-10-31
+
+Base `286a461`, branch `feat/ptc-sql-owned-programs`. Reference only under
+`spec/spikes/reference/ptc-sql-ownership/`, no canonical runtime changes.
+Six isolated fixture gates passed: missing-progress counterexample (owned
+2s safety kill), SQLite progress/tracer interruption under a 0.1s program
+budget, separate fixture-only 0.2s query deadline, native typed rows/errors,
+repeated-cancellation worker joining, and cancellation during normal cleanup.
+The promoted `old` case explicitly suppresses progress registration in its
+isolated child; it is a negative diagnostic, not a canonical positive test.
+
+A second directed diagnostic injects a tracer exception at connection close,
+verifies the actual retained connection remains open, then closes it itself.
+Thus progress callbacks plus thread joining are NOT a sufficient production
+resource-ownership solution. No natural-timing or SDK cleanup claim.
+Python review approved this bounded reference. Separate local runner spikes
+passed 49 tests; those broader spikes are not all promoted by this increment.
+
+Architecture review recommends reusing the existing PROGRAM/scorer isolation
+through an optional owned-runner seam in ordinary PTCHarness, not adopting the
+thread prototype as production architecture. Existing PROGRAM requests already
+carry one live action without gold. Its cancellation/cleanup acknowledgment,
+timeout fidelity, configured binding and SDK integration still need proof.
+An unresolved guardian journal is an admission barrier, not cleanup completion.
+No installed SDK edits, runtime/profile activation, corpus/model/baseline or
+training execution. Native authorization remains closed. Research 4/5 PARTIAL,
+6 BLOCKED; paired baseline remains missing.
+
+---
+
+# Validated draw consumer, 2026-10-31
+
+Base `085f841`, branch `feat/bird-validated-draw`. New public
+`bench.prepare.load_validated_draw`, frozen `ValidatedDraw`/`DrawExclusion`.
+Both retained digests precede either parse/corpus access; 16 MiB input bounds,
+canonical exact schemas, fixture opt-in, original ordered planned denominator,
+exhaustive eligibility/exclusion partition, settings/count/shape checks and
+two fully fresh current-identity passes. No SQL, selector or publication.
+Existing publishers keep their schema/default/error behavior.
+
+Two SWE-2 High workers delivered product and independent fixture tests, actual
+exports/file-only invocations/owned paths verified. Parent fixed consumer-only
+recursion/overflow/filesystem normalization, added deterministic review
+regressions and three isolated relationship checks.
+Final affected 297 passed/11.88s = 92 contract + 7 admission + 101 preparation
++ 97 adjacent benchmark, not full suite. Actual digest bypass: 1 hit, intended
+assertion RED. Actual boundary bypass: 7 calls, 5 intended failures, 2 deep-input
+refusals still passed. Restored GREEN. Initial depth-assumption failures remain
+in scratch, not counted as real recursion failures.
+Final repeated controls left all three source files unchanged; 8 targeted
+restored cases passed/0.32s separately. Python/security final reviews approved.
+Evidence: `~/scratch/co-train-2026-10-31/bird-validated-draw-085f841/`.
+API/limits: `docs/2026-10-31-bird-validated-draw.md`.
+
+Source changes intentionally invalidate older preparation identities; no
+historical repinning. No real corpus/draw, baseline, training or gate changes.
+Production paired SDK runner/budgets still missing; research remains
+4 PARTIAL / 5 PARTIAL / 6 BLOCKED, baseline missing not zero.
+Previous 116435-byte HANDOFF remains the exact suffix below.
+
+# BIRD SDK composition reference, 2026-10-31
+
+Parent `960898d`, branch `feat/bird-sdk-binding-reference`. Previous PTC
+activation was published on its feature branch; main was not merged.
+Promoted fixture-only reference under `spec/spikes/reference/bird-sdk-binding/`.
+Actual SDK JSON loaders/run_eval, original Task setup/finalize/score, task-local
+Bash SQL wrapper or ordinary PTC SQL catalog, and SDK JSONL writer:
+2 synthetic episodes, 4 scripted requests, both observed 42 and scored valid
+matches. Persisted task/arm/hash, explicit named reward score/weight and status
+asserted. Exact oracle text absent from every captured request.
+
+Scratch reviewed 1 passed/3.70s; promoted 1 passed/3.24s; restored reference plus
+16 existing shared SDK integration cases 17 passed/9.63s, not full suite.
+Actual wrong-result catalog control: 1 callback hit, intended call-phase
+`SQL result reached next request` assertion RED, pytest exit 1. Restored GREEN.
+Python reviewer found no remaining issues after three bounded fixes; architecture
+approved the next read-only validated-draw consumer contract.
+Evidence: `~/scratch/co-train-2026-10-31/bird-sdk-binding/`.
+
+`spec/bird-validated-draw.md` fixes the next API and numeric test contract.
+It is NOT yet implemented. Reference manual harness assignment/module globals
+are explicit shortcuts, not an extension to report-only configured PTC QA.
+No shared-budget, concurrent-isolation or production runner claim. Subprocess
+debug fixture is not a security sandbox. No corpus/draw/model/training execution.
+Baseline remains missing; research 4 PARTIAL / 5 PARTIAL / 6 BLOCKED.
+The previous 114753-byte HANDOFF is preserved below without edits.
+
+# Configured PTC reporting activation, 2026-10-31
+
+Base `f5fb387`, branch `feat/ptc-qa-activation`. New `cotrain_ptc_qa.py` supplies
+flat canonical ID-only config/harness plus `run_configured_ptc_qa` over actual
+SDK Agent.run on the exact original ordinary Task. No Task mixin/builder or
+private Bash permit. Report-only empty owned catalog, no MCP/interceptors/
+skills/resume or custom transport; bounded explicit settings, fresh base Agent.
+Original config remains unmarked; only a bound deep copy carries private intent.
+
+Atomic Agent claim/release, scoped tombstone record, one-shot setup/launch/
+factory, original/live reference and independent nested snapshots, complete
+post-inspection/post-factory guards. Revoke before reset, restore original
+harness, clear retained activation references and release owned claim.
+Original Task hook receiver identity and SDK scoring remain unchanged.
+
+Final affected run: 375 passed in 21.37s (182 unit, 13 adversarial admission,
+eight actual SDK integration cases, 172 existing). No full-suite rerun.
+Four actual activation/collector/receipt/shallow-Task-copy controls each hit
+once, intended call-phase RED and restored GREEN; 13 source/test/spec hashes
+unchanged. Twenty-one existing product/fixture/SDK hashes unchanged.
+Python/security final static APPROVE. Actual three SWE-2 High exports and
+delivered files parent-verified; parent repaired guard-ordering/config-marker
+bugs and masked test helpers/grids. Eight then five new adversarial cases
+were actual RED before fixes; final run includes their GREEN results.
+See [contract](spec/ptc-qa-activation.md) and
+[usage/evidence](docs/2026-10-31-ptc-qa-activation.md).
+
+Only approved synthetic loopback fixtures; PTC loop in-process, no Bash-child
+claim for these integrations. No report secrecy/authenticity or arbitrary
+same-process Python/CPU/memory/synchronous-factory containment. File-tools-only
+worker instructions are not a capability sandbox. No corpus/provider/model
+experiment, training/native campaign, installs, SDK edits, relaxed gates,
+historical repinning, other-worktree edits, new main merge or app deployment.
+Stages remain 4 PARTIAL / 5 PARTIAL / 6 BLOCKED. Next source-backed gap:
+BIRD task-local SQL binding into actual SDK episodes, consuming validated
+draw/supplement, before real paired baselines. No runtime/model/G or experiment
+budget chosen. Earlier historical bytes below are preserved exactly.
+
+# Main integration and project evaluation CLI, 2026-10-31
+
+User authorized main integration. Normal merge `e5f013e` parents
+`0a14352` / `5b8cabc` retains all seven reviewed feature commits.
+Combined affected suites: 1,195 passed in 55.66s. Merge tree exactly matched
+the tested feature; remote main verified, no force push or gate changes.
+
+Next increment on `feat/bash-qa-eval-cli`: root `cotrain_bash_qa_eval.py`
+requires one explicit JSON config and delegates the exact validated EvalConfig
+once through existing `run_bash_qa_eval`. Lazy imports keep help framework-free.
+Narrow file/schema errors omit raw input; execution errors propagate unchanged.
+No new defaults, writer or result policy; project CLI, not stock vf-eval.
+125 affected passes in 10.66s (11 new CLI, 114 existing eval cases), including
+actual runpy entrypoint -> SDK episode Agent/Bash child/tool gate/SDK JSONL.
+Actual delegation suppression: one hit, intended call-phase assertion RED,
+baseline/restored GREEN, seven source-bound hashes unchanged.
+Architect/Python/security static APPROVE; runtime evidence parent-executed.
+See [contract](spec/bash-qa-eval-cli.md) and
+[usage/evidence](docs/2026-10-31-bash-qa-eval-cli.md).
+
+Only approved temporary loopback synthetic fixtures. No provider/corpus,
+training/native campaign, downloads/installs, SDK edit, gate relaxation,
+historical repinning or app deployment. Research remains 4 PARTIAL /
+5 PARTIAL / 6 BLOCKED. Earlier dated checkpoints retain their exact bytes;
+their earlier no-main-merge statements describe the historical state.
+
 # Bash QA evaluation integration, 2026-10-31
 
 Base `95a4596`, branch `feat/bash-qa-eval`. New flat Env

@@ -29,6 +29,18 @@ records offline fixture evidence for `bench/prepare.py`: 239 affected tests
 passed in 9.84s (98 new plus 141 existing), then 3 additional regressions
 passed in 0.08s separately — 101 new unique cases total, not one 242-case
 run. Three controls each went intended RED and were restored to 3 GREEN.
+The [validated-draw consumer](docs/2026-10-31-bird-validated-draw.md) now
+reads those two independently retained artifacts without SQL or reselection,
+preserving the original planned denominator. Its 297 affected tests passed
+(99 new, 198 existing), with actual digest/error-boundary bypass controls.
+The production paired SDK runner and current BIRD baseline remain missing;
+the [SDK binding reference](spec/spikes/reference/bird-sdk-binding/) is only
+a synthetic composition proof.
+The [optional owned program runner](spec/ptc-owned-program-runner.md) now lets
+ordinary PTCHarness delegate execution without forking its model loop.
+Its 295 affected tests passed (36 new, including two actual SDK integrations),
+with two intended-failure controls and restored positives. This is a trusted
+callback seam, not an activated native SQL adapter or a paired baseline.
 The [Bash launch follow-on](docs/2026-10-31-bash-launch-reporting.md) records
 38 new passes (30 unit/lifecycle plus 8 real loopback subprocess integrations)
 and 94 existing regressions in separate runs, plus actual forwarding
@@ -43,6 +55,17 @@ passes (100 unit, six startup, eight real SDK evaluation integrations), 161
 existing passes separately, and four actual intended RED/restored controls.
 Project `run_bash_qa_eval` preserves the SDK episode/scoring/JSONL lifecycle;
 bare stock CLI/direct SDK admission remains unsupported.
+The [project JSON CLI](docs/2026-10-31-bash-qa-eval-cli.md) now delegates an
+explicit EvalConfig file to that same wrapper: 125 affected passes, including
+11 new CLI cases, plus actual delegation RED/restored GREEN. No implicit
+model/budget choices or stock `vf-eval` support.
+
+The [configured PTC activation](docs/2026-10-31-ptc-qa-activation.md) adds flat
+`cotrain_ptc_qa` loading and a guarded runner over actual SDK Agent.run on the
+original ordinary Task. Final affected checks: 375 passed, including eight real
+scripted-loopback SDK integrations; four actual controls went intended RED and
+restored GREEN. This report-only catalog is not a BIRD SQL-task bridge or PTC
+evaluation/persistence integration. Stages 4-6 keep their partial/blocked status.
 
 The [frontier measurement source](bench/frontier/probe.py) and
 [taskset contract](docs/bench-taskset.md) describe baseline preparation, not a
