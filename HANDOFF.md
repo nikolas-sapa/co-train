@@ -1,3 +1,56 @@
+# Owned SQL PROGRAM adapter source, 2026-10-31
+
+Base `b46c825`, branch `feat/sql-owned-program-adapter`. Ordinary PTCHarness now
+has an explicit inert builder binding caller-associated public TaskData and
+private SqlTask to canonical SQL callbacks and a concrete PilotExecutor.
+Matching names and live identity/fingerprints are guards, not independently
+verified semantic or retained-draw provenance. No private SqlTask is retained
+by the runner; this does not claim the complete host graph is gold-free.
+
+Non-native admission shares execution's existing fresh source-closure checks
+and streams the DB without staging or SQLite. It rejects symlinks, hardlinks,
+wrong ownership, non-regular files, three sidecars, digest/identity/path changes;
+it introduces no DB size cap. Before policy it seals DB identity and the native
+5s program timeout. Each subsequent program rechecks the binding and DB before
+allocation. Valid-profile hash parity with canonical bytes is verified while
+hashing itself remains I/O-free. Execution-time staging/source checks remain.
+
+Each real invocation is retained before its first await. One retained close
+task joins through repeated cancellation and checks the actual owner's ACK,
+request/profile digests and exact completion-ACK identity. Usable observations
+are forwarded verbatim; infrastructure aborts are fatal. Missing proof remains
+pending with its ownership barrier, never fabricated clean success. The harness
+now preserves the first cancellation through complete cleanup; cleanup failure
+still takes precedence.
+
+Independent tests preceded implementation. Correcting frozen TaskData fixture
+arrangements exposed real NaN/inf normalization into null; raw finite-number
+validation now precedes JSON serialization. Security review also blocked a
+fixture startup/teardown race. Actual startup is now fenced under the teardown
+lock before owner publication. Two extracted-function checks went RED then
+GREEN; both reviewers cleared the five new fake-actor cases before execution.
+
+Verification: 1,241 affected checks passed in three runs: 72 new unit/admission/
+fence/hash-parity checks in 2.44s, 1,092 compatibility checks in 56.81s, and all
+77 lifecycle cases in 107.42s. The five new actor cases also passed separately
+in 21.02s. They cover two-owner ordinary/rejected/error forwarding, repeated
+actual launch cancellation, real protocol abort, and the real 12s missing-proof
+deadline with independent teardown that cannot upgrade the API outcome.
+This is not a full-suite or native SQL/EX qualification.
+
+Portable controls: `spec/spikes/reference/ptc-owned-sql-program/control.py`.
+Three fresh negative children each hit one bypass and one named assertion;
+three fresh restored positives pass, with zero forbidden operations, actual
+NOT_STARTED owner/ACK identities, independent drains and unchanged production
+hashes. These unit controls do not establish actor-resource cleanup.
+
+Contract: `spec/sql-owned-program-adapter.md`. Scorer adapter, configured BIRD
+binding, SDK VM-progress/EX1/JSONL qualification and paired baseline remain
+deferred. No native/profile/model/corpus/spend activation, source repinning or
+research milestone completion. Historical sections below are byte-exact.
+
+---
+
 # Owned runner timeout preflight, 2026-10-31
 
 Base `6c0ab18`, branch `feat/ptc-owned-timeout-preflight`. Trusted inert owners

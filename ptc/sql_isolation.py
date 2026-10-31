@@ -657,8 +657,22 @@ def execution_profile_canonical_bytes(profile: ExecutionProfile) -> bytes:
 
 
 def execution_profile_sha256(profile: ExecutionProfile) -> str:
-    """WHOLE canonical four-field envelope INCLUDING LF, not the payload digest."""
-    return hashlib.sha256(execution_profile_canonical_bytes(profile)).hexdigest()
+    """WHOLE canonical envelope INCLUDING LF, without filesystem validation.
+
+    Profiles are concrete immutable records, validated on construction. Hashing
+    is a snapshot operation; fresh source/path admission is a separate gate.
+    """
+    if type(profile) is not ExecutionProfile:
+        raise TypeError("concrete ExecutionProfile required")
+    payload = _plain(profile)
+    envelope = {
+        "format": "sql_pilot_execution_profile", "schema_version": 1,
+        "payload": payload,
+        "sha256": hashlib.sha256(canonical_json_bytes(payload)).hexdigest(),
+    }
+    raw = bounded_bytes(canonical_json_bytes(envelope) + b"\n",
+                        maximum=MAX_ARTIFACT_BYTES)
+    return hashlib.sha256(raw).hexdigest()
 
 
 def execution_profile_from_bytes(data: bytes) -> ExecutionProfile:
@@ -885,6 +899,20 @@ def validate_output_budget(role: Role, *, bootstrap: bytes, result: bytes) -> No
 
 
 @dataclass(frozen=True, slots=True)
+class ProgramDatabaseIdentity:
+    path: str
+    sha256: str
+    st_dev: int
+    st_ino: int
+    st_size: int
+    st_mtime_ns: int
+    st_ctime_ns: int
+    st_uid: int
+    st_mode: int
+    st_nlink: int
+
+
+@dataclass(frozen=True, slots=True)
 class PilotExecutor:
     profile: ExecutionProfile
     state_dir: Path
@@ -896,6 +924,67 @@ class PilotExecutor:
         _path(state_dir)
         object.__setattr__(self, "profile", profile)
         object.__setattr__(self, "state_dir", state_dir)
+
+    def admit_program(self, *, db_path: str,
+                      db_sha256: str) -> ProgramDatabaseIdentity:
+        """Fresh source and database admission, without staging or execution."""
+        _digest(db_sha256)
+        _text(db_path, nonempty=True)
+        source = Path(db_path)
+        if (not source.is_absolute() or os.path.normpath(db_path) != db_path
+                or "\x00" in db_path):
+            raise ValueError("canonical absolute database path required")
+        _fresh_owned_binding(self.profile)
+        parent, name = _open_parent(source)
+        try:
+            def no_sidecars():
+                for suffix in ("-wal", "-shm", "-journal"):
+                    try:
+                        os.stat(name + suffix, dir_fd=parent, follow_symlinks=False)
+                    except FileNotFoundError:
+                        continue
+                    raise ValueError("database sidecar present")
+
+            def identity(record):
+                return ProgramDatabaseIdentity(
+                    db_path, db_sha256, *(getattr(record, key) for key in (
+                        "st_dev", "st_ino", "st_size", "st_mtime_ns",
+                        "st_ctime_ns", "st_uid", "st_mode", "st_nlink")))
+
+            no_sidecars()
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                         dir_fd=parent)
+            try:
+                before = os.fstat(fd)
+                _owned_stat(before)
+                sealed = identity(before)
+                digest = hashlib.sha256()
+                while chunk := os.read(fd, 65536):
+                    digest.update(chunk)
+                after = os.fstat(fd)
+                _owned_stat(after)
+                current = os.stat(name, dir_fd=parent, follow_symlinks=False)
+                _owned_stat(current)
+                if (identity(after) != sealed or identity(current) != sealed
+                        or digest.hexdigest() != db_sha256):
+                    raise ValueError("database identity changed or digest mismatch")
+                no_sidecars()
+                # Rewalk the live parent chain too: a renamed parent must not
+                # let an old directory descriptor stand in for the public path.
+                current_parent, current_name = _open_parent(source)
+                try:
+                    current = os.stat(current_name, dir_fd=current_parent,
+                                      follow_symlinks=False)
+                    _owned_stat(current)
+                    if identity(current) != sealed:
+                        raise ValueError("database pathname changed")
+                finally:
+                    os.close(current_parent)
+                return sealed
+            finally:
+                os.close(fd)
+        finally:
+            os.close(parent)
 
     def run_program(self, program: str, *, db_path: str, db_sha256: str,
                     max_rows: int) -> ProgramOutcome:
@@ -957,6 +1046,15 @@ _SCORER_PATHS = (
     "ptc/sql_isolation.py", "bench/sql_score_worker.py",
 )
 _OWNER_LABEL = "org.co-train.sql-isolation"
+
+
+def _fresh_owned_binding(profile: ExecutionProfile) -> ExecutionBinding:
+    binding = build_execution_binding(profile, source_root=installed_source_root())
+    if ({p.path for p in binding.program.sources} != set(_PROGRAM_PATHS)
+            or {p.path for p in binding.scorer.sources} != set(_SCORER_PATHS)
+            or "ptc/sql_isolation.py" not in {p.path for p in binding.controller_sources}):
+        raise ValueError("incomplete source closure")
+    return binding
 
 
 class _Failure(RuntimeError):
@@ -4088,12 +4186,7 @@ class OwnedSqlInvocation(Generic[_T]):
                     self._state = "UNRESOLVED_OWNED"
                 return
             try:
-                binding = build_execution_binding(
-                    self.executor.profile, source_root=installed_source_root())
-                if ({p.path for p in binding.program.sources} != set(_PROGRAM_PATHS)
-                        or {p.path for p in binding.scorer.sources} != set(_SCORER_PATHS)
-                        or "ptc/sql_isolation.py" not in {p.path for p in binding.controller_sources}):
-                    raise ValueError("incomplete source closure")
+                binding = _fresh_owned_binding(self.executor.profile)
             except (TypeError, ValueError, OSError, KeyError, RecursionError):
                 self._seal(None, "binding", not_started=True)
                 return

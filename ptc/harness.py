@@ -94,7 +94,8 @@ async def _close_program_runner(runner: OwnedProgramRunner) -> None:
         try:
             await asyncio.shield(cleanup)
         except asyncio.CancelledError as exc:
-            cancelled = exc
+            if cancelled is None:
+                cancelled = exc
         except Exception:
             break
     try:
@@ -555,14 +556,23 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                     for method in ("run_program", "aclose")
                 ):
                     raise TypeError("owned program runner requires async run_program and aclose")
+                body_cancel: asyncio.CancelledError | None = None
                 try:
                     _validate_program_runner_timeout(runner, program_timeout)
                     await self._loop(
                         ctx, endpoint, secret, messages, catalog, printed, log,
                         program_runner=runner, program_timeout=program_timeout,
                     )
+                except asyncio.CancelledError as exc:
+                    body_cancel = exc
+                    raise
                 finally:
-                    await _close_program_runner(runner)
+                    try:
+                        await _close_program_runner(runner)
+                    except asyncio.CancelledError:
+                        if body_cancel is not None:
+                            raise body_cancel
+                        raise
 
         return ProgramResult(exit_code=0, stdout="\n".join(log), stderr="")
 

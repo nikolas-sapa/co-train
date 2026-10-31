@@ -48,6 +48,13 @@ activation remains closed.
 The [owned-runner timeout preflight](spec/ptc-owned-program-timeout.md) lets
 trusted owners refuse unsupported budgets before model dispatch while retaining
 close on failure. This is a generic prerequisite, not a native SQL binding.
+The [owned SQL PROGRAM adapter](spec/sql-owned-program-adapter.md) now binds
+explicitly caller-associated TaskData and SqlTask through ordinary PTCHarness,
+with inert construction, fresh source/DB admission and retained invocation
+cleanup. Its 1,241 affected checks passed in three runs, including 77
+fake-actor lifecycle cases; three unit bypass controls reached their named
+failures and restored positives. This does not qualify native SQL, configured
+BIRD/SDK binding, scoring, task provenance or a paired baseline.
 The [Bash launch follow-on](docs/2026-10-31-bash-launch-reporting.md) records
 38 new passes (30 unit/lifecycle plus 8 real loopback subprocess integrations)
 and 94 existing regressions in separate runs, plus actual forwarding

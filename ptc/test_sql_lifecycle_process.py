@@ -959,6 +959,15 @@ import asyncio, copy, dataclasses, fcntl, hashlib, json, os, select
 import socket, sqlite3, struct, subprocess, sys, threading, time, types
 from pathlib import Path
 
+def _fence_owned_start(owner, spawn_lock, stopping):
+    original = owner._start
+    def start():
+        with spawn_lock:
+            if stopping.is_set():
+                raise RuntimeError("fixture owner startup retired")
+            return original()
+    owner._start = start
+
 MODE = sys.argv[1]
 SCRIPT = str(Path(__file__).resolve())
 if MODE == "host":
@@ -978,6 +987,11 @@ from ptc import sql_isolation as m
 
 ENV = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}
 CAP_NS = 12000000000
+ADAPTER_RESPONSES = {
+    "print('adapter ordinary fixture')": ("  ordinary fixture\nverbatim  \n", False),
+    "print('adapter rejected fixture')": ("rejected: static fixture refusal  \n", True),
+    "print('adapter error fixture')": ("error: static fixture failure  \n", True),
+}
 forbidden_calls = []
 def forbidden(*args, **kwargs):
     forbidden_calls.append(1)
@@ -1059,7 +1073,10 @@ def role_main():
         kind="request", request_sha256=journal["request_sha256"]).payload
     assert m.request_sha256(request) == journal["request_sha256"]
     if ROLE == "program":
-        response = m.ProgramResponse("static first-party role fixture", False)
+        # Explicit static wire fixtures only, never Python/SQL evaluation.
+        response = m.ProgramResponse(*ADAPTER_RESPONSES[request.program]) if (
+            request.program in ADAPTER_RESPONSES) else m.ProgramResponse(
+                "static first-party role fixture", False)
     else:
         from bench.score import ExResult
         response = ExResult(1.0, "match", True, "static fixture, not SQL", 1, 1)
@@ -1376,7 +1393,8 @@ def guardian_main():
         selected = (
             PHASE == "preSTART" and kind == "START_ATTEMPT" or
             PHASE in ("inflight", "repeated", "latency-transport",
-                      "task-cancel", "concurrent-execute") and kind == "REQUEST_DELIVERED" or
+                      "task-cancel", "concurrent-execute",
+                      "adapter-cancel") and kind == "REQUEST_DELIVERED" or
             PHASE == "latency-startup" and kind == "GUARDIAN_ACK")
         if selected and PHASE not in hits:
             barrier(PHASE)
@@ -1390,16 +1408,17 @@ def guardian_main():
     m._grant_exit = observe_grant
     cleanup = m._cleanup_owned
     def observe_cleanup(*args, **kwargs):
-        if PHASE in ("repeated", "task-cancel") and "cleanup-held" not in hits:
+        if PHASE in ("repeated", "task-cancel", "adapter-cancel") and "cleanup-held" not in hits:
             barrier("cleanup-held")
         return cleanup(*args, **kwargs)
     m._cleanup_owned = observe_cleanup
     evidence = m._owned_cleanup_evidence
     def observe_evidence(*args, **kwargs):
         value = evidence(*args, **kwargs)
-        if PHASE in ("unknown-proof", "protocol-before") and PHASE not in hits:
+        if PHASE in ("unknown-proof", "protocol-before",
+                     "adapter-infrastructure", "adapter-missingproof") and PHASE not in hits:
             barrier(PHASE)
-        if PHASE == "unknown-proof":
+        if PHASE in ("unknown-proof", "adapter-missingproof"):
             fault_hits.append("withheld-resource-proof")
             # DECLARED FAULT: one join proof withheld, although the independent
             # ledger still knows the physical observer actually joined.
@@ -1508,6 +1527,7 @@ def host_main():
     spawn_lock, cleanup_lock = threading.Lock(), threading.Lock()
     done_r, done_w = os.pipe()
     owner = None
+    owners = []
     slots, messages, gates = [], [], []
     queue = asyncio.Queue()
     host_hits, host_faults = [], []
@@ -1542,6 +1562,7 @@ def host_main():
                     raw, _, rest = buffer.partition(b"\n")
                     buffer[:] = rest
                     item = json.loads(raw)
+                    item["invocation_id"] = slot["invocation_id"]
                     slot["messages"].append(item)
                     if item["kind"] == "SAFE":
                         assert item.get("independent") is True
@@ -1570,7 +1591,8 @@ def host_main():
             stop_r, stop_w = os.pipe()
             slot = dict(gate_w=gate_w, diagnostic_r=diagnostic_r, safety_w=safety_w,
                 safe=threading.Event(), messages=[], reader_stop_r=stop_r,
-                reader_stop_w=stop_w,
+                reader_stop_w=stop_w, invocation=invocation,
+                invocation_id=invocation.invocation_id.hex,
                 fds=[gate_w, diagnostic_r, safety_w, stop_r, stop_w])
             slots.append(slot)  # Register channels before actual BasePopen.
             thread = threading.Thread(target=reader, args=(slot,),
@@ -1645,7 +1667,8 @@ def host_main():
             if finished.is_set():
                 return
             with spawn_lock:
-                pass  # Fence constructors before freezing the independent ledger.
+                # Fence constructors, retain every partial adapter allocation.
+                retained = tuple(owners) if owners else (() if owner is None else (owner,))
             end = min(END-0.25, time.monotonic()+3.25)
             for slot in slots:
                 try:
@@ -1656,27 +1679,35 @@ def host_main():
                 assert slot["safe"].wait(timeout=remaining(end)), (
                     "GUARDIAN_NESTED_SAFE_PROOF_MISSING")
             trace.reap(end)
-            if owner is not None:
-                owner._retained.set()  # Physical safety only, never an ACK.
-                if owner._thread is not None:
-                    owner._thread.join(timeout=remaining(end))
-                    assert not owner._thread.is_alive(), "host controller join absent"
-                with owner._lock:
-                    for endpoint in owner._endpoints:
+            for current in retained:
+                if not hasattr(current, "_lock"):
+                    # Canonical __init__ has not reached any resource creation.
+                    assert not getattr(current, "_resources", ())
+                    assert getattr(current, "_thread", None) is None
+                    continue
+                if hasattr(current, "_retained"):
+                    current._retained.set()  # Physical safety only, never an ACK.
+                if getattr(current, "_thread", None) is not None:
+                    current._thread.join(timeout=remaining(end))
+                    assert not current._thread.is_alive(), "host controller join absent"
+                with current._lock:
+                    for endpoint in getattr(current, "_endpoints", ()):
                         endpoint.close()
-                    fds = {item for item in owner._resources if type(item) is int}
-                    if owner._host_read is not None:
-                        fds.add(owner._host_read)
+                    resources = getattr(current, "_resources", ())
+                    fds = {item for item in resources if type(item) is int}
+                    if getattr(current, "_host_read", None) is not None:
+                        fds.add(current._host_read)
                     for fd in fds:
                         try:
                             os.close(fd)
                         except OSError:
                             pass
-                    for item in owner._resources:
+                    for item in resources:
                         if type(item) is not int:
                             item.close()
-                    owner._resources.clear()
-                    owner._host_read = owner._seal_lock_fd = None
+                    if hasattr(current, "_resources"):
+                        current._resources.clear()
+                    current._host_read = current._seal_lock_fd = None
             for slot in slots:
                 os.write(slot["reader_stop_w"], b"S")
                 slot["reader"].join(timeout=remaining(end))
@@ -1722,10 +1753,16 @@ def host_main():
             if predicate(item):
                 return item
             if item["kind"] == "GUARDIAN_ERROR" and PHASE not in (
-                    "cli-fault", "unknown-proof", "protocol-after", "postreap-fault"):
+                    "cli-fault", "unknown-proof", "protocol-after", "postreap-fault",
+                    "adapter-missingproof"):
                 raise AssertionError(item["error"])
 
-    def release():
+    def release(invocation=None):
+        if invocation is not None:
+            matching = [slot for slot in slots if slot["invocation"] is invocation]
+            assert len(matching) == 1
+            os.write(matching[0]["gate_w"], b"G")
+            return
         for event in gates:
             event.set()
         if slots and not gates:
@@ -1763,6 +1800,386 @@ def host_main():
             assert snapshot.incomplete and snapshot.state == "UNRESOLVED_OWNED"
         return dict(decision="pending", at_cap=at_cap)
 
+    async def run_adapter(profile, db, digest, executor):
+        # Host-only imports. Legacy phases never import or activate the adapter.
+        import httpx
+        from bench.task import SqlTask
+        from verifiers.v1.task import TaskData
+        from ptc import sql_arms
+        from ptc.harness import PTCHarness, PTCHarnessConfig, ProgramInfrastructureError
+        from ptc.test_owned_program_runner import Policy, _assistant, _launch
+
+        nonlocal owner
+        assert PHASE in ("adapter-normal-rejected", "adapter-normal-error",
+                         "adapter-cancel", "adapter-infrastructure", "adapter-missingproof")
+        ordinary, rejected, error = ADAPTER_RESPONSES
+        normal = PHASE in ("adapter-normal-rejected", "adapter-normal-error")
+        codes = [ordinary, rejected if PHASE == "adapter-normal-rejected" else error] if (
+            normal) else [ordinary]
+        policy = Policy(*[_assistant(code) for code in codes], _assistant(None))
+        private_gold = "SELECT 'PRIVATE_ADAPTER_GOLD_DO_NOT_FORWARD'"
+        task = SqlTask("adapter-fixture", "fixture question", "", private_gold,
+                       "fixture-db", str(db), "simple", "derived", "s", "s", "fixture")
+        data = TaskData(name=task.name, prompt="Static adapter forwarding fixture.")
+        catalogs, bindings, runners, validations, calls = [], [], [], [], []
+        close_entries, close_exits, owner_closes, seals, cancellations = [], [], [], [], []
+        started, cancel_writes = [], []
+        canonical_init = m.OwnedSqlInvocation.__init__
+        def observe_init(actual, *args, **kwargs):
+            with spawn_lock:
+                assert not stopping.is_set(), "fixture owner creator retired"
+                owners.append(actual)  # Before canonical initialization, including partials.
+                canonical_init(actual, *args, **kwargs)
+                _fence_owned_start(actual, spawn_lock, stopping)
+        # Even a broken inert builder must leave every allocation safety-owned.
+        m.OwnedSqlInvocation.__init__ = observe_init
+        canonical_catalog = sql_arms.sql_catalog
+        def observe_catalog(*args, **kwargs):
+            value = canonical_catalog(*args, **kwargs)
+            catalogs.append(value)
+            return value
+        sql_arms.sql_catalog = observe_catalog
+        try:
+            from ptc.sql_owned_program import build_owned_sql_program_harness
+            harness = build_owned_sql_program_harness(
+                PTCHarnessConfig(program_timeout=5.0), data=data, task=task,
+                executor=executor, db_sha256=digest, max_rows=1)
+        finally:
+            sql_arms.sql_catalog = canonical_catalog
+        assert type(harness) is PTCHarness and len(catalogs) == 1
+        assert not owners and not trace.fence() and not policy.requests
+        base = catalogs[0]
+        canonical_allocate = m.PilotExecutor.owned_program
+        canonical_close = m.OwnedSqlInvocation.aclose
+
+        async def observe_owner_close(actual):
+            record = dict(invocation=actual, task=asyncio.current_task(), ack=None)
+            owner_closes.append(record)
+            value = await canonical_close(actual)
+            record["ack"] = value
+            return value
+        m.OwnedSqlInvocation.aclose = observe_owner_close
+
+        def observe_allocate(actual_executor, code, **kwargs):
+            nonlocal owner
+            assert actual_executor is executor
+            assert kwargs == dict(db_path=str(db), db_sha256=digest, max_rows=1)
+            assert len(runners) == 1 and len(calls) == len(owners)+1
+            # Request N+1 may not escape before N's real host ACK and joins.
+            for previous in owners:
+                assert previous._completion is not None
+                assert previous._authority.ack is previous._completion.cleanup_ack
+                assert not previous._thread.is_alive()
+                assert all(child._creator_waited and not child._creator_ambiguous
+                           for child in previous._children)
+            actual = canonical_allocate(actual_executor, code, **kwargs)
+            assert owners[-1] is actual and type(actual) is m.OwnedSqlInvocation
+            owner = actual
+            assert actual.request == m.ProgramRequest(code, 1, digest)
+            original_start, original_seal = actual._start, actual._seal
+            def observe_start():
+                jobs = [job for job in runners[0]._jobs if job.invocation is actual]
+                assert len(jobs) == 1, "ADAPTER_JOB_NOT_RETAINED_BEFORE_EXECUTE"
+                if not any(item is actual for item in started):
+                    started.append(actual)
+                return original_start()
+            def observe_seal(*args, **kwargs):
+                value = original_seal(*args, **kwargs)
+                assert value is actual._completion
+                assert value.cleanup_ack is actual._authority.ack
+                seals.append((actual, value, time.monotonic_ns()))
+                return value
+            actual._start, actual._seal = observe_start, observe_seal
+            return actual
+        m.PilotExecutor.owned_program = observe_allocate
+        original_factory = harness.program_runner_factory
+        def observe_factory(actual_data, compiled):
+            assert actual_data is data and not policy.requests
+            assert compiled is not base and compiled.names() == base.names() | {"print"}
+            assert "print" not in base.names() and callable(compiled.tools["print"])
+            assert all(compiled.tools[name] is callback
+                       for name, callback in base.tools.items())
+            runner = original_factory(actual_data, compiled)
+            runners.append(runner)
+            bindings.append((actual_data, compiled))
+            original_validate = runner.validate_program_timeout
+            original_run, original_close = runner.run_program, runner.aclose
+            def observe_timeout(actual_runner, timeout):
+                assert actual_runner is runner
+                assert timeout == 5.0 and type(timeout) in (int, float)
+                assert not policy.requests and not owners and not trace.fence()
+                validations.append(timeout)
+                value = original_validate(timeout)
+                assert value is None and not forbidden_calls and not trace.fence()
+                return value
+            async def observe_run(actual_runner, code, *, timeout):
+                assert actual_runner is runner
+                calls.append((code, timeout, runner))
+                try:
+                    return await original_run(code, timeout=timeout)
+                except asyncio.CancelledError as exc:
+                    cancellations.append(exc)
+                    raise
+            async def observe_close(actual_runner):
+                assert actual_runner is runner
+                close_entries.append(asyncio.current_task())
+                value = await original_close()
+                assert value is None
+                close_exits.append(time.monotonic_ns())
+                return value
+            runner_type = type(runner)
+            runner_type.validate_program_timeout = observe_timeout
+            runner_type.run_program, runner_type.aclose = observe_run, observe_close
+            return runner  # The exact real runner, no proxy or replacement owner.
+        harness.program_runner_factory = observe_factory
+        scripted_transport = policy.transport()
+        def observe_policy(request):
+            if policy.requests:
+                assert owners and all(actual._completion is not None for actual in owners)
+                assert all(actual._authority.ack is actual._completion.cleanup_ack
+                           and not actual._thread.is_alive() for actual in owners)
+                assert all(job.ack is job.invocation._authority.ack
+                           and job.close_task is not None and job.close_task.done()
+                           for job in runners[0]._jobs)
+            assert private_gold.encode() not in request.content
+            return scripted_transport.handle_request(request)
+        harness.transport = httpx.MockTransport(observe_policy)
+
+        async def event_for(actual, kind, name=None):
+            return await next_event(lambda item: (
+                item.get("invocation_id") == actual.invocation_id.hex
+                and item["kind"] == kind and (name is None or item.get("name") == name)))
+
+        def slot_for(actual):
+            matching = [slot for slot in slots if slot["invocation"] is actual]
+            assert len(matching) == 1
+            return matching[0]
+
+        async def held(launch):
+            marker = LOOP.create_future()
+            LOOP.call_soon(marker.set_result, None)
+            await asyncio.wait_for(marker, timeout=remaining(END-3.75))
+            assert not launch.done(), "ADAPTER_CALLER_ESCAPED_HELD_CLEANUP"
+            assert owner._completion is None and owner._authority.ack is None
+
+        def original_native_cancel(launch):
+            # Inspect the actual await chain, not launch's unrelated frame locals.
+            coroutine = launch.get_coro()
+            for _ in range(32):
+                frame = getattr(coroutine, "cr_frame", None)
+                if frame is not None and frame.f_code.co_name == "execute":
+                    if frame.f_locals.get("self") is owner:
+                        value = frame.f_locals.get("original_cancel")
+                        assert isinstance(value, asyncio.CancelledError)
+                        return value
+                coroutine = getattr(coroutine, "cr_await", None)
+                if coroutine is None:
+                    break
+            raise AssertionError("actual native execute cancellation not retained")
+
+        launch = LOOP.create_task(_launch(harness, data))
+        caller_done = []
+        launch.add_done_callback(lambda actual: caller_done.append(time.monotonic_ns()))
+        first_cancel = None
+        intent = None
+        if not normal:
+            hit = await next_event(lambda item: item["kind"] == "HIT"
+                                   and item.get("name") == PHASE)
+            assert len(owners) == len(runners) == len(started) == 1
+            assert hit["invocation_id"] == owner.invocation_id.hex
+            assert len(slots) == 1 and len(trace.fence()) == 1
+            if PHASE == "adapter-infrastructure":
+                now = time.monotonic_ns()
+                raw = struct.pack(">8s16sQQ", b"BADMAGIC", owner.invocation_id.bytes,
+                                  now, now+CAP_NS)
+                assert os.write(owner._endpoints[-1].fd, raw) == 40
+                monitored = await event_for(owner, "MONITOR_DONE")
+                assert monitored["error"] is True
+                release(owner)
+            else:
+                if PHASE == "adapter-missingproof":
+                    assert time.monotonic()+12.03 < END-3.75, (
+                        "ADAPTER_REAL_INTENT_CAP_EXCEEDS_FIXTURE_BUDGET")
+                real_write = os.write
+                cancel_write_original[0] = real_write
+                def observe_cancel_write(fd, raw):
+                    endpoints = [endpoint for endpoint in owner._endpoints
+                                 if endpoint.fd is not None and endpoint.fd == fd]
+                    count = real_write(fd, raw)
+                    cancel_writes.extend((endpoint, bytes(raw), count) for endpoint in endpoints)
+                    return count
+                os.write = observe_cancel_write
+                first_message = "first adapter launch cancellation"
+                assert launch.cancel(first_message)
+                await held(launch)
+                first_cancel = original_native_cancel(launch)
+                assert first_cancel.args == (first_message,) and launch.cancelling() == 1
+                intent = owner.snapshot().intent
+                assert intent is not None and intent.reason == "caller_cancelled"
+                assert intent.deadline_ns == intent.requested_ns+CAP_NS
+                if PHASE == "adapter-missingproof":
+                    assert intent.deadline_ns/1e9+0.03 < END-3.75
+                consumed = {}
+                while len(consumed) < 2:
+                    item = await next_event(lambda item: item["kind"] == "CONSUMED")
+                    assert item["lane"] not in consumed
+                    consumed[item["lane"]] = item
+                assert set(consumed) == {"host", "guardian"}
+                assert all(item["times"] == [intent.requested_ns, intent.deadline_ns]
+                           for item in consumed.values())
+                release(owner)
+                if PHASE == "adapter-cancel":
+                    await event_for(owner, "HIT", "cleanup-held")
+                    for number in (2, 3):
+                        assert launch.cancel("later adapter launch cancellation " + str(number))
+                        await held(launch)
+                        assert launch.cancelling() == number
+                        assert original_native_cancel(launch) is first_cancel
+                        assert owner.snapshot().intent is intent
+                        assert not seals and not caller_done and not close_exits
+                    release(owner)
+                else:
+                    withheld = await event_for(owner, "RESOURCE_PROOF_WITHHELD")
+                    assert withheld["fault_hits"] == 1
+                    await asyncio.sleep(max(0, intent.deadline_ns/1e9-time.monotonic())+0.03)
+                    assert time.monotonic_ns() >= intent.deadline_ns+30000000
+                    assert time.monotonic() < END-3.75
+                    assert not launch.done() and not seals and not caller_done
+                    assert owner._completion is None and owner._authority.ack is None
+                    assert owner.snapshot().state == "UNRESOLVED_OWNED"
+                    assert owner.snapshot().incomplete and barrier_held()
+                    assert (profile.shared_state_dir / "active.json").exists()
+                    assert len(policy.requests) == len(calls) == len(owners) == 1
+                    assert len(bindings) == len(runners) == len(validations) == 1
+                    assert validations == [5.0] and len(catalogs) == 1
+                    assert len(runners[0]._jobs) == 1
+                    job = runners[0]._jobs[0]
+                    assert job.invocation is owner and job.ack is None
+                    assert job.completion is None
+                    assert job.close_task is None or not job.close_task.done()
+                    assert len(close_entries) <= 1
+                    assert not close_exits and not cancellations
+                    assert len(cancel_writes) == 2
+                    assert {id(endpoint) for endpoint, raw, count in cancel_writes} == {
+                        id(endpoint) for endpoint in owner._endpoints}
+                    assert all(raw == m._encode_cancel_frame(intent) and count == 40
+                               for endpoint, raw, count in cancel_writes)
+                    assert not forbidden_calls
+                    return dict(decision="pending", at_cap=True, dispatches=1,
+                                requests=1, acks=0, caller_cancellations=1)
+
+        done, _ = await asyncio.wait([launch], timeout=remaining(END-3.75))
+        assert launch in done, "ADAPTER_RESPONSIVE_CLEANUP_DID_NOT_COMPLETE"
+        # Let the registered caller-done observation run before ordering assertions.
+        marker = LOOP.create_future()
+        LOOP.call_soon(marker.set_result, None)
+        await marker
+        if PHASE == "adapter-cancel":
+            assert launch.cancelled() and launch.cancelling() == 3
+            try:
+                launch.result()
+            except asyncio.CancelledError as exc:
+                assert exc is first_cancel and cancellations == [exc]
+            else:
+                raise AssertionError("original adapter cancellation did not propagate")
+        elif PHASE == "adapter-infrastructure":
+            try:
+                launch.result()
+            except ProgramInfrastructureError as exc:
+                assert private_gold not in str(exc)
+            else:
+                raise AssertionError("ADAPTER_INFRASTRUCTURE_BECAME_POLICY_FEEDBACK")
+        else:
+            assert launch.result().exit_code == 0 and not cancellations
+        count = 2 if normal else 1
+        assert len(policy.requests) == (3 if normal else 1), (
+            "ADAPTER_ABORT_DISPATCHED_NEXT_POLICY_REQUEST")
+        assert len(bindings) == len(runners) == len(validations) == 1
+        assert validations == [5.0] and len(catalogs) == 1
+        assert len(close_entries) == len(close_exits) == 1
+        assert len(owners) == len(started) == len(slots) == len(seals) == count
+        assert len({actual.invocation_id for actual in owners}) == count
+        assert len(trace.fence()) == count
+        assert all(entry["kind"] == "guardian" for entry in trace.fence())
+        assert [(code, timeout) for code, timeout, runner in calls] == [
+            (code, 5.0) for code in codes]
+        assert all(runner is runners[0] for code, timeout, runner in calls)
+        assert len(runners[0]._jobs) == len(owner_closes) == count
+        for actual in owners:
+            completion = actual._completion
+            ack = completion.cleanup_ack
+            job = next(job for job in runners[0]._jobs if job.invocation is actual)
+            assert job.ack is ack is actual._authority.ack
+            assert job.close_task is not None and job.close_task.done()
+            assert not job.close_task.cancelled() and job.close_task.exception() is None
+            assert job.completion is None or job.completion is completion
+            closes = [record for record in owner_closes if record["invocation"] is actual]
+            assert len(closes) == 1 and closes[0]["task"] is job.close_task
+            assert closes[0]["ack"] is ack
+            assert ack.invocation_id == actual.invocation_id and ack.role == "program"
+            assert ack.request_sha256 == m.request_sha256(actual.request)
+            assert ack.profile_sha256 == m.execution_profile_sha256(profile)
+            assert ack.child_waits and ack.thread_joins and not ack.not_started
+            assert not actual._thread.is_alive()
+            assert len(actual._children) == 1
+            assert all(child._creator_waited and not child._creator_ambiguous
+                       and type(child.returncode) is int for child in actual._children)
+            assert ack.guardian_reaps == tuple((child.pid, child.returncode)
+                                              for child in actual._children)
+            slot = slot_for(actual)
+            assert slot["process"] is actual._children[0]
+            evidence = next((item for item in slot["messages"]
+                             if item["kind"] == "EVIDENCE"), None)
+            if evidence is None:
+                evidence = await event_for(actual, "EVIDENCE")
+            rows = evidence["actual"]
+            assert sum(row["actor"] == "role" for row in rows) == 1
+            assert sum(row["actor"] == "cli" for row in rows) >= 2
+            assert all(row["registered"] and row["waited"] and not row["ambiguous"]
+                       and type(row["returncode"]) is int for row in rows)
+            assert evidence["observers"] == 1 and evidence["released"]
+            assert evidence["forbidden"] == 0 and evidence["accounted"] == [True]
+            wire = (root / "guest-run" / actual.invocation_id.hex / "request.wire").read_bytes()
+            assert private_gold.encode() not in wire
+            assert m.decode_wire_message(wire, role="program", kind="request",
+                request_sha256=ack.request_sha256).payload == actual.request
+            if normal:
+                expected, is_rejected = ADAPTER_RESPONSES[actual.request.program]
+                assert completion.abort is None and completion.outcome.abort is None
+                assert completion.outcome.observation == expected
+                assert completion.outcome.rejected is is_rejected
+                assert job.completion is completion
+            elif PHASE == "adapter-infrastructure":
+                assert completion.outcome is None and completion.abort.kind == "infrastructure"
+                assert completion.abort.detail_code == "protocol"
+                persisted = m.program_outcome_from_dict(json.loads(
+                    (root / "guest-run" / actual.invocation_id.hex / "outcome.json").read_bytes()))
+                assert persisted.abort.reason == "protocol" and persisted.observation is None
+            else:
+                assert completion.outcome is None and completion.abort.kind == "cancelled"
+                assert actual.snapshot().intent is intent
+                assert intent.requested_ns <= ack.completed_ns <= ack.cleanup_deadline_ns
+                assert ack.cleanup_deadline_ns <= intent.deadline_ns
+            sealed = [item for item in seals if item[0] is actual]
+            assert len(sealed) == 1 and sealed[0][1] is completion
+            assert ack.completed_ns <= sealed[0][2] <= close_exits[0] <= caller_done[0]
+        assert len({id(item[1].cleanup_ack) for item in seals}) == count
+        assert all(entry["process"]._creator_waited and not entry["process"]._creator_ambiguous
+                   for entry in trace.fence())
+        if normal:
+            assert [body["messages"][-1]["content"] for body in policy.bodies[1:]] == [
+                ADAPTER_RESPONSES[code][0] for code in codes]
+        if PHASE == "adapter-cancel":
+            assert len(cancel_writes) == 2
+            assert {id(endpoint) for endpoint, raw, size in cancel_writes} == {
+                id(endpoint) for endpoint in owner._endpoints}
+            assert all(raw == m._encode_cancel_frame(intent) and size == 40
+                       for endpoint, raw, size in cancel_writes)
+        assert not forbidden_calls
+        return dict(decision="ack", dispatches=count, requests=len(policy.requests),
+                    acks=count, runner_closes=1,
+                    caller_cancellations=3 if PHASE == "adapter-cancel" else 0)
+
     async def run():
         nonlocal owner
         binary = root / "guest-observer-inert"
@@ -1782,6 +2199,9 @@ def host_main():
         db.write_bytes(b"inert first-party bytes, not SQLite\n")
         digest = hashlib.sha256(db.read_bytes()).hexdigest()
         executor = m.PilotExecutor(profile, state_dir=root / "guest-run")
+        if PHASE.startswith("adapter-"):
+            assert ROLE == "program" and MUTANT == "none"
+            return await run_adapter(profile, db, digest, executor)
         if ROLE == "program":
             owner = executor.owned_program("print(1)", db_path=str(db),
                                            db_sha256=digest, max_rows=1)
@@ -2195,6 +2615,12 @@ def host_main():
         if cancel_write_original[0] is not None:
             os.write = cancel_write_original[0]
         cleanup()
+        if PHASE == "adapter-missingproof" and result.get("ok") is True:
+            # Independent physical SAFE must never manufacture public success.
+            if any(actual._completion is not None or actual._authority.ack is not None
+                   for actual in owners):
+                result.update(ok=False, error="physical teardown upgraded unresolved API")
+                code = 1
         denied = len(forbidden_calls) + sum(
             item.get("forbidden", 0) for slot in slots for item in slot["messages"]
             if item["kind"] == "SAFE")
@@ -2369,3 +2795,40 @@ def test_owned_guest_concurrent_started_execute_callers_share_completion(tmp_pat
     assert result["decision"] == "ack" and result["hook_hits"] == 1
     assert result["caller_cancellations"] == 0 and result["dispatches"] == 1
     assert result["shared_completion"] is True
+
+
+# Intended RED until the adapter exists. Parent source/security review MUST
+# precede actor execution; these nodes claim no actual SDK/native/SQL activation.
+def test_owned_sql_adapter_normal_rejected(tmp_path):
+    result = _owned_guest_case(tmp_path, "program", "adapter-normal-rejected")
+    assert result["decision"] == "ack" and result["hook_hits"] == 0
+    assert result["dispatches"] == result["acks"] == 2
+    assert result["requests"] == 3 and result["runner_closes"] == 1
+
+
+def test_owned_sql_adapter_normal_error(tmp_path):
+    result = _owned_guest_case(tmp_path, "program", "adapter-normal-error")
+    assert result["decision"] == "ack" and result["hook_hits"] == 0
+    assert result["dispatches"] == result["acks"] == 2
+    assert result["requests"] == 3 and result["runner_closes"] == 1
+
+
+def test_owned_sql_adapter_cancel(tmp_path):
+    result = _owned_guest_case(tmp_path, "program", "adapter-cancel")
+    assert result["decision"] == "ack" and result["hook_hits"] == 2
+    assert result["dispatches"] == result["acks"] == result["requests"] == 1
+    assert result["caller_cancellations"] == 3 and result["runner_closes"] == 1
+
+
+def test_owned_sql_adapter_infrastructure(tmp_path):
+    result = _owned_guest_case(tmp_path, "program", "adapter-infrastructure")
+    assert result["decision"] == "ack" and result["hook_hits"] == 1
+    assert result["dispatches"] == result["acks"] == result["requests"] == 1
+    assert result["runner_closes"] == 1
+
+
+def test_owned_sql_adapter_missingproof(tmp_path):
+    result = _owned_guest_case(tmp_path, "program", "adapter-missingproof")
+    assert result["decision"] == "pending" and result["at_cap"] is True
+    assert result["hook_hits"] == 1 and result["acks"] == 0
+    assert result["dispatches"] == result["requests"] == result["caller_cancellations"] == 1
