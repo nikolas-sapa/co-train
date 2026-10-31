@@ -1,3 +1,33 @@
+# Validated draw consumer, 2026-10-31
+
+Base `085f841`, branch `feat/bird-validated-draw`. New public
+`bench.prepare.load_validated_draw`, frozen `ValidatedDraw`/`DrawExclusion`.
+Both retained digests precede either parse/corpus access; 16 MiB input bounds,
+canonical exact schemas, fixture opt-in, original ordered planned denominator,
+exhaustive eligibility/exclusion partition, settings/count/shape checks and
+two fully fresh current-identity passes. No SQL, selector or publication.
+Existing publishers keep their schema/default/error behavior.
+
+Two SWE-2 High workers delivered product and independent fixture tests, actual
+exports/file-only invocations/owned paths verified. Parent fixed consumer-only
+recursion/overflow/filesystem normalization, added deterministic review
+regressions and three isolated relationship checks.
+Final affected 297 passed/11.88s = 92 contract + 7 admission + 101 preparation
++ 97 adjacent benchmark, not full suite. Actual digest bypass: 1 hit, intended
+assertion RED. Actual boundary bypass: 7 calls, 5 intended failures, 2 deep-input
+refusals still passed. Restored GREEN. Initial depth-assumption failures remain
+in scratch, not counted as real recursion failures.
+Final repeated controls left all three source files unchanged; 8 targeted
+restored cases passed/0.32s separately. Python/security final reviews approved.
+Evidence: `~/scratch/co-train-2026-10-31/bird-validated-draw-085f841/`.
+API/limits: `docs/2026-10-31-bird-validated-draw.md`.
+
+Source changes intentionally invalidate older preparation identities; no
+historical repinning. No real corpus/draw, baseline, training or gate changes.
+Production paired SDK runner/budgets still missing; research remains
+4 PARTIAL / 5 PARTIAL / 6 BLOCKED, baseline missing not zero.
+Previous 116435-byte HANDOFF remains the exact suffix below.
+
 # BIRD SDK composition reference, 2026-10-31
 
 Parent `960898d`, branch `feat/bird-sdk-binding-reference`. Previous PTC

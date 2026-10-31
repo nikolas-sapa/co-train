@@ -29,6 +29,13 @@ records offline fixture evidence for `bench/prepare.py`: 239 affected tests
 passed in 9.84s (98 new plus 141 existing), then 3 additional regressions
 passed in 0.08s separately — 101 new unique cases total, not one 242-case
 run. Three controls each went intended RED and were restored to 3 GREEN.
+The [validated-draw consumer](docs/2026-10-31-bird-validated-draw.md) now
+reads those two independently retained artifacts without SQL or reselection,
+preserving the original planned denominator. Its 297 affected tests passed
+(99 new, 198 existing), with actual digest/error-boundary bypass controls.
+The production paired SDK runner and current BIRD baseline remain missing;
+the [SDK binding reference](spec/spikes/reference/bird-sdk-binding/) is only
+a synthetic composition proof.
 The [Bash launch follow-on](docs/2026-10-31-bash-launch-reporting.md) records
 38 new passes (30 unit/lifecycle plus 8 real loopback subprocess integrations)
 and 94 existing regressions in separate runs, plus actual forwarding

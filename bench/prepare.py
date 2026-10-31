@@ -12,6 +12,12 @@ their exact bytes:
   gold validation on the planned tasks only, and publishes a supplement naming
   the eligible tasks and every exclusion with a bounded category. It never calls
   the selector: the frozen plan is re-resolved by task id, not redrawn.
+- `load_validated_draw` is the read-only consumer of the pair. Both retained
+  byte digests must match before either document is parsed; the draw must be
+  frozen, the supplement a complete usable validation of that exact draw, and
+  the full current identity is verified twice with fresh corpus loads. It
+  returns immutable in-memory values and never runs SQL, the selector,
+  `validate_golds` or publication.
 
 The security posture mirrors the spec (`spec/bench-preparation.md`): no
 artifact-provided filesystem path is ever followed, all corpora and databases
@@ -32,6 +38,7 @@ import platform
 import sqlite3
 import stat
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 
 from bench.loader import CorpusMissing, _resolve, load_bird
@@ -97,12 +104,30 @@ _RUNTIME_KEYS = frozenset({
     "python_implementation", "python_version", "sqlite_version",
 })
 
+_SUPP_KEYS = frozenset({
+    "kind", "version", "stage", "measurement", "fixture", "model_calls",
+    "status", "usable", "draw_sha256", "planned_ids", "eligible_ids",
+    "exclusions", "settings", "identity_checked", "counts", "shapes",
+})
+_SUPP_SETTINGS_KEYS = frozenset({"timeout_s", "max_rows", "comparison"})
+_EXCLUSION_KEYS = frozenset({"id", "status", "category"})
+_COUNTS_KEYS = frozenset({"planned", "eligible", "excluded"})
+_SHAPES_KEYS = frozenset({"planned", "eligible"})
+_SHAPE_COUNT_KEYS = frozenset({"fine", "coarse"})
+
+# Admission bound on each retained document: at most 16 MiB are read, plus
+# one byte to detect the overflow. Anything larger refuses before parsing.
+_MAX_DOC_BYTES = 16 << 20
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 __all__ = [
+    "DrawExclusion",
     "PreparationError",
     "PublicationIndeterminateError",
+    "ValidatedDraw",
     "freeze_draw",
+    "load_validated_draw",
     "validate_draw",
 ]
 
@@ -118,6 +143,39 @@ class PublicationIndeterminateError(PreparationError):
     but a post-link step (unlinking the temporary name, syncing the directory)
     could not be confirmed. The final document is left intact and never
     automatically deleted or retried."""
+
+
+@dataclass(frozen=True)
+class DrawExclusion:
+    """One gold-validation exclusion: the planned task id, the scorer status
+    and its bounded disclosure category. Mirrors one supplement `exclusions`
+    entry -- ids, statuses and categories only, never result detail."""
+
+    id: str
+    status: str
+    category: str
+
+
+@dataclass(frozen=True)
+class ValidatedDraw:
+    """The immutable result of consuming a frozen draw plus its supplement.
+
+    `planned` is the original planned order including excluded tasks;
+    `eligible` is that order with exclusions removed; `exclusions` are in
+    planned order. The digests are the exact-byte SHA-256s of both admitted
+    documents; `timeout_s`, `max_rows` and `comparison` are the bounds the
+    published supplement was validated under. Tasks are host-side `SqlTask`
+    values with their existing fields, oracle SQL included."""
+
+    planned: tuple[SqlTask, ...]
+    eligible: tuple[SqlTask, ...]
+    exclusions: tuple[DrawExclusion, ...]
+    draw_sha256: str
+    supplement_sha256: str
+    fixture: bool
+    timeout_s: float
+    max_rows: int
+    comparison: str
 
 
 # --- canonical serialization -------------------------------------------------
@@ -254,6 +312,93 @@ def _check_draw_consistency(doc: dict, planned_tasks: list[SqlTask]) -> None:
     expected = "underfilled" if any(shortfall.values()) else "frozen"
     if doc["status"] != expected:
         raise PreparationError("draw status is inconsistent")
+
+
+def _check_supplement_shape(doc: object) -> None:
+    """Structural validation of a parsed gold-validation supplement: the exact
+    schema `validate_draw` publishes, enforced on consumption. Exact keys,
+    exact types, exact constants, an ordered disjoint exhaustive partition of
+    `planned_ids` and a consistent status/usability pair. Counts, shapes and
+    settings are typed here and equality-checked against the resolved draw and
+    tasks by the caller."""
+    _keys(doc, _SUPP_KEYS, "supplement")
+    if doc["kind"] != KIND or type(doc["version"]) is not int \
+            or doc["version"] != VERSION:
+        raise PreparationError("supplement kind or version mismatch")
+    if doc["stage"] != "gold-validation" or doc["measurement"] is not False \
+            or type(doc["model_calls"]) is not int or doc["model_calls"] != 0 \
+            or doc["identity_checked"] is not True:
+        raise PreparationError("supplement constants mismatch")
+    if type(doc["fixture"]) is not bool:
+        raise PreparationError("fixture must be an exact bool")
+    if type(doc["usable"]) is not bool:
+        raise PreparationError("usable must be an exact bool")
+    if doc["status"] not in ("complete", "blocked"):
+        raise PreparationError("unknown supplement status")
+    if not _is_sha256(doc["draw_sha256"]):
+        raise PreparationError("bad draw digest reference")
+    for field in ("planned_ids", "eligible_ids"):
+        ids = doc[field]
+        if type(ids) is not list or any(type(i) is not str for i in ids):
+            raise PreparationError(f"{field} must be a list of ids")
+        if len(set(ids)) != len(ids):
+            raise PreparationError(f"{field} holds a duplicate id")
+    exclusions = doc["exclusions"]
+    if type(exclusions) is not list:
+        raise PreparationError("exclusions must be a list")
+    excluded_ids: list[str] = []
+    seen: set[str] = set()
+    for entry in exclusions:
+        _keys(entry, _EXCLUSION_KEYS, "exclusion")
+        if type(entry["id"]) is not str \
+                or type(entry["status"]) is not str \
+                or type(entry["category"]) is not str:
+            raise PreparationError("bad exclusion entry")
+        if entry["id"] in seen:
+            raise PreparationError("duplicate exclusion id")
+        if _EXCLUSION_CATEGORIES.get(entry["status"]) != entry["category"]:
+            raise PreparationError("unknown exclusion status or category")
+        seen.add(entry["id"])
+        excluded_ids.append(entry["id"])
+    # The ordered disjoint exhaustive partition: eligible and excluded id
+    # lists must each equal the planned order filtered on membership. This
+    # one comparison rejects unknown ids, overlaps, gaps and reordering.
+    excluded_set = set(excluded_ids)
+    if doc["eligible_ids"] != [i for i in doc["planned_ids"]
+                             if i not in excluded_set] \
+            or excluded_ids != [i for i in doc["planned_ids"]
+                                if i in excluded_set]:
+        raise PreparationError("supplement partition does not match planned order")
+    settings = doc["settings"]
+    _keys(settings, _SUPP_SETTINGS_KEYS, "supplement settings")
+    if type(settings["timeout_s"]) is not float \
+            or not math.isfinite(settings["timeout_s"]) \
+            or not 0 < settings["timeout_s"] <= PRODUCTION_TIMEOUT_S:
+        raise PreparationError("bad supplement timeout")
+    if type(settings["max_rows"]) is not int \
+            or not 1 <= settings["max_rows"] <= PRODUCTION_MAX_ROWS:
+        raise PreparationError("bad supplement row bound")
+    if settings["comparison"] != COMPARISON:
+        raise PreparationError("supplement comparison mismatch")
+    expected = "blocked" if any(
+        e["status"] == "db_missing" for e in exclusions) else "complete"
+    if doc["status"] != expected:
+        raise PreparationError("supplement status is inconsistent")
+    if doc["usable"] != (doc["status"] == "complete"
+                         and len(doc["eligible_ids"]) > 0):
+        raise PreparationError("supplement usability is inconsistent")
+    _keys(doc["counts"], _COUNTS_KEYS, "counts")
+    for part in doc["counts"].values():
+        _keys(part, set(TIERS), "count entry")
+        for n in part.values():
+            if type(n) is not int or n < 0:
+                raise PreparationError("count entry must be a non-negative int")
+    _keys(doc["shapes"], _SHAPES_KEYS, "shapes")
+    for part in doc["shapes"].values():
+        _keys(part, _SHAPE_COUNT_KEYS, "shape entry")
+        for n in part.values():
+            if type(n) is not int or n < 0:
+                raise PreparationError("shape entry must be a non-negative int")
 
 
 # --- canonical hashing --------------------------------------------------------
@@ -745,6 +890,147 @@ def validate_draw(
     return _publish(supplement, output)
 
 
+def load_validated_draw(
+    root,
+    draw_path,
+    supplement_path,
+    *,
+    expected_draw_sha256,
+    expected_supplement_sha256,
+    fixture=False,
+) -> ValidatedDraw:
+    """Consume retained preparation artifacts without SQL or publication.
+
+    Normalize malformed-document resource errors and filesystem drift at this
+    consumer boundary only; legacy freeze/validate error behavior is unchanged.
+    """
+    try:
+        return _load_validated_draw(
+            root, draw_path, supplement_path,
+            expected_draw_sha256=expected_draw_sha256,
+            expected_supplement_sha256=expected_supplement_sha256,
+            fixture=fixture,
+        )
+    except (RecursionError, OverflowError):
+        raise PreparationError("invalid preparation document") from None
+    except OSError:
+        raise PreparationError("preparation identity unavailable") from None
+
+
+def _load_validated_draw(
+    root,
+    draw_path,
+    supplement_path,
+    *,
+    expected_draw_sha256,
+    expected_supplement_sha256,
+    fixture=False,
+) -> ValidatedDraw:
+    """Consume a frozen draw plus its gold-validation supplement, read-only.
+
+    Both independently retained exact-byte digests must match before either
+    document is parsed or the corpus is touched; each document is read under
+    a 16 MiB admission bound. Requires a `frozen` draw (whose `usable` stays
+    `False`), a `complete` usable supplement with a nonempty eligible set,
+    exact-int zero `model_calls` in both documents, and `fixture` flags that
+    match the caller's `fixture` argument exactly -- fixture documents need
+    the explicit `fixture=True` opt-in. The current identity is verified
+    twice with fully fresh code/runtime snapshots, corpus loads and planned-id
+    resolutions, exactly as validation recomputes it. Never runs SQL, the
+    selector, `validate_golds` or publication, and publishes nothing. Every
+    refusal raises `PreparationError`; unready input never yields an empty
+    successful result.
+    """
+    if not _is_sha256(expected_draw_sha256):
+        raise PreparationError("expected draw digest must be a sha256 hex string")
+    if not _is_sha256(expected_supplement_sha256):
+        raise PreparationError(
+            "expected supplement digest must be a sha256 hex string")
+    if type(fixture) is not bool:
+        raise PreparationError("fixture must be an exact bool")
+    draw_raw = _read_bounded(draw_path, "draw")
+    supplement_raw = _read_bounded(supplement_path, "supplement")
+    draw_sha = hashlib.sha256(draw_raw).hexdigest()
+    supplement_sha = hashlib.sha256(supplement_raw).hexdigest()
+    if draw_sha != expected_draw_sha256:
+        raise PreparationError("retained draw digest mismatch")
+    if supplement_sha != expected_supplement_sha256:
+        raise PreparationError("retained supplement digest mismatch")
+
+    draw = _parse_draw(draw_raw)
+    supplement = _parse_supplement(supplement_raw)
+    if draw["status"] != "frozen":
+        raise PreparationError("draw is not frozen")
+    if supplement["draw_sha256"] != draw_sha:
+        raise PreparationError("supplement does not reference the retained draw")
+    if draw["fixture"] is not fixture or supplement["fixture"] is not fixture:
+        raise PreparationError(
+            "fixture flags do not match the declared fixture opt-in")
+    if supplement["status"] != "complete" or supplement["usable"] is not True:
+        raise PreparationError("supplement is not a usable complete validation")
+    draw_ids = [e["id"] for e in draw["planned"]]
+    if supplement["planned_ids"] != draw_ids:
+        raise PreparationError("supplement planned ids do not match the draw")
+    draw_settings = draw["settings"]
+    supp_settings = supplement["settings"]
+    if supp_settings["timeout_s"] != draw_settings["timeout_s"] \
+            or supp_settings["max_rows"] != draw_settings["max_rows"] \
+            or supp_settings["comparison"] != draw_settings["comparison"]:
+        raise PreparationError("supplement settings do not match the draw")
+
+    # First full identity pass: fresh code/runtime snapshot, fresh manifest
+    # and task load, planned-id resolution (never selection), then the same
+    # canonical identity comparison and sidecar checks validation performs.
+    code = _code_identity()
+    manifest_sha, tasks = _corpus(root)
+    planned_tasks = _resolve_planned(draw["planned"], tasks)
+    _check_draw_consistency(draw, planned_tasks)
+    _require_identity(draw["identity"],
+                      _identity(tasks, planned_tasks, manifest_sha, code))
+    _check_sidecars_for(planned_tasks)
+
+    # The supplement's counts and shapes are verified against the resolved
+    # original tasks, not trusted from the document.
+    excluded_ids = {e["id"] for e in supplement["exclusions"]}
+    eligible = [t for t in planned_tasks if t.name not in excluded_ids]
+    excluded = [t for t in planned_tasks if t.name in excluded_ids]
+    counts = supplement["counts"]
+    if counts["planned"] != _tier_counts(planned_tasks) \
+            or counts["eligible"] != _tier_counts(eligible) \
+            or counts["excluded"] != _tier_counts(excluded):
+        raise PreparationError("supplement counts do not match resolved tasks")
+    shapes = supplement["shapes"]
+    if shapes["planned"] != _shape_counts(planned_tasks) \
+            or shapes["eligible"] != _shape_counts(eligible):
+        raise PreparationError("supplement shapes do not match resolved tasks")
+
+    # Second full identity pass before returning: resnapshot code/runtime,
+    # reload manifest/universe/tasks and re-resolve the planned ids, so drift
+    # between the two checks is rejected rather than hidden behind the first
+    # loaded objects.
+    code2 = _code_identity()
+    manifest_sha2, tasks2 = _corpus(root)
+    planned_tasks2 = _resolve_planned(draw["planned"], tasks2)
+    _require_identity(draw["identity"],
+                      _identity(tasks2, planned_tasks2, manifest_sha2, code2))
+    _check_sidecars_for(planned_tasks2)
+
+    return ValidatedDraw(
+        planned=tuple(planned_tasks2),
+        eligible=tuple(t for t in planned_tasks2 if t.name not in excluded_ids),
+        exclusions=tuple(
+            DrawExclusion(id=e["id"], status=e["status"], category=e["category"])
+            for e in supplement["exclusions"]
+        ),
+        draw_sha256=draw_sha,
+        supplement_sha256=supplement_sha,
+        fixture=fixture,
+        timeout_s=supp_settings["timeout_s"],
+        max_rows=supp_settings["max_rows"],
+        comparison=supp_settings["comparison"],
+    )
+
+
 def _tier_counts(tasks: list[SqlTask]) -> dict:
     return {tier: sum(1 for t in tasks if t.tier == tier) for tier in TIERS}
 
@@ -773,25 +1059,53 @@ def _reject_constant(value: str):
     raise PreparationError("non-finite number in document")
 
 
-def _parse_draw(raw: bytes) -> dict:
-    """Strictly parse a draw document: UTF-8, no duplicate keys, no non-finite
-    numbers, and byte-exact canonical serialization."""
+def _read_bounded(path, label: str) -> bytes:
+    """Read one retained document under the admission bound: at most
+    `_MAX_DOC_BYTES` plus one byte, refusing oversize or unreadable input
+    before hashing or parsing."""
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read(_MAX_DOC_BYTES + 1)
+    except OSError:
+        raise PreparationError(f"{label} document unavailable") from None
+    if len(raw) > _MAX_DOC_BYTES:
+        raise PreparationError(f"{label} document exceeds the size bound")
+    return raw
+
+
+def _parse_document(raw: bytes, label: str) -> dict:
+    """Strictly parse one published document: UTF-8, no duplicate keys, no
+    non-finite numbers, and byte-exact canonical serialization."""
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise PreparationError("draw is not UTF-8") from exc
+        raise PreparationError(f"{label} is not UTF-8") from exc
     try:
         doc = json.loads(text, object_pairs_hook=_no_dup_keys,
                          parse_constant=_reject_constant)
     except PreparationError:
         raise
     except ValueError as exc:
-        raise PreparationError("draw is not valid JSON") from exc
+        raise PreparationError(f"{label} is not valid JSON") from exc
     try:
         canonical = _canonical_bytes(doc)
     except (ValueError, OverflowError) as exc:
-        raise PreparationError("draw cannot be canonically serialized") from exc
+        raise PreparationError(f"{label} cannot be canonically serialized") from exc
     if canonical != raw:
-        raise PreparationError("draw is not canonically serialized")
+        raise PreparationError(f"{label} is not canonically serialized")
+    return doc
+
+
+def _parse_draw(raw: bytes) -> dict:
+    """Strictly parse a draw document and enforce the draw schema."""
+    doc = _parse_document(raw, "draw")
     _check_draw_shape(doc)
+    return doc
+
+
+def _parse_supplement(raw: bytes) -> dict:
+    """Strictly parse a supplement document and enforce the exact schema
+    `validate_draw` publishes."""
+    doc = _parse_document(raw, "supplement")
+    _check_supplement_shape(doc)
     return doc

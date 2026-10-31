@@ -1,6 +1,7 @@
 # Validated BIRD draw consumer
 
-Status: implementation contract, not implemented by the binding reference.
+Status: implemented in `bench.prepare.load_validated_draw`, fixture-verified.
+The binding reference remains a separate, non-production composition spike.
 
 ## Test plan, before implementation
 
@@ -102,6 +103,15 @@ No SDK plugin, paired runner, CLI, model/client/checkpoint/tokenizer choice,
 policy authentication, training adapter, estimator, frontier gate change,
 historical replay, corpus inspection or real draw. No retry/backfill/rescoring.
 No claim that hashing provides adversarial database immutability.
+
+## Verification
+
+297 affected tests passed in 11.88s: 92 consumer-contract cases, 7
+consumer-admission cases, 101 existing preparation cases and 97 adjacent
+benchmark cases. This is not the full suite. The retained-digest bypass
+produced one intended assertion failure; bypassing consumer error normalization
+produced five intended failures and two deep-input refusals that still passed.
+Restored tests passed. See `docs/2026-10-31-bird-validated-draw.md`.
 
 Later baseline work must separately prove per-episode ownership, task-local
 SQL isolation, shared enforced budgets, single final-response scoring,
