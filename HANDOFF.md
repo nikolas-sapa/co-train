@@ -1,3 +1,38 @@
+# Bash QA evaluation integration, 2026-10-31
+
+Base `95a4596`, branch `feat/bash-qa-eval`. New flat Env
+`cotrain_bash_qa_env` plus project `run_bash_qa_eval(EvalConfig)` activate
+the existing configured runner through actual SDK episode Agents. Caller
+explicitly selects finite positive counts/turns and fresh subprocess-only
+settings. Wrapper refuses unsupported modes before SDK work; one revocable
+Env/config admission excludes bare, nested and stale-child execution.
+Pre-base canonical Taskset/Task hooks prevent unsupported shared tool startup.
+Explicit seed builder preserves concrete type and exact data/config.
+Fresh local channel export persists at `trace.info["cotrain_bash_qa"]`
+through the normal SDK JSONL writer, including returned failed Traces.
+No second loop/writer, reward change or manufactured telemetry.
+
+Actual evidence: 114 new passes (100 unit, six startup, eight real SDK
+evaluation integrations) in 11.08s. Prior 161 affected regressions passed
+in 24.29s separately, not a full-suite or combined 275-test run.
+Four actual activation/receipt/metadata/pre-start controls each hit once,
+intended call-phase assertion RED, baseline/restored GREEN. Fourteen
+control-bound hashes and fifteen existing product/fixture/guard/SDK hashes
+unchanged. Three additional identity/binding unit controls proved formerly
+masked refusals after parent repairs. Final Python/security static APPROVE.
+See [contract](spec/bash-qa-eval.md) and
+[usage/evidence](docs/2026-10-31-bash-qa-eval.md).
+
+Actual SWE-2 High product/unit deliveries inspected and repaired. Integration
+worker stopped without a file; parent authored/executed that suite. File-only
+instructions are not a capability sandbox. Temporary 127.0.0.1 scripted
+listeners only; fixture-owned transport draining is not product SDK reaping.
+Bounded export is not redacted, markers remain forgeable allegations.
+No stock CLI support, isolated reporting, toolset-bearing Ledger support,
+external model/corpus/training/native jobs, gate changes, historical repinning,
+main merge or app deployment. Stages stay 4 PARTIAL / 5 PARTIAL / 6 BLOCKED.
+Earlier checkpoints below retain their exact historical bytes.
+
 # Configured Bash QA activation, 2026-10-31
 
 Base `6abc2a8`, branch `feat/bash-qa-activation`. Flat canonical plugin
