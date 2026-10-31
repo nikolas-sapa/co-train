@@ -1,3 +1,32 @@
+# Production Bash launch reporting, 2026-10-31
+
+Base `28570dc`, branch `feat/bash-launch-reporting`. Actual SWE-2 High product,
+unit and integration tracks delivered `ptc/bash_qa.py` plus two test modules.
+Paired Task Request/Trace interceptor forwards report feedback before the next
+model action through actual framework Bash/child HTTP, not a post-run scan.
+Strict `run_bash_qa` admission, private clone intent marker, original task-data
+factory, existing atomic channel claim, runtime-resident ownership, scoped
+wrapper/PATH cleanup and 64 pending occurrence cache. Fresh subprocess only.
+
+Final evidence: 38 new tests passed (9.50s), including 8 actual loopback Bash
+integrations; 94 existing collector/launch regressions passed (3.08s), separate
+runs. Actual forwarding baseline GREEN, suppressed returned Request intended
+call-phase RED, restored GREEN; five source/test/spec hashes unchanged.
+Final static Python/security reviews APPROVE. No full-suite rerun.
+See [contract](spec/bash-launch-reporting.md) and
+[usage/evidence](docs/2026-10-31-bash-launch-reporting.md).
+
+User approved only temporary 127.0.0.1 ephemeral test listeners, auto-closed,
+with scripted in-process clients and zero external fixture provider calls.
+Installed interpreter cache seed avoids installs/downloads. Fixture-owned
+foreground transport drain compensates installed SDK kill-without-wait on
+cancellation; do not mislabel that as product transport reaping.
+SDK truncation retains 20,000 payload bytes plus headers, not a wire ceiling.
+No marker-authenticity claim, gate change, corpus draw, model experiment,
+training/native job, historical repinning, merge to main or app deployment.
+Stages remain 4 PARTIAL / 5 PARTIAL / 6 BLOCKED. Earlier checkpoints follow
+unchanged, including their dated pending-state statements.
+
 # Cross-instance reporting ownership, 2026-10-31
 
 Base `0d05046`, branch `feat/qa-launch-claim`. Channel-local atomic one-shot
