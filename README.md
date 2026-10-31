@@ -45,6 +45,9 @@ The [owned SQL invocation contract](spec/sql-owned-invocations.md) adds inert
 program/scorer handles, separate cancellation pipes and host-issued cleanup
 acknowledgments. Tests use first-party fake actors; native/profile/SDK
 activation remains closed.
+The [owned-runner timeout preflight](spec/ptc-owned-program-timeout.md) lets
+trusted owners refuse unsupported budgets before model dispatch while retaining
+close on failure. This is a generic prerequisite, not a native SQL binding.
 The [Bash launch follow-on](docs/2026-10-31-bash-launch-reporting.md) records
 38 new passes (30 unit/lifecycle plus 8 real loopback subprocess integrations)
 and 94 existing regressions in separate runs, plus actual forwarding

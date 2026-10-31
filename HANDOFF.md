@@ -1,3 +1,34 @@
+# Owned runner timeout preflight, 2026-10-31
+
+Base `6c0ab18`, branch `feat/ptc-owned-timeout-preflight`. Trusted inert owners
+may implement synchronous `validate_program_timeout(timeout)`. The harness calls
+it once with the captured launch timeout, before the model loop and inside
+retained close. Missing hook preserves legacy behavior; invalid hooks/results
+or validation failure cannot skip close or become tool feedback. Generic owners
+still support their own budgets. Native PROGRAM's 5s default/10s containment
+ceiling remain unchanged; this does not implement its SQL adapter.
+
+Independent tests preceded implementation: 20 intended failures and 6 passes,
+then 26 unit passes after the 18-line harness extension. Final affected run:
+322 passed in 17.46s, including all 27 new cases and 295 existing harness,
+owned-runner and configured-QA cases. Actual SDK refusal uses the original
+Task/Agent/eval lifecycle and an inert owner: zero policy/program/scorer calls,
+one close and a failed episode/Trace. A denial sentinel also prevents unexpected
+SDK scoring from executing SQL. No native cleanup/observation proof is claimed.
+
+One portable in-memory timeout bypass reaches exactly one named pre-model
+assertion; source bytes stay unchanged and the fresh restored positive passes.
+Reference: `spec/spikes/reference/ptc-owned-program-runner/timeout_control.py`.
+Python/security reviews approve the bounded source and guarded SDK fixture.
+Contract: `spec/ptc-owned-program-timeout.md`. No full-suite claim.
+
+Full SQL program/scorer adapters, private TaskData-to-SqlTask association and
+configured BIRD binding remain deferred. No native/profile/model/corpus/spend
+activation, source repinning or research milestone completion. Historical
+sections below are byte-exact.
+
+---
+
 # Owned SQL invocation source, 2026-10-31
 
 Base `9149df4`, branch `feat/sql-owned-invocations`. Source-engineering only.

@@ -54,6 +54,23 @@ class OwnedProgramRunner(Protocol):
 ProgramRunnerFactory = Callable[[TaskData, Catalog], OwnedProgramRunner]
 
 
+def _validate_program_runner_timeout(
+    runner: OwnedProgramRunner, timeout: float,
+) -> None:
+    missing = object()
+    validate = getattr(runner, "validate_program_timeout", missing)
+    if validate is missing:
+        return
+    if (not callable(validate) or inspect.iscoroutinefunction(validate)
+            or inspect.isasyncgenfunction(validate)):
+        raise TypeError("validate_program_timeout must be synchronous and callable")
+    result = validate(timeout)
+    if result is not None:
+        if inspect.iscoroutine(result):
+            result.close()
+        raise TypeError("validate_program_timeout must return None")
+
+
 async def _execute_owned_program(
     runner: OwnedProgramRunner, code: str, timeout: float,
 ) -> str:
@@ -539,6 +556,7 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                 ):
                     raise TypeError("owned program runner requires async run_program and aclose")
                 try:
+                    _validate_program_runner_timeout(runner, program_timeout)
                     await self._loop(
                         ctx, endpoint, secret, messages, catalog, printed, log,
                         program_runner=runner, program_timeout=program_timeout,
