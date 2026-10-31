@@ -992,6 +992,22 @@ ADAPTER_RESPONSES = {
     "print('adapter rejected fixture')": ("rejected: static fixture refusal  \n", True),
     "print('adapter error fixture')": ("error: static fixture failure  \n", True),
 }
+SCORER_FIXTURE_STATUSES = (
+    "match", "mismatch", "pred_error", "pred_timeout", "pred_truncated",
+    "pred_empty", "gold_error", "gold_timeout", "gold_truncated", "db_missing")
+SCORER_FIXTURE_PREDICTIONS = {
+    "fixture-score-status:" + status: status for status in SCORER_FIXTURE_STATUSES}
+SCORER_FIXTURE_PREDICTIONS[""] = "pred_empty"
+
+def scorer_fixture_result(prediction):
+    # Explicit static frames, not execution_accuracy, SQL, or reward evidence.
+    from bench.score import ExResult
+    status = SCORER_FIXTURE_PREDICTIONS[prediction]
+    return ExResult(float(status == "match"), status,
+                    status not in SCORER_FIXTURE_STATUSES[-4:],
+                    "  static scorer fixture\nnot SQL accuracy  \n",
+                    0 if status == "pred_empty" else 7, 11)
+
 forbidden_calls = []
 def forbidden(*args, **kwargs):
     forbidden_calls.append(1)
@@ -1079,7 +1095,9 @@ def role_main():
                 "static first-party role fixture", False)
     else:
         from bench.score import ExResult
-        response = ExResult(1.0, "match", True, "static fixture, not SQL", 1, 1)
+        response = scorer_fixture_result(request.predicted_sql) if (
+            request.predicted_sql in SCORER_FIXTURE_PREDICTIONS) else ExResult(
+                1.0, "match", True, "static fixture, not SQL", 1, 1)
     result = m.encode_wire_message(
         ROLE, "result", response, request_sha256=journal["request_sha256"])
     output(result)
@@ -1394,7 +1412,7 @@ def guardian_main():
             PHASE == "preSTART" and kind == "START_ATTEMPT" or
             PHASE in ("inflight", "repeated", "latency-transport",
                       "task-cancel", "concurrent-execute",
-                      "adapter-cancel") and kind == "REQUEST_DELIVERED" or
+                      "adapter-cancel", "score-adapter-cancel") and kind == "REQUEST_DELIVERED" or
             PHASE == "latency-startup" and kind == "GUARDIAN_ACK")
         if selected and PHASE not in hits:
             barrier(PHASE)
@@ -1408,7 +1426,8 @@ def guardian_main():
     m._grant_exit = observe_grant
     cleanup = m._cleanup_owned
     def observe_cleanup(*args, **kwargs):
-        if PHASE in ("repeated", "task-cancel", "adapter-cancel") and "cleanup-held" not in hits:
+        if PHASE in ("repeated", "task-cancel", "adapter-cancel",
+                     "score-adapter-cancel") and "cleanup-held" not in hits:
             barrier("cleanup-held")
         return cleanup(*args, **kwargs)
     m._cleanup_owned = observe_cleanup
@@ -1416,9 +1435,12 @@ def guardian_main():
     def observe_evidence(*args, **kwargs):
         value = evidence(*args, **kwargs)
         if PHASE in ("unknown-proof", "protocol-before",
-                     "adapter-infrastructure", "adapter-missingproof") and PHASE not in hits:
+                     "adapter-infrastructure", "adapter-missingproof",
+                     "score-adapter-infrastructure", "score-adapter-missingproof",
+                     "score-adapter-shutdown") and PHASE not in hits:
             barrier(PHASE)
-        if PHASE in ("unknown-proof", "adapter-missingproof"):
+        if PHASE in ("unknown-proof", "adapter-missingproof",
+                     "score-adapter-missingproof", "score-adapter-shutdown"):
             fault_hits.append("withheld-resource-proof")
             # DECLARED FAULT: one join proof withheld, although the independent
             # ledger still knows the physical observer actually joined.
@@ -1514,7 +1536,8 @@ def guardian_main():
         assert not supervisor.is_alive()
     except BaseException as exc:
         failure_diagnostic("guardian-error", exc, hits=hits[-8:])
-        emit("GUARDIAN_ERROR", error=type(exc).__name__ + ": " + str(exc),
+        emit("GUARDIAN_ERROR", error=type(exc).__name__ if PHASE.startswith(
+            "score-adapter-") else type(exc).__name__ + ": " + str(exc),
              fault_hits=fault_hits)
         # Ordinary errors MUST NOT exit a supervisor owning nested work. Only
         # the independent watchdog can discharge this non-daemon lifetime.
@@ -1528,6 +1551,7 @@ def host_main():
     done_r, done_w = os.pipe()
     owner = None
     owners = []
+    unresolved_owners = []
     slots, messages, gates = [], [], []
     queue = asyncio.Queue()
     host_hits, host_faults = [], []
@@ -1633,7 +1657,8 @@ def host_main():
     acquire = m._acquire_cancel_frame
     def observe_acquisition(*args, **kwargs):
         value = acquire(*args, **kwargs)
-        emit("CONSUMED", at_ns=time.monotonic_ns(), times=list(value))
+        identity = {"invocation_id": args[1].hex} if PHASE.startswith("score-adapter-") else {}
+        emit("CONSUMED", at_ns=time.monotonic_ns(), times=list(value), **identity)
         return value
     m._acquire_cancel_frame = observe_acquisition
     validate = m._validate_finalization
@@ -1754,7 +1779,8 @@ def host_main():
                 return item
             if item["kind"] == "GUARDIAN_ERROR" and PHASE not in (
                     "cli-fault", "unknown-proof", "protocol-after", "postreap-fault",
-                    "adapter-missingproof"):
+                    "adapter-missingproof", "score-adapter-missingproof",
+                    "score-adapter-shutdown"):
                 raise AssertionError(item["error"])
 
     def release(invocation=None):
@@ -2180,6 +2206,487 @@ def host_main():
                     acks=count, runner_closes=1,
                     caller_cancellations=3 if PHASE == "adapter-cancel" else 0)
 
+    async def run_scorer_adapter(profile, db, digest, executor):
+        # Host-only, no TaskData, SDK, policy, reward, or host SQL path.
+        from bench.score import ExResult
+        from bench.task import SqlTask
+        from train.sql_episodes import InstrumentSettings
+
+        nonlocal owner
+        status_phases = {"score-adapter-status-" + status for status in SCORER_FIXTURE_STATUSES}
+        assert PHASE in status_phases | {
+            "score-adapter-requests", "score-adapter-cancel", "score-adapter-infrastructure",
+            "score-adapter-missingproof", "score-adapter-shutdown"}
+        assert m.limits_for("scorer").deadline_ms == 30000
+        multi = PHASE == "score-adapter-shutdown"
+        missing = PHASE == "score-adapter-missingproof" or multi
+        predictions = ["fixture-score-status:match"]
+        if PHASE in status_phases:
+            predictions = ["fixture-score-status:" + PHASE.removeprefix("score-adapter-status-")]
+        elif PHASE == "score-adapter-requests":
+            predictions.append("")  # Empty input is native-accepted, no extraction.
+        elif multi:
+            predictions.append("fixture-score-status:mismatch")
+        task = SqlTask("owned-scorer-fixture", "private fixture question",
+                       "private fixture evidence", "SELECT 'PRIVATE_SCORER_FIXTURE_GOLD'",
+                       "private-fixture-db", str(db), "moderate", "annotated",
+                       "private-shape", "private-coarse-shape", "fixture")
+        instrument = InstrumentSettings(
+            action_cap=3, action_max_rows=17, scorer_max_rows=23, compare="multiset",
+            scorer_timeout_s=30.0 if PHASE == "score-adapter-requests" else 8.125,
+            program_timeout_s=2.5, wrapper_timeout_s=19.0,
+            python_version="fixture-python", sqlite_version="fixture-sqlite",
+            source_paths=("fixture/instrument/source.py",), source_sha256="b"*64)
+        original_task, original_settings = dataclasses.asdict(task), dataclasses.asdict(instrument)
+        allocated, started, seals, owner_closes, score_calls, escaped_cancels = [], [], [], [], [], []
+        operation_exits = []
+        shutdown_entries, shutdown_exits, score_tasks, cancel_writes = [], [], [], []
+        second_gate = threading.Event()
+        canonical_init = m.OwnedSqlInvocation.__init__
+        canonical_allocate, canonical_close = m.PilotExecutor.owned_score, m.OwnedSqlInvocation.aclose
+
+        def observe_init(actual, *args, **kwargs):
+            with spawn_lock:
+                assert not stopping.is_set(), "fixture owner creator retired"
+                owners.append(actual)  # Retain even partial initialization.
+                canonical_init(actual, *args, **kwargs)
+                _fence_owned_start(actual, spawn_lock, stopping)
+        m.OwnedSqlInvocation.__init__ = observe_init
+
+        async def observe_owner_close(actual):
+            record = dict(invocation=actual, task=asyncio.current_task(), ack=None,
+                          known_tasks=tuple(job.close_task for job in scorer._jobs))
+            owner_closes.append(record)
+            emit("SCORE_OWNER_CLOSE_STARTED", invocation_id=actual.invocation_id.hex)
+            value = await canonical_close(actual)
+            record["ack"] = value
+            return value
+        m.OwnedSqlInvocation.aclose = observe_owner_close
+
+        def observe_allocate(actual_executor, prediction, actual_task, **kwargs):
+            nonlocal owner
+            assert actual_executor is executor and actual_task is task
+            assert kwargs == dict(db_sha256=digest, instrument=instrument)
+            assert kwargs["instrument"] is instrument
+            assert dataclasses.asdict(task) == original_task
+            assert dataclasses.asdict(instrument) == original_settings
+            assert len(allocated) < len(predictions) and prediction == predictions[len(allocated)]
+            actual = canonical_allocate(actual_executor, prediction, actual_task, **kwargs)
+            assert type(actual) is m.OwnedSqlInvocation and owners[-1] is actual
+            allocated.append(actual)
+            owner = actual
+            assert actual.db_path == db and task.db_path == str(db)
+            expected = m.ScoreRequest(
+                dataclasses.replace(task, db_path="/db.sqlite"), prediction,
+                instrument.scorer_timeout_s, instrument.scorer_max_rows, instrument.compare, digest)
+            assert actual.request == expected and actual.request.task.gold_sql == task.gold_sql
+            initial = actual.snapshot()
+            original_start, original_seal = actual._start, actual._seal
+            def observe_start():
+                jobs = [job for job in scorer._jobs if job.invocation is actual]
+                assert len(jobs) == 1, "SCORER_JOB_NOT_RETAINED_BEFORE_EXECUTE"
+                assert jobs[0].snapshot == initial and initial.state == "ALLOCATED"
+                assert initial.role == "scorer" and initial.intent is None and not initial.incomplete
+                assert initial.request_sha256 == m.request_sha256(expected)
+                assert initial.profile_sha256 == m.execution_profile_sha256(profile)
+                if not any(item is actual for item in started):
+                    started.append(actual)
+                return original_start()  # Delegates through the installed startup fence.
+            def observe_seal(*args, **kwargs):
+                value = original_seal(*args, **kwargs)
+                assert value is actual._completion and value.cleanup_ack is actual._authority.ack
+                seals.append((actual, value, time.monotonic_ns()))
+                return value
+            actual._start, actual._seal = observe_start, observe_seal
+            if multi and len(allocated) == 2:
+                # Real second controller is retained/published, held BEFORE
+                # admission. First unresolved owner keeps the shared lock.
+                original_controller = actual._controller
+                with spawn_lock:
+                    assert not stopping.is_set()
+                    gates.append(second_gate)
+                def held_controller(binding):
+                    emit("SCORE_CONTROLLER_HELD", invocation_id=actual.invocation_id.hex)
+                    assert second_gate.wait(timeout=remaining(END-3.75)), (
+                        "scorer second-controller fixture deadline")
+                    if stopping.is_set():
+                        return  # Physical teardown, never an API candidate/ACK.
+                    return original_controller(binding)
+                actual._controller = held_controller
+            return actual
+        m.PilotExecutor.owned_score = observe_allocate
+
+        # No new module is imported on any of the existing 77 paths.
+        from ptc.sql_owned_score import (
+            OwnedSqlScorer, ScoreInfrastructureError, build_owned_sql_scorer)
+        scorer = build_owned_sql_scorer(
+            task=task, executor=executor, db_sha256=digest, instrument=instrument)
+        assert type(scorer) is OwnedSqlScorer
+        assert not owners and not trace.fence() and not forbidden_calls
+        assert scorer.admit() is None
+        assert scorer.admit() is None  # Recheck the original seal, never reseal.
+        assert not owners and not trace.fence() and not forbidden_calls
+        original_score, original_shutdown = scorer.score_sql, scorer.aclose
+        def observe_operation_exit():
+            # Capture at the actual public adapter boundary, not a later
+            # assertion turn in which an escaped cleanup might have caught up.
+            operation_exits.append((asyncio.current_task(), time.monotonic_ns(), tuple(
+                (job.invocation, job.ack,
+                 job.close_task is not None and job.close_task.done(),
+                 job.invocation._thread is not None and not job.invocation._thread.is_alive())
+                for job in scorer._jobs)))
+        def instrument_methods():
+            async def observe_score(actual_scorer, prediction):
+                assert actual_scorer is scorer
+                score_calls.append(prediction)
+                try:
+                    result = await original_score(prediction)
+                except asyncio.CancelledError as exc:
+                    escaped_cancels.append(exc)
+                    observe_operation_exit()
+                    raise
+                except ScoreInfrastructureError:
+                    observe_operation_exit()
+                    raise
+                observe_operation_exit()
+                return result
+            async def observe_shutdown(actual_scorer):
+                assert actual_scorer is scorer
+                shutdown_entries.append(asyncio.current_task())
+                value = await original_shutdown()
+                assert value is None
+                shutdown_exits.append(time.monotonic_ns())
+                return value
+            type(scorer).score_sql, type(scorer).aclose = observe_score, observe_shutdown
+        instrument_methods()
+
+        def start_score(prediction):
+            operation = LOOP.create_task(scorer.score_sql(prediction))
+            score_tasks.append(operation)
+            return operation
+
+        async def event_for(actual, kind, name=None):
+            return await next_event(lambda item: (
+                item.get("invocation_id") == actual.invocation_id.hex
+                and item["kind"] == kind and (name is None or item.get("name") == name)))
+
+        async def finish(operation):
+            done, _ = await asyncio.wait([operation], timeout=remaining(END-3.75))
+            assert operation in done, "SCORER_RESPONSIVE_CLEANUP_DID_NOT_COMPLETE"
+
+        def job_for(actual):
+            jobs = [job for job in scorer._jobs if job.invocation is actual]
+            assert len(jobs) == 1
+            return jobs[0]
+
+        async def acknowledged(actual, *, dispatched=True):
+            job, completion = job_for(actual), actual._completion
+            assert completion is not None
+            ack = completion.cleanup_ack
+            assert job.ack is ack is actual._authority.ack
+            assert job.completion is None or job.completion is completion
+            assert job.close_task is not None and job.close_task.done()
+            assert not job.close_task.cancelled() and job.close_task.exception() is None
+            closes = [record for record in owner_closes if record["invocation"] is actual]
+            assert len(closes) == 1 and closes[0]["task"] is job.close_task
+            assert closes[0]["ack"] is ack, "SCORER_ACTUAL_CLOSE_ACK_NOT_RETAINED"
+            assert ack.invocation_id == actual.invocation_id and ack.role == "scorer"
+            assert ack.request_sha256 == actual.snapshot().request_sha256
+            assert ack.profile_sha256 == m.execution_profile_sha256(profile)
+            assert actual._thread is not None and not actual._thread.is_alive()
+            sealed = [entry for entry in seals if entry[0] is actual]
+            assert len(sealed) == 1 and sealed[0][1] is completion
+            assert ack.completed_ns <= sealed[0][2]
+            if not dispatched:
+                assert ack.not_started and not actual._children and ack.guardian_reaps == ()
+                return ack
+            assert not ack.not_started and ack.child_waits and ack.thread_joins
+            matching = [slot for slot in slots if slot["invocation"] is actual]
+            assert len(matching) == 1 and len(actual._children) == 1
+            assert matching[0]["process"] is actual._children[0]
+            assert all(child._creator_waited and not child._creator_ambiguous
+                       and type(child.returncode) is int for child in actual._children)
+            assert ack.guardian_reaps == tuple((child.pid, child.returncode)
+                                              for child in actual._children)
+            evidence = next((item for item in matching[0]["messages"]
+                             if item["kind"] == "EVIDENCE"), None)
+            if evidence is None:
+                evidence = await event_for(actual, "EVIDENCE")
+            rows = evidence["actual"]
+            assert sum(row["actor"] == "role" for row in rows) == 1
+            assert sum(row["actor"] == "cli" for row in rows) >= 2
+            assert all(row["registered"] and row["waited"] and not row["ambiguous"]
+                       and type(row["returncode"]) is int for row in rows)
+            assert evidence["observers"] == 1 and evidence["released"]
+            assert evidence["accounted"] == [True] and evidence["forbidden"] == 0
+            wire = (root / "guest-run" / actual.invocation_id.hex / "request.wire").read_bytes()
+            decoded = m.decode_wire_message(wire, role="scorer", kind="request",
+                                           request_sha256=ack.request_sha256).payload
+            assert decoded == actual.request
+            assert decoded.task == dataclasses.replace(task, db_path="/db.sqlite")
+            assert decoded.task.gold_sql == task.gold_sql and actual.db_path == db
+            assert (decoded.timeout_s, decoded.max_rows, decoded.compare, decoded.db_sha256) == (
+                instrument.scorer_timeout_s, instrument.scorer_max_rows, instrument.compare, digest)
+            return ack
+
+        def retained_native_cancel(operation, actual):
+            coroutine = operation.get_coro()
+            for _ in range(32):
+                frame = getattr(coroutine, "cr_frame", None)
+                if frame is not None and frame.f_code.co_name == "execute":
+                    if frame.f_locals.get("self") is actual:
+                        value = frame.f_locals.get("original_cancel")
+                        assert isinstance(value, asyncio.CancelledError)
+                        return value
+                coroutine = getattr(coroutine, "cr_await", None)
+                if coroutine is None:
+                    break
+            raise AssertionError("actual scorer execute cancellation not retained")
+
+        async def held_turn(operation, actual):
+            marker = LOOP.create_future()
+            LOOP.call_soon(marker.set_result, None)
+            await asyncio.wait_for(marker, timeout=remaining(END-3.75))
+            assert not operation.done(), "SCORER_CALLER_ESCAPED_HELD_CLEANUP"
+            assert actual._completion is None and actual._authority.ack is None
+
+        def watch_cancel_writes():
+            real_write = os.write
+            cancel_write_original[0] = real_write
+            def observe_write(fd, raw):
+                endpoints = [(actual, endpoint) for actual in allocated
+                             for endpoint in actual._endpoints
+                             if endpoint.fd is not None and endpoint.fd == fd]
+                count = real_write(fd, raw)
+                cancel_writes.extend((actual, endpoint, bytes(raw), count)
+                                     for actual, endpoint in endpoints)
+                return count
+            os.write = observe_write
+
+        async def consumed_intent(actual, intent):
+            seen = {}
+            # Multi-owner close-start observations may already have drained a
+            # genuine consumption event. Reuse that observation, never replay.
+            for item in messages:
+                if item["kind"] == "CONSUMED" and item["times"] == [
+                        intent.requested_ns, intent.deadline_ns]:
+                    assert item["lane"] not in seen
+                    seen[item["lane"]] = item
+            while len(seen) < 2:
+                item = await next_event(lambda item: item["kind"] == "CONSUMED")
+                assert item["lane"] not in seen
+                if item["lane"] == "guardian":
+                    assert item["invocation_id"] == actual.invocation_id.hex
+                seen[item["lane"]] = item
+            assert set(seen) == {"host", "guardian"}
+            assert all(item["invocation_id"] == actual.invocation_id.hex for item in seen.values())
+            assert all(item["times"] == [intent.requested_ns, intent.deadline_ns]
+                       for item in seen.values())
+
+        def exact_frames(actual, intent):
+            assert len(cancel_writes) == 2
+            assert {id(endpoint) for invocation, endpoint, raw, count in cancel_writes} == {
+                id(endpoint) for endpoint in actual._endpoints}
+            assert all(invocation is actual and raw == m._encode_cancel_frame(intent) and count == 40
+                       for invocation, endpoint, raw, count in cancel_writes)
+
+        operation = start_score(predictions[0])
+        if PHASE in status_phases or PHASE == "score-adapter-requests":
+            results = []
+            for index, prediction in enumerate(predictions):
+                if index:
+                    operation = start_score(prediction)
+                await finish(operation)
+                actual = allocated[index]
+                await acknowledged(actual)
+                result = operation.result()
+                completion = actual._completion
+                assert completion.abort is None and completion.outcome.abort is None
+                assert result is completion.outcome.result, "SCORER_NATIVE_RESULT_IDENTITY_CHANGED"
+                assert type(result) is ExResult and result == scorer_fixture_result(prediction)
+                assert job_for(actual).completion is completion
+                results.append(result)
+            assert len(allocated) == len(started) == len(seals) == len(predictions)
+            assert len({actual.invocation_id for actual in allocated}) == len(predictions)
+        else:
+            hit = await next_event(lambda item: item["kind"] == "HIT"
+                                   and item.get("name") == PHASE)
+            assert len(allocated) == len(started) == 1
+            first = allocated[0]
+            assert hit["invocation_id"] == first.invocation_id.hex
+            if PHASE == "score-adapter-infrastructure":
+                now = time.monotonic_ns()
+                raw = struct.pack(">8s16sQQ", b"BADMAGIC", first.invocation_id.bytes, now, now+CAP_NS)
+                assert os.write(first._endpoints[-1].fd, raw) == 40
+                monitored = await event_for(first, "MONITOR_DONE")
+                assert monitored["error"] is True
+                release(first)
+                await finish(operation)
+                try:
+                    operation.result()
+                except ScoreInfrastructureError:
+                    pass
+                else:
+                    raise AssertionError("SCORER_PROTOCOL_ABORT_BECAME_EXRESULT")
+                await acknowledged(first)
+                assert first._completion.outcome is None
+                assert first._completion.abort.kind == "infrastructure"
+                assert first._completion.abort.detail_code == "protocol"
+                persisted = m.score_outcome_from_dict(json.loads(
+                    (root / "guest-run" / first.invocation_id.hex / "outcome.json").read_bytes()))
+                assert persisted.result is None and persisted.abort.reason == "protocol"
+            else:
+                if missing:
+                    assert time.monotonic()+12.03 < END-3.75, (
+                        "SCORER_REAL_INTENT_CAP_EXCEEDS_FIXTURE_BUDGET")
+                watch_cancel_writes()
+                if multi:
+                    second_operation = start_score(predictions[1])
+                    controller_held = await next_event(
+                        lambda item: item["kind"] == "SCORE_CONTROLLER_HELD")
+                    assert len(allocated) == len(started) == 2
+                    second = allocated[1]
+                    assert controller_held["invocation_id"] == second.invocation_id.hex
+                    assert second._thread.is_alive() and second.snapshot().intent is None
+                    assert not second._children and len(slots) == 1
+                    assert time.monotonic()+12.03 < END-3.75
+                    adapter_close = LOOP.create_task(scorer.aclose())
+                    while len(owner_closes) < 2:
+                        await next_event(lambda item: item["kind"] == "SCORE_OWNER_CLOSE_STARTED")
+                    jobs = [job_for(actual) for actual in allocated]
+                    assert all(job.close_task is not None for job in jobs)
+                    assert len({id(job.close_task) for job in jobs}) == 2
+                    assert all(item is not None for item in owner_closes[0]["known_tasks"]), (
+                        "SCORER_SHUTDOWN_JOINED_FIRST_BEFORE_STARTING_ALL_CLOSES")
+                    assert len(owner_closes[0]["known_tasks"]) == 2
+                    intent = first.snapshot().intent
+                    assert intent is not None and intent.reason == "runner_closed"
+                    assert second.snapshot().intent is not None
+                    assert second.snapshot().intent.reason == "runner_closed"
+                    assert not adapter_close.done() and first._authority.ack is None
+                    second_gate.set()
+                    await finish(second_operation)
+                    try:
+                        second_operation.result()
+                    except ScoreInfrastructureError:
+                        pass
+                    else:
+                        raise AssertionError("SCORER_SHUTDOWN_ABORT_BECAME_EXRESULT")
+                    await acknowledged(second, dispatched=False)
+                    exited = [entry for entry in operation_exits if entry[0] is second_operation]
+                    assert len(exited) == 1
+                    fact = next(item for item in exited[0][2] if item[0] is second)
+                    assert fact[1] is second._authority.ack and fact[2] and fact[3]
+                    assert not adapter_close.done() and not operation.done()
+                    refused = LOOP.create_task(scorer.score_sql(""))
+                    await finish(refused)
+                    try:
+                        refused.result()
+                    except ScoreInfrastructureError:
+                        pass
+                    else:
+                        raise AssertionError("closing scorer accepted new work")
+                    assert len(allocated) == len(scorer._jobs) == 2
+                else:
+                    first_message = "first actual scorer caller cancellation"
+                    assert operation.cancel(first_message)
+                    await held_turn(operation, first)
+                    first_cancel = retained_native_cancel(operation, first)
+                    assert first_cancel.args == (first_message,) and operation.cancelling() == 1
+                    intent = first.snapshot().intent
+                    assert intent is not None and intent.reason == "caller_cancelled"
+                assert intent.deadline_ns == intent.requested_ns+CAP_NS
+                if missing:
+                    assert intent.deadline_ns/1e9+0.03 < END-3.75
+                await consumed_intent(first, intent)
+                release(first)
+                if missing:
+                    withheld = await event_for(first, "RESOURCE_PROOF_WITHHELD")
+                    assert withheld["fault_hits"] == 1
+                    await asyncio.sleep(max(0, intent.deadline_ns/1e9-time.monotonic())+0.03)
+                    assert time.monotonic_ns() >= intent.deadline_ns+30000000
+                    assert time.monotonic() < END-3.75
+                    assert not operation.done() and first._completion is None
+                    assert first._authority.ack is None and job_for(first).ack is None
+                    assert job_for(first).completion is None
+                    snapshot = first.snapshot()
+                    assert snapshot.incomplete and snapshot.state == "UNRESOLVED_OWNED"
+                    assert snapshot.intent is intent and barrier_held()
+                    assert first._thread is not None and first._thread.is_alive()
+                    assert (profile.shared_state_dir / "active.json").exists()
+                    assert not shutdown_exits and not escaped_cancels
+                    if multi:
+                        assert not adapter_close.done() and len(owner_closes) == 2
+                        assert job_for(second).ack is second._authority.ack
+                        assert job_for(second).ack is not None
+                        assert job_for(first).close_task is not None
+                        assert not job_for(first).close_task.done()
+                        assert len(seals) == 1 and seals[0][0] is second
+                    else:
+                        assert not seals
+                        assert job_for(first).close_task is None or not job_for(first).close_task.done()
+                    exact_frames(first, intent)
+                    unresolved_owners.append(first)
+                    assert len(allocated) == len(owners) == len(started) == len(scorer._jobs) == (
+                        2 if multi else 1)
+                    assert len(slots) == len(trace.fence()) == 1
+                    assert score_calls == predictions + ([""] if multi else [])
+                    assert not forbidden_calls
+                    return dict(decision="pending", at_cap=True, allocations=len(allocated),
+                                dispatches=1, acks=1 if multi else 0,
+                                owner_closes=len(owner_closes), shutdown_pending=multi)
+                await event_for(first, "HIT", "cleanup-held")
+                for number in (2, 3):
+                    assert operation.cancel("later actual scorer cancellation " + str(number))
+                    await held_turn(operation, first)
+                    assert operation.cancelling() == number
+                    assert retained_native_cancel(operation, first) is first_cancel
+                    assert first.snapshot().intent is intent and not seals and not escaped_cancels
+                release(first)
+                await finish(operation)
+                try:
+                    operation.result()
+                except asyncio.CancelledError as exc:
+                    assert exc is first_cancel and escaped_cancels == [exc]
+                else:
+                    raise AssertionError("first scorer caller cancellation did not propagate")
+                ack = await acknowledged(first)
+                assert operation.cancelled() and operation.cancelling() == 3
+                assert first._completion.outcome is None and first._completion.abort.kind == "cancelled"
+                assert intent.requested_ns <= ack.completed_ns <= ack.cleanup_deadline_ns <= intent.deadline_ns
+                exact_frames(first, intent)
+
+        count = len(predictions)
+        assert len(allocated) == len(owners) == len(started) == len(scorer._jobs) == count
+        assert len(slots) == len(trace.fence()) == len(seals) == count
+        assert all(entry["kind"] == "guardian" and entry["process"]._creator_waited
+                   and not entry["process"]._creator_ambiguous for entry in trace.fence())
+        assert score_calls == predictions
+        assert len(operation_exits) == count
+        for operation, exited_at, facts in operation_exits:
+            actual = allocated[score_tasks.index(operation)]
+            fact = next(item for item in facts if item[0] is actual)
+            assert fact[1] is actual._authority.ack and fact[2] and fact[3], (
+                "SCORER_CALLER_ESCAPED_BEFORE_REAL_CLOSE_ACK")
+            assert fact[1].completed_ns <= exited_at
+        retained_tasks = tuple(job.close_task for job in scorer._jobs)
+        assert await scorer.aclose() is None
+        assert await scorer.aclose() is None
+        assert tuple(job.close_task for job in scorer._jobs) == retained_tasks
+        assert len(owner_closes) == count and len(shutdown_exits) == len(shutdown_entries) == 2
+        try:
+            await scorer.score_sql("")
+        except ScoreInfrastructureError:
+            pass
+        else:
+            raise AssertionError("closed scorer accepted new work")
+        assert len(allocated) == len(owners) == count, "SCORER_CLOSE_REPLAYED_INVOCATION"
+        assert dataclasses.asdict(task) == original_task
+        assert dataclasses.asdict(instrument) == original_settings and not forbidden_calls
+        return dict(decision="ack", allocations=count, dispatches=count, acks=count,
+                    owner_closes=len(owner_closes), caller_cancellations=(
+                        3 if PHASE == "score-adapter-cancel" else 0))
+
     async def run():
         nonlocal owner
         binary = root / "guest-observer-inert"
@@ -2199,6 +2706,9 @@ def host_main():
         db.write_bytes(b"inert first-party bytes, not SQLite\n")
         digest = hashlib.sha256(db.read_bytes()).hexdigest()
         executor = m.PilotExecutor(profile, state_dir=root / "guest-run")
+        if PHASE.startswith("score-adapter-"):
+            assert ROLE == "scorer" and MUTANT == "none"
+            return await run_scorer_adapter(profile, db, digest, executor)
         if PHASE.startswith("adapter-"):
             assert ROLE == "program" and MUTANT == "none"
             return await run_adapter(profile, db, digest, executor)
@@ -2606,7 +3116,8 @@ def host_main():
                        if key in item} for item in messages[-24:]],
             received=[{key: item[key] for key in fields
                        if key in item} for item in observed[-24:]])
-        result, code = dict(ok=False, error=type(exc).__name__+": "+str(exc)), 1
+        result, code = dict(ok=False, error=type(exc).__name__ if PHASE.startswith(
+            "score-adapter-") else type(exc).__name__+": "+str(exc)), 1
     finally:
         # Record the API decision before independently touching physical owners.
         result = dict(result or {}, mutation_hits=mutation_hits[0]+guardian_hits[0],
@@ -2615,6 +3126,11 @@ def host_main():
         if cancel_write_original[0] is not None:
             os.write = cancel_write_original[0]
         cleanup()
+        if unresolved_owners and result.get("ok") is True:
+            if any(actual._completion is not None or actual._authority.ack is not None
+                   for actual in unresolved_owners):
+                result.update(ok=False, error="physical teardown upgraded unresolved scorer API")
+                code = 1
         if PHASE == "adapter-missingproof" and result.get("ok") is True:
             # Independent physical SAFE must never manufacture public success.
             if any(actual._completion is not None or actual._authority.ack is not None
@@ -2832,3 +3348,53 @@ def test_owned_sql_adapter_missingproof(tmp_path):
     assert result["decision"] == "pending" and result["at_cap"] is True
     assert result["hook_hits"] == 1 and result["acks"] == 0
     assert result["dispatches"] == result["requests"] == result["caller_cancellations"] == 1
+
+
+# New scorer actors remain BLOCKED until parent Python/security source clearance.
+# Static SCORER frames prove lifetime and forwarding, not SQL accuracy or rewards.
+@pytest.mark.parametrize("status", [
+    "match", "mismatch", "pred_error", "pred_timeout", "pred_truncated",
+    "pred_empty", "gold_error", "gold_timeout", "gold_truncated", "db_missing",
+])
+def test_owned_sql_scorer_native_result_identity(tmp_path, status):
+    result = _owned_guest_case(tmp_path, "scorer", "score-adapter-status-" + status)
+    assert result["decision"] == "ack" and result["hook_hits"] == 0
+    assert result["allocations"] == result["dispatches"] == result["acks"] == 1
+    assert result["owner_closes"] == 1 and result["caller_cancellations"] == 0
+
+
+def test_owned_sql_scorer_two_predictions_preserve_private_request(tmp_path):
+    result = _owned_guest_case(tmp_path, "scorer", "score-adapter-requests")
+    assert result["decision"] == "ack" and result["hook_hits"] == 0
+    assert result["allocations"] == result["dispatches"] == result["acks"] == 2
+    assert result["owner_closes"] == 2
+
+
+def test_owned_sql_scorer_three_cancellations_wait_for_actual_ack(tmp_path):
+    result = _owned_guest_case(tmp_path, "scorer", "score-adapter-cancel")
+    assert result["decision"] == "ack" and result["hook_hits"] == 2
+    assert result["allocations"] == result["dispatches"] == result["acks"] == 1
+    assert result["owner_closes"] == 1 and result["caller_cancellations"] == 3
+
+
+def test_owned_sql_scorer_protocol_abort_is_fatal_without_replay(tmp_path):
+    result = _owned_guest_case(tmp_path, "scorer", "score-adapter-infrastructure")
+    assert result["decision"] == "ack" and result["hook_hits"] == 1
+    assert result["allocations"] == result["dispatches"] == result["acks"] == 1
+    assert result["owner_closes"] == 1 and result["caller_cancellations"] == 0
+
+
+def test_owned_sql_scorer_missing_proof_at_real_cap_stays_pending(tmp_path):
+    result = _owned_guest_case(tmp_path, "scorer", "score-adapter-missingproof")
+    assert result["decision"] == "pending" and result["at_cap"] is True
+    assert result["hook_hits"] == 1
+    assert result["allocations"] == result["dispatches"] == 1 and result["acks"] == 0
+    assert result["shutdown_pending"] is False
+
+
+def test_owned_sql_scorer_shutdown_starts_all_real_close_tasks(tmp_path):
+    result = _owned_guest_case(tmp_path, "scorer", "score-adapter-shutdown")
+    assert result["decision"] == "pending" and result["at_cap"] is True
+    assert result["hook_hits"] == 1 and result["shutdown_pending"] is True
+    assert result["allocations"] == result["owner_closes"] == 2
+    assert result["dispatches"] == result["acks"] == 1

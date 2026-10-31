@@ -55,6 +55,13 @@ cleanup. Its 1,241 affected checks passed in three runs, including 77
 fake-actor lifecycle cases; three unit bypass controls reached their named
 failures and restored positives. This does not qualify native SQL, configured
 BIRD/SDK binding, scoring, task provenance or a paired baseline.
+The [owned SQL SCORER adapter](spec/sql-owned-scorer-adapter.md) adds explicit
+inert construction/admission and retained scoring invocations. It returns the
+actual ExResult unchanged, including invalid measurements, and never fabricates
+a zero result for infrastructure failure. Its 1,345 affected checks passed in
+two runs, including all 92 fake-actor lifecycle cases; two one-hit unit bypass
+controls and restored positives passed. Configured SDK/writer integration,
+native SQL fidelity and retained-draw provenance remain unqualified.
 The [Bash launch follow-on](docs/2026-10-31-bash-launch-reporting.md) records
 38 new passes (30 unit/lifecycle plus 8 real loopback subprocess integrations)
 and 94 existing regressions in separate runs, plus actual forwarding

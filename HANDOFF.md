@@ -1,3 +1,62 @@
+# Owned SQL SCORER adapter source, 2026-10-31
+
+Base `441f362`, branch `feat/sql-owned-scorer-adapter`. New
+`build_owned_sql_scorer` provides an inert private binding, explicit `admit`,
+async `score_sql` and retained `aclose`. It preserves original SqlTask and all
+InstrumentSettings fields, executor/profile/state-directory identity, and fresh
+sealed DB admission. Existing `admit_program` is reused because it checks both
+role closures and DB identity without imposing PROGRAM's timeout.
+
+Scorer settings inherit exact finite float timeout `0 < t <= 30`, row cap and
+comparison semantics. Empty prediction is accepted without extraction.
+Original host DB path stays on the owner; only the canonical SCORER request
+task path becomes `/db.sqlite`. Private gold is necessarily retained/sent to
+SCORER, never promoted to PROGRAM/model input or generic error text. Metadata
+fingerprints are mutation guards, not independent draw/provenance authority.
+Core, PROGRAM and harness source are unchanged by this increment.
+
+Each actual owner is retained before inspection/await. Operation-finally and
+adapter shutdown share one retained invocation-close task. Shutdown starts all
+known close tasks before joining any, so an unresolved first owner cannot stop
+another's cancellation. Private ACK authority, owner/completion identity,
+request/profile digests and physical evidence are checked. Cleanup failure
+stays fatal without public-close replay; first caller cancellation is preserved.
+
+Return the actual decoder-produced ExResult object unchanged for all ten
+statuses, including `valid=False` gold/DB failures. Infrastructure abort,
+malformed result or cleanup failure never becomes a fabricated zero result.
+No reward recording or SDK invalid-measurement mapping is implemented here.
+
+Independent units preceded code: 88 intended call-phase failures. Initial
+implementation passed 83; five tests incorrectly expected ALLOCATED after real
+predispatch cancellation. They now check actual ABORT_LATCHED and retained
+runner_closed intent, without changing production. An additional foreign-owner
+ACK check matches public metadata but retains the wrong real private authority;
+it is rejected and actual records are restored before independent drains.
+
+Verification: 1,345 affected checks passed in two runs, 1,253 non-lifecycle in
+62.51s and all 92 lifecycle cases in 145.12s. The 15 new scorer actor cases also
+passed separately in 31.98s after both source reviews. They cover ten result
+statuses, two predictions/owners, three actual caller cancellations, canonical
+protocol abort, real 12s +30ms unknown-proof retention, and multi-owner shutdown.
+The latter uses two real controllers but one guardian dispatch: the second
+receives a genuine NOT_STARTED ACK. Independent teardown cannot upgrade the
+first unresolved API. This is not full-suite or native SQL fidelity evidence.
+
+Two portable unit controls each reach exactly one named failure with one bypass
+hit, then pass fresh restored positives. Four children require zero forbidden
+operations, actual NOT_STARTED owner/ACK identities, independent original-public
+drains and unchanged source hashes. Abort-to-zero deliberately manufactures a
+result only as its negative fault. Reference:
+`spec/spikes/reference/ptc-owned-sql-scorer/control.py`.
+
+Contract: `spec/sql-owned-scorer-adapter.md`. Configured BIRD Task/SDK/writer
+binding, retained-draw authority and paired baseline remain deferred. No native/
+profile/SDK/model/corpus/spend activation, source repinning or research milestone
+completion. Historical sections below are byte-exact.
+
+---
+
 # Owned SQL PROGRAM adapter source, 2026-10-31
 
 Base `b46c825`, branch `feat/sql-owned-program-adapter`. Ordinary PTCHarness now
