@@ -18,10 +18,11 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import math
 import threading
 import weakref
 from contextlib import AsyncExitStack
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 import httpx
 from pydantic import Field
@@ -38,6 +39,58 @@ from verifiers.v1.harnesses.utils.mcp import call_mcp, connect_mcp
 from ptc.runtime import TIMEOUT as runtime_timeout, Catalog, ProgramRejected, run as run_program
 
 __all__ = ["PTCHarness"]
+
+
+class ProgramInfrastructureError(RuntimeError):
+    """An owned execution failure, not model-visible program feedback."""
+
+
+class OwnedProgramRunner(Protocol):
+    async def run_program(self, code: str, *, timeout: float) -> str: ...
+
+    async def aclose(self) -> None: ...
+
+
+ProgramRunnerFactory = Callable[[TaskData, Catalog], OwnedProgramRunner]
+
+
+async def _execute_owned_program(
+    runner: OwnedProgramRunner, code: str, timeout: float,
+) -> str:
+    try:
+        observation = await runner.run_program(code, timeout=timeout)
+    except (asyncio.CancelledError, ProgramRejected, ProgramInfrastructureError):
+        raise
+    except Exception as exc:
+        raise ProgramInfrastructureError("owned program execution failed") from exc
+    if not isinstance(observation, str):
+        raise ProgramInfrastructureError("owned program observation must be a string")
+    return observation
+
+
+async def _close_program_runner(runner: OwnedProgramRunner) -> None:
+    # The runner owns its jobs; never let repeated caller cancellation detach
+    # its cleanup. Acknowledgment is meaningful only for a qualified runner.
+    cleanup = asyncio.create_task(runner.aclose())
+    cancelled: asyncio.CancelledError | None = None
+    while not cleanup.done():
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError as exc:
+            cancelled = exc
+        except Exception:
+            break
+    try:
+        result = cleanup.result()
+    except asyncio.CancelledError as exc:
+        raise ProgramInfrastructureError("owned program cleanup was cancelled") from exc
+    except Exception as exc:
+        raise ProgramInfrastructureError("owned program cleanup failed") from exc
+    if result is not None:
+        raise ProgramInfrastructureError("owned program cleanup must acknowledge with None")
+    if cancelled is not None:
+        raise cancelled
+
 
 SYSTEM = (
     "You act by writing a Python program and submitting it with the `run_program` tool. "
@@ -299,6 +352,7 @@ class PTCHarness(Harness[PTCHarnessConfig]):
         transport: httpx.AsyncBaseTransport | None = None,
         *,
         qa_factory: Callable[[TaskData], Any] | None = None,
+        program_runner_factory: ProgramRunnerFactory | None = None,
     ) -> None:
         super().__init__(config)
         # Per-instance: a class-level `Catalog()` default would be one dict shared
@@ -308,6 +362,17 @@ class PTCHarness(Harness[PTCHarnessConfig]):
         # Test seam. `None` is httpx's own default, so production is unchanged;
         # `test_harness.py` passes an `httpx.MockTransport` and needs no server.
         self.transport = transport
+        if program_runner_factory is not None:
+            if (
+                not callable(program_runner_factory)
+                or inspect.iscoroutinefunction(program_runner_factory)
+                or inspect.isasyncgenfunction(program_runner_factory)
+            ):
+                raise TypeError("program_runner_factory must be a synchronous callable")
+            if qa_factory is not None:
+                raise ValueError("owned program runners do not support QA")
+        # Trusted, inert host configuration. No profile is selected here.
+        self.program_runner_factory = program_runner_factory
         # Opt-in defect-report channel (spec/agent-defect-escalation-harness.md).
         # The factory is caller configuration: each enabled launch calls it with
         # that launch's TaskData and must get back a fresh `QaChannel`. The caller
@@ -345,6 +410,18 @@ class PTCHarness(Harness[PTCHarnessConfig]):
         mcp_urls: dict[str, str],
         data: TaskData,
     ) -> ProgramResult:
+        program_timeout: float | None = None
+        if self.program_runner_factory is not None:
+            if self.qa_factory is not None or mcp_urls:
+                raise ValueError("owned program runners do not support QA or MCP")
+            timeout = self.config.program_timeout
+            if (
+                type(timeout) not in (int, float)
+                or not math.isfinite(timeout)
+                or timeout <= 0
+            ):
+                raise ValueError("owned program timeout must be positive and finite")
+            program_timeout = timeout
         system, prompt = self.resolve_prompt(data)
         messages: list[dict[str, Any]] = [
             # Rewritten below, once the catalog is known: the names cannot be listed
@@ -448,7 +525,26 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                 + (f"\n\n{qa_prompt}" if qa_prompt is not None else "")
             )
 
-            await self._loop(ctx, endpoint, secret, messages, catalog, printed, log)
+            if self.program_runner_factory is None:
+                await self._loop(ctx, endpoint, secret, messages, catalog, printed, log)
+            else:
+                runner = self.program_runner_factory(data, catalog)
+                if inspect.isawaitable(runner):
+                    if inspect.iscoroutine(runner):
+                        runner.close()
+                    raise TypeError("program_runner_factory must return an inert runner")
+                if not all(
+                    inspect.iscoroutinefunction(getattr(runner, method, None))
+                    for method in ("run_program", "aclose")
+                ):
+                    raise TypeError("owned program runner requires async run_program and aclose")
+                try:
+                    await self._loop(
+                        ctx, endpoint, secret, messages, catalog, printed, log,
+                        program_runner=runner, program_timeout=program_timeout,
+                    )
+                finally:
+                    await _close_program_runner(runner)
 
         return ProgramResult(exit_code=0, stdout="\n".join(log), stderr="")
 
@@ -461,6 +557,9 @@ class PTCHarness(Harness[PTCHarnessConfig]):
         catalog: Catalog,
         printed: list[str],
         log: list[str],
+        *,
+        program_runner: OwnedProgramRunner | None = None,
+        program_timeout: float | None = None,
     ) -> None:
         # The interception endpoint already ends in `/v1` in a real run, so appending
         # `/v1/chat/completions` produced `/v1/v1/chat/completions` and a 404 that no
@@ -509,8 +608,17 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                         # Off the event loop: the program is synchronous and its tool
                         # calls bridge back to this loop, so running it here would
                         # deadlock the moment a program called a tool.
-                        await asyncio.to_thread(run_program, code, catalog, self.config.program_timeout)
-                        content = "\n".join(printed) or "ok (the program printed nothing)"
+                        if program_runner is None:
+                            await asyncio.to_thread(run_program, code, catalog, self.config.program_timeout)
+                            content = "\n".join(printed) or "ok (the program printed nothing)"
+                        else:
+                            content = await _execute_owned_program(
+                                program_runner, code,
+                                program_timeout if program_timeout is not None
+                                else self.config.program_timeout,
+                            )
+                    except ProgramInfrastructureError:
+                        raise
                     except ProgramRejected as e:
                         content = f"rejected: {e}"
                     except Exception as e:  # the program itself raised

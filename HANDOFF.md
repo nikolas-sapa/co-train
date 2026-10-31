@@ -1,3 +1,41 @@
+# Optional owned program runner, 2026-10-31
+
+Base `d8fd82b`, branch `feat/ptc-sql-owned-programs`. Ordinary PTCHarness now
+accepts an optional inert synchronous `program_runner_factory(data, catalog)`.
+One fresh trusted owner handles that launch's program actions and close.
+Configured timeout is validated/captured; observations remain native text.
+Unexpected failures/non-string responses are infrastructure-fatal before the
+legacy feedback handler. ProgramRejected stays ordinary tool data.
+Close is retained/shielded/joined through repeated cancellation; a new cancel
+during normal close propagates after completion. Failed/self-cancelled/non-None
+close acknowledgment is infrastructure failure. Disabled behavior is unchanged.
+
+Independent backend worker wrote unit/actual-SDK tests using file tools only;
+parent verified files, added four acknowledgment/snapshot regressions and ran
+295 affected tests/15.08s = 34 new unit + 2 new SDK + 56 existing harness +
+203 configured PTC QA. This is not a full-suite claim. Two fresh-isolated
+fault controls each reached exactly one intended call-phase assertion with
+one bypass hit; restored positives passed, source hashes unchanged.
+Control driver is preserved in `spec/spikes/reference/ptc-owned-program-runner/`.
+Python and security reviewers found no blockers in the bounded extension.
+
+Actual SDK tests retain original Task/hooks/data and normal eval/JSONL writer.
+A fixture process executes real Python SQL/catalog code, yields typed 42 and
+EX1. Cancellation follows a real SQLite VM-progress byte; caller stays held
+through close/group kill/drain/reap and an empty owned-group snapshot, then a
+fresh rollout succeeds. SDK fixture pipe compensation remains fixture-only.
+No manual agent.harness assignment, SDK file modification or forked model loop.
+
+This does NOT implement/activate the native PROGRAM/scorer adapter. Controller
+cleanup acknowledgment, unresolved-guardian abort paths, timeout fidelity and
+profile admission still need proof. A trusted factory's acknowledgment is not
+independent evidence of arbitrary resource cleanup. QA/MCP combinations refuse.
+No policy/runtime/G choice, native activation, corpus/model/baseline/training
+campaign, source/profile repinning or gate relaxation. Stages 4/5 PARTIAL,
+6 BLOCKED; current paired baseline remains missing.
+
+---
+
 # PTC SQL ownership reference, 2026-10-31
 
 Base `286a461`, branch `feat/ptc-sql-owned-programs`. Reference only under

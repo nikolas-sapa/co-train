@@ -36,6 +36,11 @@ preserving the original planned denominator. Its 297 affected tests passed
 The production paired SDK runner and current BIRD baseline remain missing;
 the [SDK binding reference](spec/spikes/reference/bird-sdk-binding/) is only
 a synthetic composition proof.
+The [optional owned program runner](spec/ptc-owned-program-runner.md) now lets
+ordinary PTCHarness delegate execution without forking its model loop.
+Its 295 affected tests passed (36 new, including two actual SDK integrations),
+with two intended-failure controls and restored positives. This is a trusted
+callback seam, not an activated native SQL adapter or a paired baseline.
 The [Bash launch follow-on](docs/2026-10-31-bash-launch-reporting.md) records
 38 new passes (30 unit/lifecycle plus 8 real loopback subprocess integrations)
 and 94 existing regressions in separate runs, plus actual forwarding
