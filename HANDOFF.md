@@ -1,3 +1,34 @@
+# Configured Bash QA activation, 2026-10-31
+
+Base `6abc2a8`, branch `feat/bash-qa-activation`. Flat canonical plugin
+`cotrain_bash_qa` survives real SDK AgentConfig JSON loading. Unbound setup
+and launch refuse, never silently disable reporting. Project-owned
+`run_configured_bash_qa` claims the Agent, builds one fresh shared binding,
+checks config snapshots and pairs an explicit Task before delegating to
+existing `run_bash_qa`. Exact original harness restored on every exit.
+No serialized callbacks, credentials, channel/export paths or activation flag.
+
+Actual evidence: 29 new passes (23 unit, 6 real loopback integrations) in
+8.72s; 132 existing affected passes in 14.12s, separate runs. Actual new
+bound-construction suppression and receipt-forwarding suppression each hit
+once and produced intended call-phase assertion RED, baseline/restored GREEN.
+Eight control-bound hashes and twelve legacy/guard/SDK hashes unchanged.
+Python re-review and security static review APPROVE. No full-suite rerun.
+See [contract](spec/bash-qa-activation.md) and
+[usage/evidence](docs/2026-10-31-bash-qa-activation.md).
+
+Three actual SWE-2 High delivery tracks, parent inspection/repairs and checks.
+File-only worker instructions are not a capability sandbox; one earlier
+strategy-session `ls` executed read-only outside its brief, recorded in local
+worker observations. Do not claim all execution attempts were denied.
+Fixtures reuse ownership-filtered foreground transport draining, not product
+SDK reaping. Only approved temporary 127.0.0.1 scripted framework listeners.
+
+No stock vf-eval/run_eval integration, toolset-bearing Ledger support,
+external model/corpus/training/native jobs, gate changes, historical repinning,
+merge to main or app deployment. Stages remain 4 PARTIAL / 5 PARTIAL / 6 BLOCKED.
+Earlier checkpoints below retain their exact historical bytes.
+
 # Production Bash launch reporting, 2026-10-31
 
 Base `28570dc`, branch `feat/bash-launch-reporting`. Actual SWE-2 High product,
