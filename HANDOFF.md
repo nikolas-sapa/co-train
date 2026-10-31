@@ -1,3 +1,31 @@
+# Fixture-only baseline preparation, 2026-10-31
+
+Base `8dc8d15`, branch `feat/bench-preparation`. New `bench/prepare.py`
+freezes a draw once, then validates only its planned gold queries into a
+separate create-only supplement. Require caller-retained exact-byte draw SHA
+before parsing/corpus access. Bind manifest/universe/tasks/12 source files/
+runtime/selected DBs before and after work. No redraw/backfill, raw task/SQL/
+path/error export, existing consumer changes or gate relaxation.
+
+Actual evidence: 239 affected passes in 9.84s (98 new, 141 existing), then
+three focused additions passed in 0.08s (101 new total, separate runs).
+Three negative controls each produced intended RED, baseline/restored three
+GREEN each; 14 source/test/spec hashes unchanged. Static Python/security
+reviews approved, including final test-only additions. Not a full suite.
+See [usage/evidence](docs/2026-10-31-bench-preparation.md) and
+[test-first contract](spec/bench-preparation.md).
+
+Atomic exclusive hard-link publication, no overwrite rename. Postcommit
+failure raises publication-indeterminate and preserves intact final output.
+Require quiescent source/corpus/output and fresh interpreter after edits.
+Before/after checks are not hostile-race immunity or hard process bounds.
+
+No real corpus draw/query, model/provider experiment, training, native job,
+frontier manifest or measured baseline. Fixture seed/counts are not experiment
+choices. Stage 5 remains PARTIAL and stage 6 BLOCKED. Remaining stage 4:
+production verifier routing, framework/CLI activation, isolated reporting,
+actual TRL rollout adapter. Earlier checkpoints retained below.
+
 # Source-bound reporting evidence, 2026-10-30
 
 Base `aefe666`, branch `feat/sql-reporting-evidence`. Episode v2/capture v3

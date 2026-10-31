@@ -5,6 +5,21 @@
 Preparation only, not a signed protocol or measurement.
 Stage 4 remains the first priority; baseline preparation can proceed alongside it.
 
+**2026-10-31 follow-on.** The section-3 offline increment now exists as
+[`bench/prepare.py`](../bench/prepare.py): `freeze_draw` creates the draw;
+`validate_draw` creates its gold supplement. Both use identity checks and
+explicit fixture flags; validation requires the retained draw digest, per
+[`spec/bench-preparation.md`](../spec/bench-preparation.md). Usage and
+recorded evidence live in
+[2026-10-31 bench preparation](2026-10-31-bench-preparation.md).
+Fixture-tested offline only: 239 affected tests passed in 9.84s
+(98 new plus 141 existing), then 3 additional regressions passed in 0.08s
+separately (101 new unique cases, not one 242-case run); three controls each
+went intended RED and were restored to 3 GREEN, with security and Python
+reviews approved, including the final three test additions. No real-corpus
+draw/check, frontier manifest, policy/runtime/G selection or baseline
+measurement. The dated sections below remain the readiness record.
+
 ## 1. Existing pieces
 
 - [BIRD loader](../bench/loader.py): `load_bird(root, require_db=True)` returns
