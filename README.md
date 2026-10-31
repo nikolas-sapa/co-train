@@ -48,6 +48,13 @@ explicit EvalConfig file to that same wrapper: 125 affected passes, including
 11 new CLI cases, plus actual delegation RED/restored GREEN. No implicit
 model/budget choices or stock `vf-eval` support.
 
+The [configured PTC activation](docs/2026-10-31-ptc-qa-activation.md) adds flat
+`cotrain_ptc_qa` loading and a guarded runner over actual SDK Agent.run on the
+original ordinary Task. Final affected checks: 375 passed, including eight real
+scripted-loopback SDK integrations; four actual controls went intended RED and
+restored GREEN. This report-only catalog is not a BIRD SQL-task bridge or PTC
+evaluation/persistence integration. Stages 4-6 keep their partial/blocked status.
+
 The [frontier measurement source](bench/frontier/probe.py) and
 [taskset contract](docs/bench-taskset.md) describe baseline preparation, not a
 reason to stop stage 4 implementation. Preserve the original preregistered

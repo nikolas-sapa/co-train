@@ -1,3 +1,41 @@
+# Configured PTC reporting activation, 2026-10-31
+
+Base `f5fb387`, branch `feat/ptc-qa-activation`. New `cotrain_ptc_qa.py` supplies
+flat canonical ID-only config/harness plus `run_configured_ptc_qa` over actual
+SDK Agent.run on the exact original ordinary Task. No Task mixin/builder or
+private Bash permit. Report-only empty owned catalog, no MCP/interceptors/
+skills/resume or custom transport; bounded explicit settings, fresh base Agent.
+Original config remains unmarked; only a bound deep copy carries private intent.
+
+Atomic Agent claim/release, scoped tombstone record, one-shot setup/launch/
+factory, original/live reference and independent nested snapshots, complete
+post-inspection/post-factory guards. Revoke before reset, restore original
+harness, clear retained activation references and release owned claim.
+Original Task hook receiver identity and SDK scoring remain unchanged.
+
+Final affected run: 375 passed in 21.37s (182 unit, 13 adversarial admission,
+eight actual SDK integration cases, 172 existing). No full-suite rerun.
+Four actual activation/collector/receipt/shallow-Task-copy controls each hit
+once, intended call-phase RED and restored GREEN; 13 source/test/spec hashes
+unchanged. Twenty-one existing product/fixture/SDK hashes unchanged.
+Python/security final static APPROVE. Actual three SWE-2 High exports and
+delivered files parent-verified; parent repaired guard-ordering/config-marker
+bugs and masked test helpers/grids. Eight then five new adversarial cases
+were actual RED before fixes; final run includes their GREEN results.
+See [contract](spec/ptc-qa-activation.md) and
+[usage/evidence](docs/2026-10-31-ptc-qa-activation.md).
+
+Only approved synthetic loopback fixtures; PTC loop in-process, no Bash-child
+claim for these integrations. No report secrecy/authenticity or arbitrary
+same-process Python/CPU/memory/synchronous-factory containment. File-tools-only
+worker instructions are not a capability sandbox. No corpus/provider/model
+experiment, training/native campaign, installs, SDK edits, relaxed gates,
+historical repinning, other-worktree edits, new main merge or app deployment.
+Stages remain 4 PARTIAL / 5 PARTIAL / 6 BLOCKED. Next source-backed gap:
+BIRD task-local SQL binding into actual SDK episodes, consuming validated
+draw/supplement, before real paired baselines. No runtime/model/G or experiment
+budget chosen. Earlier historical bytes below are preserved exactly.
+
 # Main integration and project evaluation CLI, 2026-10-31
 
 User authorized main integration. Normal merge `e5f013e` parents
