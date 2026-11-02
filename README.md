@@ -1,15 +1,46 @@
-# co-train
+# co-train: cuts AI agent costs by reusing verified code
+
+co-train is an early prototype for reusing checked SQL code. Its intended workflow
+saves a SQL skill when an agent answers a database question correctly, checks it
+by running it, and reuses it on similar questions instead of paying a model to
+solve them again. SQL comes first because answers can be checked. Cutting costs
+is the goal, not a measured result of reuse.
+
+## Status
+
+On 29 Oct 2026, a checked, hand-written SQL skill was reused correctly in two
+fresh runs on two different databases.
+[Read the test and its limits](docs/2026-10-29-native-sql-skill-workflow.md).
+Not done yet: connecting reuse to a live agent end to end and measuring savings
+from real bills. No users.
+
+## Why I think it works
+
+In three untrained runs on 3-8 Oct 2026, agents writing small programs to use their
+tools had similar task results to agents making tool calls one by one, with an
+exact tie in the cleanest run (23/29 each). Estimated cost per solved task was
+7.5x, 7.0x and 8.2x lower on 14/29/29 paired tasks, respectively. These were
+self-authored `ledger` tasks, with one requested model (`deepseek-v4-flash`)
+through one relay and input priced uncached: treat the multiples as conditional
+upper-bound estimates, not measured SQL-reuse savings.
+[Results and corrections](docs/results-untrained.md);
+[pre-registration and cache caveat](docs/pre-registration.md#a9--2026-10-14-after-the-caching-audit-the-dollar-ratio-is-an-upper-bound-and-the-condition-favours-bash--unsigned).
+
+## Research
 
 Co-train investigates whether training a small model around a tool interface
 improves task performance, and whether that improvement survives a harness swap.
 The current research comparison is Bash versus programmatic tool calling (PTC)
 on BIRD-SQL.
 
-**Status, 2026-11-02: early research prototype, not production-qualified.**
-SQL skill capture, qualification and reuse are implemented engineering;
-completed co-training and cross-harness benefit have not been demonstrated.
+No end-to-end co-training run has finished, and no improvement from training is
+proven yet. The published untrained result is negative on the proposed accuracy
+ordering, not proof of a PTC accuracy advantage.
+[Negative result](docs/results-untrained.md),
+[pre-registration](docs/pre-registration.md),
+[OSF project](https://osf.io/2hfzt/).
 
-## Current research milestones 4-6
+### Current research milestones 4-6
 
 | Stage | Status | Remaining work |
 |---|---|---|
@@ -22,35 +53,12 @@ The MLX comparison is inconclusive; its three-seed trial is incomplete.
 See the [evidence index](docs/evidence-index.md) and
 [native training contract](spec/native-training.md).
 
-## What works, and what the evidence does not prove
+## Tests
 
-- **Checked SQL skill reuse:** a caller-authored SQL-generating skill passed
-  four qualifications and two fresh native-process reuses on distinct databases
-  on 29 October. This was a bounded fixture campaign with zero model calls,
-  not automatic learning or a production SQL cache.
-  [Native SDK receipt](docs/2026-10-29-native-sql-skill-workflow.md).
-- **Tests:** the dated 30 October configured offline run recorded **3,803 passed,
-  1 skipped and 2 deselected**. This is not a current-branch full-suite count
-  or proof that all current tests pass.
-  [Source-bound receipt](docs/2026-10-30-portable-sql-skill-sdk-acceptance.md).
-- **Historical cost estimate:** retired `ledger` runs on 14/29/29 paired tasks
-  estimated PTC inference cost per solved task at 7.53x/7.01x/8.21x lower than
-  Bash; 6.1x was a token-counter sensitivity estimate. These were untrained
-  evaluations using one requested model through one relay, with uncached input
-  pricing, not SQL-cache savings or a learned advantage. Later unsigned A9
-  qualifies the dollar multiple as conditional on no prefix caching;
-  cache-enabled economics remain unmeasured.
-  [Results and corrections](docs/results-untrained.md),
-  [cache qualification](docs/pre-registration.md#a9--2026-10-14-after-the-caching-audit-the-dollar-ratio-is-an-upper-bound-and-the-condition-favours-bash--unsigned).
-- **Current acceptance:** the latest local owned-SDK diagnostic hit its fixed
-  300-second suite limit without a final pytest aggregate. Offline subsets and
-  isolated optimization prototypes do not qualify the full project.
-  [Dated status and scope](docs/2026-11-02-project-status-cli.md).
-
-No measured current BIRD accuracy, cost, throughput or latency advantage is
-established. There is no validated overall completion percentage or delivery
-date. Test counts and fixture successes are not customer or traction metrics.
-
+**3,803 tests passed on 30 Oct 2026** in the dated configured offline run.
+[Source-bound receipt](docs/2026-10-30-portable-sql-skill-sdk-acceptance.md).
+The original log is machine-local, not bundled with a clone. This is not a claim
+that all tests pass on the current branch.
 ## CLI: reuse the existing SDK
 
 The project already reuses Verifiers rather than implementing another agent
