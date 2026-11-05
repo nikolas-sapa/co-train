@@ -196,6 +196,14 @@ push_to_hub=False. No injected optimizer, probe abort callback or new policy.
 Register environment_factory and actual prepared SQL reward exactly once;
 do not pass a duplicate tools list.
 
+An explicitly invoked separate `build_monitored_sql_trainer` wrapper may attach
+one actual `TrainerCallback` through `trainer.add_callback` only after the original
+constructor succeeds, returning the original trainer plus a concrete `RunMonitor`.
+Its `on_log` delegates unchanged RUN monitoring and requests stop on the same
+control when the monitor aborts. It never trains, saves, resumes or publishes;
+original constructor defaults, no-probe policy, runtime gates and `grpo_ptc.main`
+refusal remain unchanged.
+
 The caller must supply the context bound before model load. After native
 construction, validate every actual prompt using the Trainer-selected template,
 the actual `trainer._env_tools[None]` discovery and unchanged chat kwargs, before returning
