@@ -18,7 +18,7 @@ from collections.abc import Callable
 from contextvars import ContextVar
 from typing import Literal, NoReturn
 
-from verifiers.v1.agent import Agent
+from verifiers.v1.agent import Agent, _EpisodeAgent
 from verifiers.v1.clients import ModelContext
 from verifiers.v1.configs.agent import AgentConfig, TimeoutConfig
 from verifiers.v1.configs.retries import RetryConfig
@@ -202,6 +202,8 @@ class _Record:
         self.active = False
         self.failed = False
         self.owner = owner
+        self.episode = None
+        self.gate = None
         self.binding = _Binding(self)
         self.protected_factory = self._protected()
         self.factory_consumed = False
@@ -303,6 +305,8 @@ class _Record:
 
     def _check_inputs(self) -> None:
         agent, task, snap = self.agent, self.task, self.snapshots
+        if self.episode is not None:
+            self.episode.check(agent, task)
         if (
             agent.config is not self.agent_config
             or type(agent.config) is not AgentConfig
@@ -329,7 +333,7 @@ class _Record:
             or agent._entered
             or agent._closed
             or agent._server is not None
-            or agent._gate is not None
+            or agent._gate is not self.gate
             or getattr(agent, _OWNER_ATTR, None) is not self.owner
         ):
             _refuse()
@@ -448,6 +452,7 @@ class _Record:
                     self.client = self.sampling = self.task_timeout = None
                     self.snapshots = None
                     self.owner = None
+                    self.episode = self.gate = None
 
 
 def _claim(agent: Agent) -> object:
@@ -471,6 +476,10 @@ def _release(agent: Agent, owner: object) -> None:
 def _screen(agent: Agent, task: Task, qa_factory: Callable) -> None:
     if type(agent) is not Agent or not isinstance(task, Task):
         _refuse()
+    _screen_factory(qa_factory)
+
+
+def _screen_factory(qa_factory: Callable) -> None:
     if not callable(qa_factory):
         raise TypeError(_REFUSED)
     if (
@@ -486,6 +495,14 @@ def _screen(agent: Agent, task: Task, qa_factory: Callable) -> None:
 
 
 def _validate(agent: Agent, task: Task, *, inspect_task: bool = True) -> None:
+    if agent._gate is not None:
+        _refuse()
+    _validate_supported(agent, task, inspect_task=inspect_task)
+
+
+def _validate_supported(
+    agent: Agent, task: Task, *, inspect_task: bool = True
+) -> None:
     cfg = agent.config
     harness = agent.harness
     if type(cfg) is not AgentConfig:
@@ -494,7 +511,6 @@ def _validate(agent: Agent, task: Task, *, inspect_task: bool = True) -> None:
         agent._entered
         or agent._closed
         or agent._server is not None
-        or agent._gate is not None
     ):
         _refuse()
     if type(harness) is not ReportingPTCHarness or harness._binding is not None:
@@ -647,3 +663,46 @@ async def run_configured_ptc_qa(
             record._revoke()
         finally:
             _ACTIVE.reset(token)
+
+
+async def _run_episode_ptc_qa(
+    agent: Agent, task: Task, *, qa_factory: Callable[[TaskData], QaChannel]
+) -> Trace:
+    """Private eval route, authority comes only from the active exact Env seat.
+
+    Public admission remains exact base Agent/gate None. Never substitute a
+    caller validator, clear the SDK gate or bypass its subtype's run method.
+    """
+    from cotrain_ptc_qa_env import _current_episode
+
+    if (
+        _ACTIVE.get() is not None
+        or type(agent) is not _EpisodeAgent
+        or not isinstance(task, Task)
+    ):
+        _refuse()
+    owner = _claim(agent)  # Before callback-capable config/task inspection.
+    record = None
+    token = None
+    try:
+        episode = _current_episode(agent, task)
+        _validate_supported(agent, task, inspect_task=False)
+        record = _Record(agent, task, qa_factory, owner)
+        record.episode = episode
+        record.gate = episode.gate
+        token = _ACTIVE.set(record)
+        _screen_factory(qa_factory)
+        _validate_supported(agent, task)
+        episode.check(agent, task)
+        record._check_admission()
+        record._activate()
+        return await agent.run(task)
+    finally:
+        try:
+            if record is not None:
+                record._revoke()
+            else:
+                _release(agent, owner)
+        finally:
+            if token is not None:
+                _ACTIVE.reset(token)
