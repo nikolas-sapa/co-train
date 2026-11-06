@@ -2,6 +2,10 @@
 
 2026-10-30. Follow-on to the arm and launch reporting contracts. Stage 4 only.
 
+2026-11-06: [SQL bridge reporting](sql-bridge-reporting.md) separately specifies
+the opt-in in-process native reset adapter. Its narrow lifecycle is not runtime
+activation, isolated transport or an implicit evidence-format upgrade.
+
 ## Test plan
 
 Use temporary real SQLite databases, the real `sql_environment`, SQL arm and

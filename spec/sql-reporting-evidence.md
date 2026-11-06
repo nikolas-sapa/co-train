@@ -4,6 +4,10 @@
 scripted episode v2 and incremental capture v3. This is stage-4 infrastructure,
 not a completed baseline, training route or native experiment.
 
+2026-11-06: [SQL bridge reporting](sql-bridge-reporting.md) separately specifies
+an opt-in reset/factory diagnostic route. Existing episode/capture formats and
+native-consumer evidence contracts are not implicitly upgraded.
+
 ## Test plan, before implementation
 
 Use real temporary SQLite, the real PTC runtime and actual host Bash wrapper.

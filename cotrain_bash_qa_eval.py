@@ -24,7 +24,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     try:
         config = EvalConfig.model_validate_json(payload)
-    except ValidationError:
+    except (ValidationError, ModuleNotFoundError):
         parser.error("invalid EvalConfig JSON")
 
     from cotrain_bash_qa_env import run_bash_qa_eval

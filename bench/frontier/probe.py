@@ -177,7 +177,8 @@ def probe(tasks: Sequence[SqlTask],
           *, policy: str, g: int = DEFAULT_G,
           dead_ceiling: float = DEFAULT_DEAD_CEILING,
           compare: str = "set",
-          timeout_s: float = 30.0) -> ProbeResult:
+          timeout_s: float = 30.0,
+          max_rows: int = 500_000) -> ProbeResult:
     """Sample each task `g` times and measure its solve rate.
 
     `generate(task) -> str` is the policy. It is injected rather than imported so this
@@ -199,6 +200,8 @@ def probe(tasks: Sequence[SqlTask],
     it 0 would push it below the band and discard it as "too hard for the policy", which
     is a lie about a defective task.
     """
+    if type(max_rows) is not int or max_rows <= 0:
+        raise ValueError("max_rows must be a positive exact int")
     if g < 2:
         raise ValueError(f"g must be at least 2 for a group to have variance, got {g}")
     names: set[str] = set()
@@ -214,7 +217,8 @@ def probe(tasks: Sequence[SqlTask],
         voided = ""
         for _ in range(g):
             r = execution_accuracy(extract_sql(generate(t)), t,
-                                   compare=compare, timeout_s=timeout_s)
+                                   compare=compare, timeout_s=timeout_s,
+                                   max_rows=max_rows)
             if not r.valid:
                 voided = r.status
                 break

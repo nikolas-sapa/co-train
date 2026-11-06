@@ -12,7 +12,11 @@ import pathlib
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ptc.sql_qa import QaChannel
+    from train.sql_reporting import ReportingConfig, ReportingSnapshot
 
 from bench.task import SqlTask
 from train import ex_reward, grpo_ptc, guards
@@ -65,15 +69,32 @@ class _SQLEnvironment:
         bindings: Mapping[str, _PreparedTask],
         db_root: pathlib.Path,
         root: pathlib.Path,
+        *,
+        reporting: ReportingConfig | None = None,
     ) -> None:
         self._bindings = bindings
         self._db_root = db_root
         self._root = root
+        self._reporting = reporting
         self._environment: grpo_ptc.PTCEnvironment | None = None
+        self._channel: QaChannel | None = None
 
     @property
     def turns_used(self) -> int:
         return 0 if self._environment is None else self._environment.turns_used
+
+    @property
+    def reporting_snapshot(self) -> ReportingSnapshot | None:
+        """Current bounded allegations, not verified claims or scored success.
+
+        Derive immutable bytes on access, including after a program failure.
+        Keep no history and leave the original execution semantics untouched.
+        """
+        if self._reporting is None or self._channel is None:
+            return None
+        from train.sql_reporting import snapshot_channel
+
+        return snapshot_channel(self._channel, self._reporting, arm="ptc")
 
     def reset(
         self,
@@ -87,6 +108,7 @@ class _SQLEnvironment:
         # Defaults let missing row metadata reach this invalidation too, instead
         # of Python rejecting it before the previous executor can be cleared.
         self._environment = None
+        self._channel = None
         if not isinstance(task_id, str) or task_id not in self._bindings:
             raise ValueError(f"unknown prepared task_id: {task_id!r}")
         binding = self._bindings[task_id]
@@ -99,10 +121,20 @@ class _SQLEnvironment:
             raise ValueError(f"db_id does not match prepared task {task_id!r}")
 
         _require_same_database(binding.task, self._db_root)
-        current_prompt, environment = grpo_ptc.sql_environment(binding.task, root=self._root)
+        channel = None
+        if self._reporting is None:
+            current_prompt, environment = grpo_ptc.sql_environment(binding.task, root=self._root)
+        else:
+            from train.sql_reporting import make_channel
+
+            channel = make_channel(self._reporting)
+            current_prompt, environment = grpo_ptc.sql_environment(
+                binding.task, root=self._root, qa=channel,
+            )
         if current_prompt != binding.prompt:
             raise ValueError(f"database prompt changed for prepared task {task_id!r}")
         self._environment = environment
+        self._channel = channel
         return None
 
     def run_program(self, code: str):
@@ -158,8 +190,17 @@ def prepare_sql_training(
     db_root: str | pathlib.Path,
     *,
     root: pathlib.Path = guards.REPO_ROOT,
+    reporting: ReportingConfig | None = None,
 ) -> SQLTrainingInputs:
-    """Prepare only caller-supplied tasks, without sampling or reading a manifest."""
+    """Prepare explicit tasks, optionally collecting per-reset defect allegations.
+
+    Reporting uses the existing exact configuration and in-memory collector.
+    Disabled calls neither import reporting nor change the SQL builder call.
+    """
+    if reporting is not None:
+        from train.sql_reporting import make_channel, validate_config
+
+        validate_config(reporting)
     tasks = tuple(tasks)
     if not tasks:
         raise ValueError("SQL training requires at least one explicit task")
@@ -181,7 +222,15 @@ def prepare_sql_training(
     bindings = {}
     rows = []
     for task in tasks:
-        prompt, _ = grpo_ptc.sql_environment(task, root=root)
+        if reporting is None:
+            prompt, preparation_environment = grpo_ptc.sql_environment(task, root=root)
+        else:
+            # This temporary channel derives the real enabled prompt only.
+            # Neither it nor its executor is retained as a rollout binding.
+            prompt, preparation_environment = grpo_ptc.sql_environment(
+                task, root=root, qa=make_channel(reporting),
+            )
+        del preparation_environment
         bindings[task.name] = _PreparedTask(task=task, prompt=prompt)
         rows.append({
             "prompt": [{"role": "user", "content": prompt}],
@@ -192,7 +241,7 @@ def prepare_sql_training(
     private_bindings = MappingProxyType(bindings)
 
     def environment_factory() -> _SQLEnvironment:
-        return _SQLEnvironment(private_bindings, db_root, root)
+        return _SQLEnvironment(private_bindings, db_root, root, reporting=reporting)
 
     return SQLTrainingInputs(
         dataset_rows=rows,
