@@ -42,9 +42,27 @@ ordering, not proof of a PTC accuracy advantage.
 
 ### Current research milestones 4-6
 
+As of 6 Nov 2026, this branch also includes tested offline tooling:
+
+- Create-only draw preparation and validated probing, plus CLI admission and
+  optional SQL reporting through native/monitored trainer builders.
+  [Preparation, probing and reporting](docs/2026-11-06-offline-preparation-and-probes.md).
+- Per-sample capture of actual generator completions and original scorer results,
+  without reconstructing samples from aggregate rates or rescoring them.
+  [Capture contract](spec/frontier-sample-capture.md).
+- Bounded evidence-binding checks and create-only save/reload of unverified
+  evidence. Loading requires a separately supplied archive SHA-256 before decoding.
+  [Binding checks](spec/frontier-evidence-bindings.md);
+  [transport format and limits](spec/frontier-unverified-transport.md).
+
+These checks use synthetic fixtures, including real SQLite execution. They do
+not establish a real BIRD baseline, authenticate a loaded checkpoint/provider,
+or qualify actual native training. Matching hashes and producer-retained pins
+do not establish independent custody or genuine measurement.
+
 | Stage | Status | Remaining work |
 |---|---|---|
-| 4: environment and escalation | PARTIAL | Stock CLI admission, isolated reporting transport/binding and actual rollout/training integration. |
+| 4: environment and escalation | PARTIAL | Owned-SDK lifecycle qualification and actual rollout/training compatibility. Offline CLI admission and reporting forwarding do not close those gates. |
 | 5: paired untrained baseline | PARTIAL | A real retained draw, legitimate frontier measurements and authorized paired BIRD rollouts. The current BIRD baseline is missing, not zero. |
 | 6: co-training and harness swap | BLOCKED | Frontier evidence, compatible runtime/template and completed training integration. The training CLI still deliberately refuses the incomplete path after preflight. |
 
@@ -59,6 +77,15 @@ See the [evidence index](docs/evidence-index.md) and
 [Source-bound receipt](docs/2026-10-30-portable-sql-skill-sdk-acceptance.md).
 The original log is machine-local, not bundled with a clone. This is not a claim
 that all tests pass on the current branch.
+
+The latest focused regression on 6 Nov 2026 passed **510 tests across seven
+selected offline modules** at
+[`b9e946c`](https://github.com/nikolas-sapa/co-train/commit/b9e946cba373b131a9f41e0bbba27e78e78392f9).
+It covers frontier bindings, capture, transport, probing and preparation,
+including two guard-loss controls and a reproduced/fixed cleanup-cancellation
+regression. This is not a full-suite or native-runtime qualification. Its logs
+are also machine-local; overlapping historical counts must not be added.
+
 ## CLI: reuse the existing SDK
 
 The project already reuses Verifiers rather than implementing another agent
@@ -94,8 +121,8 @@ The default offline test configuration covers `tests ptc ledger bench train`;
 it excludes tokenizer integration by default and does not collect `step2`.
 See [pytest.ini](pytest.ini). No tests were rerun for this documentation update.
 
-Core SQL reuse tooling is on `main`. Unqualified owned-SDK binding and isolated
-optimization candidates are not included by this documentation update.
+The offline additions above are included on this integration branch. Their
+fixture tests do not qualify owned-SDK/native execution or production activation.
 Original scratch evidence is machine-local, not bundled with a clone.
 The previous long README remains in
 [Git history](https://github.com/nikolas-sapa/co-train/blob/a718cf53833458379adf1c3d4a8e02b89b4a958b/README.md).
