@@ -5,7 +5,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 import os
 import pathlib
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+if TYPE_CHECKING:
+    from train.sql_reporting import ReportingConfig
 
 from bench.task import SqlTask
 from train import native_training
@@ -41,6 +44,7 @@ def build_monitored_sql_trainer(
     max_seq_length: int,
     steps: int = 200,
     root: pathlib.Path = native_training.guards.REPO_ROOT,
+    reporting: ReportingConfig | None = None,
 ) -> MonitoredSqlTrainer:
     """Attach one callback after successful original construction; never train."""
     trainer = native_training.build_sql_trainer(
@@ -52,6 +56,7 @@ def build_monitored_sql_trainer(
         max_seq_length=max_seq_length,
         steps=steps,
         root=root,
+        **({"reporting": reporting} if reporting is not None else {}),
     )
     monitor = RunMonitor()
     callback = _make_callback(monitor)

@@ -257,11 +257,13 @@ def test_public_constructor_has_no_runtime_or_gate_injection(api):
     signature = inspect.signature(api.build_sql_trainer)
     assert list(signature.parameters) == [
         "tasks", "db_root", "output_dir", "model_dir", "model_revision", "max_seq_length", "steps", "root",
+        "reporting",
     ]
-    for name in ("output_dir", "model_dir", "model_revision", "max_seq_length", "steps", "root"):
+    for name in ("output_dir", "model_dir", "model_revision", "max_seq_length", "steps", "root", "reporting"):
         assert signature.parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["model_dir"].default is inspect.Parameter.empty
     assert signature.parameters["steps"].default == 200
+    assert signature.parameters["reporting"].default is None
     assert Path(signature.parameters["root"].default) == guards.REPO_ROOT
 
 

@@ -443,16 +443,20 @@ def test_callback_nonstep(callback):
 
 
 def test_signature(api):
+    from train.sql_reporting import ReportingConfig
+
     original = api.native_training.build_sql_trainer
     actual = inspect.signature(api.build_monitored_sql_trainer)
     expected = inspect.signature(original)
     assert list(actual.parameters) == list(expected.parameters)
-    actual_types = typing.get_type_hints(api.build_monitored_sql_trainer)
-    expected_types = typing.get_type_hints(original)
+    namespace = {"ReportingConfig": ReportingConfig}
+    actual_types = typing.get_type_hints(api.build_monitored_sql_trainer, localns=namespace)
+    expected_types = typing.get_type_hints(original, localns=namespace)
     for name, param in expected.parameters.items():
         mirrored = actual.parameters[name]
         assert mirrored.kind == param.kind
         assert mirrored.default == param.default
         assert actual_types[name] == expected_types[name]
     assert expected.parameters["steps"].default == 200
+    assert actual_types["reporting"] == ReportingConfig | None
     assert api.MonitoredSqlTrainer._fields == ("trainer", "monitor")

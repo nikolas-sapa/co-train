@@ -67,6 +67,12 @@ unbound, or after a failed reset. Program failures retain current diagnostics
 until the next reset. A snapshot is not a sealed successful rollout or
 persistent training evidence. Execution, rewards and quotas remain unchanged.
 
+Both `train.native_training.build_sql_trainer` and
+`train.sql_training_run.build_monitored_sql_trainer` accept the same optional
+`reporting` configuration. They forward it without moving the existing
+preflight gates or starting training. Omitted/`None` preserves the original
+calls. Monitored callback attachment still follows successful construction.
+
 ## Remaining gates
 
 No real corpus qualification, model frontier, paired baseline, native framework

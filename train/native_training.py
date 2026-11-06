@@ -15,7 +15,10 @@ import pathlib
 import re
 import sys
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from train.sql_reporting import ReportingConfig
 
 from bench.task import SqlTask
 from train import dead_group_probe, grpo_ptc, guards, native_model, sql_bridge
@@ -169,6 +172,7 @@ def build_sql_trainer(
     max_seq_length: int,
     steps: int = 200,
     root: pathlib.Path = guards.REPO_ROOT,
+    reporting: ReportingConfig | None = None,
 ) -> Any:
     """Construct an explicit-task native Trainer; never start training.
 
@@ -194,7 +198,12 @@ def build_sql_trainer(
     if max_seq_length <= config["max_completion_length"]:
         raise ValueError("max_seq_length must leave prompt context beyond the completion cap")
     source = native_model.verify_local_model(model_path, model_revision=model_revision)
-    prepared = sql_bridge.prepare_sql_training(tasks, db_root, root=root)
+    if reporting is None:
+        prepared = sql_bridge.prepare_sql_training(tasks, db_root, root=root)
+    else:
+        prepared = sql_bridge.prepare_sql_training(
+            tasks, db_root, root=root, reporting=reporting,
+        )
     runtime = _load_runtime()
     dataset = runtime.Dataset.from_list(prepared.dataset_rows)
     per_device, accumulation = dead_group_probe.batch_for(dead_group_probe.NUM_GENERATIONS)
