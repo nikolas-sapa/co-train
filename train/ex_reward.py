@@ -27,9 +27,9 @@ both still hold.
 from __future__ import annotations
 
 import pathlib
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Iterator, Sequence
 
-from bench.score import MAX_ROWS, execution_accuracy, extract_sql
+from bench.score import MAX_ROWS, ExResult, execution_accuracy, extract_sql
 from bench.task import SqlTask
 
 # Where the shipped database subset lands. On Kaggle a dataset mounts read-only under
@@ -62,6 +62,39 @@ def db_path_for(db_root: str | pathlib.Path, db_id: str) -> str:
     return str(root / DB_DIRNAME / db_id / f"{db_id}.sqlite")
 
 
+def _execution_results(
+    completions: Iterable[Any], answer: Sequence[str], db_id: Sequence[str],
+    *, db_root: str | pathlib.Path, timeout_s: float = 30.0,
+    max_rows: int = MAX_ROWS, compare: str = "set",
+) -> Iterator[tuple[str, str, ExResult]]:
+    root = pathlib.Path(db_root)
+    for completion, gold_sql, this_db in zip(completions, answer, db_id, strict=True):
+        text = (completion if isinstance(completion, str)
+                else completion[-1]["content"])
+        db = db_path_for(root, this_db)
+        if not pathlib.Path(db).is_file():
+            raise FileNotFoundError(
+                f"database {db!r} is not mounted. Scoring 0 here would read as a "
+                "policy that cannot answer -- the confound this reward exists to "
+                "remove. Mount the dataset or fix --db-root."
+            )
+        task = SqlTask(
+            name="probe", question="", evidence="", gold_sql=gold_sql,
+            # "annotated" because BIRD labels its own difficulty; `SqlTask`
+            # validates this field and rejects anything else. Neither tier nor
+            # shape affects EX scoring -- the scorer reads db_path and gold_sql
+            # only -- but the dataclass is the contract and it is not bypassed.
+            db_id=this_db, db_path=db, tier="simple", tier_source="annotated",
+            shape="", coarse_shape="", source="bird",
+        )
+        # `extract_sql` first: the scorer deliberately does not unwrap fences, and
+        # a policy that answers in a ```sql block must not read as a failure.
+        extracted = extract_sql(text)
+        result = execution_accuracy(extracted, task, timeout_s=timeout_s,
+                                    max_rows=max_rows, compare=compare)
+        yield text, extracted, result
+
+
 def make_execution_reward(db_root: str | pathlib.Path,
                           *, timeout_s: float = 30.0,
                           max_rows: int = MAX_ROWS,
@@ -82,31 +115,10 @@ def make_execution_reward(db_root: str | pathlib.Path,
                          db_id: Sequence[str],
                          **_: Any) -> list[float]:
         out: list[float] = []
-        for completion, gold_sql, this_db in zip(completions, answer, db_id,
-                                                 strict=True):
-            text = (completion if isinstance(completion, str)
-                    else completion[-1]["content"])
-            db = db_path_for(root, this_db)
-            if not pathlib.Path(db).is_file():
-                raise FileNotFoundError(
-                    f"database {db!r} is not mounted. Scoring 0 here would read as a "
-                    "policy that cannot answer -- the confound this reward exists to "
-                    "remove. Mount the dataset or fix --db-root."
-                )
-            task = SqlTask(
-                name="probe", question="", evidence="", gold_sql=gold_sql,
-                # "annotated" because BIRD labels its own difficulty; `SqlTask`
-                # validates this field and rejects anything else. Neither tier nor
-                # shape affects EX scoring -- the scorer reads db_path and gold_sql
-                # only -- but the dataclass is the contract and it is not bypassed.
-                db_id=this_db, db_path=db, tier="simple", tier_source="annotated",
-                shape="", coarse_shape="", source="bird",
-            )
-            # `extract_sql` first: the scorer deliberately does not unwrap fences, and
-            # a policy that answers in a ```sql block must not read as a failure.
-            result = execution_accuracy(extract_sql(text), task,
-                                        timeout_s=timeout_s, max_rows=max_rows,
-                                        compare=compare)
+        for _, _, result in _execution_results(
+            completions, answer, db_id, db_root=root, timeout_s=timeout_s,
+            max_rows=max_rows, compare=compare,
+        ):
             # A defective GOLD is not a wrong prediction. `valid is False` means the
             # task is broken; it must not be scored as the policy's failure, so it is
             # dropped to 0 only after being surfaced -- the probe's own void handling

@@ -279,6 +279,67 @@ programs run through the existing restricted runtime, which is not an OS sandbox
 4. Training README, roadmap, research status, and HANDOFF record those actual
    outcomes and limits. Parent owns review, final acceptance, and git boundary.
 
+## Native rollout capture opt-in contract
+
+2026-11-06 source-only addition, separate from historical acceptance receipts
+above. The existing v3 capture codec, fields and terminal rules are unchanged;
+the earlier v1 description is historical, not a new format migration.
+Active genuine-final preflight must precede extraction/scoring; postchecks
+remain required. These requirements define the contract, not proof of
+runtime behavior.
+
+The paired callable `capture_ids: Callable[[str], EpisodeIds] | None = None`
+and `capture_sink: Callable[[SqlCapture], None] | None = None` require reporting.
+Constructor signatures/forwarding are in
+[native training](native-training.md#optional-rollout-capture-and-monitored-retention).
+No hooks means unchanged default behavior. IDs are explicit caller declarations;
+the caller owns freshness, which is not proven by capture admission.
+
+One existing reporting-enabled capture session owns the actual executor and
+channel. The original `run_program` delegates to that session, not a second
+executor or mirrored collector. Reset aborts/publishes the previous unfinished
+rollout before admitting the next one. Retained diagnostics preserve consumed
+budget even when failure prevents a completed action/observation record; never
+invent completed steps to reconcile counters.
+
+Before scoring, validate the full aligned completion/answer/db/environment/
+task/prompt association, lengths, unique actual environment identities, exact
+adapter/preparation/binding identity and current reset metadata. Task ID alone
+is not sample identity: repeated tasks and pooled instance reuse must not cross
+reports. Missing/foreign/stale/duplicate associations refuse without FIFO or
+task-ID fallback. After association, an active session with genuine final
+assistant text must pass current binding/DB/source/settings and bounded final
+admission preflight BEFORE shared extraction or original scoring. Preserve
+post-execution/post-score stability, telemetry, codec and terminal checks too;
+postchecks alone cannot substitute for that preflight.
+
+Use the original EX loop in `train/ex_reward.py`, once per row in supplied order,
+with unchanged strict zip, database resolution, missing-DB exception, extraction,
+scorer settings and scalar mapping:
+`float(result.score) if result.valid else 0.0`. Finalization consumes that original
+result without action replay or a second score. No new public result-injection
+authority. A genuine empty assistant final is still a submitted final. Missing
+genuine final text must not promote tool-tail text into a final.
+
+Execution-invalidated sessions remain diagnostic-only even if the original
+reward later returns scalar 1. Their captures have no successful final/result;
+an observation/snapshot does not execute, score or manufacture final evidence.
+Per-reset reward consumption prevents scoring the same rollout again.
+
+Attempt the sink at most once per rollout, mark attempted before calling, and
+never retry after sink failure. A sink failure prevents successful reward return
+and further adapter use. Diagnostic-publication failure must not mask an active
+primary execution/finalization/scorer failure. Publications form a prefix, not
+a batch transaction: an earlier row can remain published when a later row fails;
+failed/unprocessed rows must not acquire successful final evidence.
+
+Native cancellation has no comprehensive framework cleanup/publication guarantee.
+Overlength transcript rollback can remove messages after actions actually ran.
+Capture/reporting therefore records actual local execution, not exact native
+transcript, tokens, billing or runtime/training qualification. No new tool,
+`get_reward` observer, framework callback loop or SDK loop is authorized.
+All existing native/scientific/source/version gates remain closed as specified.
+
 ## Non-goals
 
 No bash capture, provider adapter/traces, live LLMs, training, GPU use,

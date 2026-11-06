@@ -125,6 +125,71 @@ primary operation failure, cancellation during cleanup outranks an earlier
 ordinary cleanup error. Still attempt all closes; preserve an active primary
 operation failure rather than mask it with a cleanup error.
 
+## Optional capture-to-archive wrapper
+
+2026-11-06 source-only addition; no new execution/acceptance receipt.
+`bench/frontier/capture_workflow.py` exposes:
+
+```python
+capture_to_archive(
+    *, plan: MeasurementPlan, checkpoint_inventory: bytes, limits: BindingLimits,
+    root: Path | str, draw_path: Path | str, supplement_path: Path | str,
+    expected_draw_sha256: str, expected_supplement_sha256: str, fixture: bool,
+    generate: Callable[[SqlTask], str], output_path: Path | str,
+) -> ArchivedCapture
+```
+
+The caller supplies all complete explicit inputs. The typed wrapper performs
+one existing `CaptureSession.run`, one existing transport write, then immediate
+reload with the trusted writer-returned SHA. Frozen/slotted/repr-disabled
+`ArchivedCapture` contains `captured`, `archive_sha256`, `reloaded`; its shell
+does not freeze the legacy mutable probe inside `captured`.
+
+Output preflight observes admissibility, not a lease/reservation. Existing
+create-only writer admission still governs publication. The returned SHA reload
+establishes local round-trip byte agreement only, not external custody or
+independently retained evidence. Later archive admission still requires a
+separately retained external pin. No retry or transaction: propagate original
+failure, including indeterminate publication, and leave a published archive
+intact if publication/reload fails after creation. The wrapper grants no
+provider/model/framework execution or scientific authorization.
+
+## Read-only descriptive archive report
+
+`bench/frontier/archive_report.py` exposes:
+
+```python
+read_archive_report(
+    path: Path | str, *, expected_archive_sha256: str, limits: BindingLimits,
+    dead_ceiling: float | int,
+) -> ArchiveReport
+render_archive_report(report: ArchiveReport) -> str
+```
+
+Load through existing transport with caller-supplied pin/limits and a fresh
+`BindingReport`, never a cached report. `dead_ceiling` must be finite in (0, 1).
+This is read-only descriptive arithmetic on unverified numeric declarations;
+opaque payloads are not parsed/rescored to prove those declarations.
+
+`ArchiveTaskReport` fields are `task_ordinal`, `state` (`complete`, `excluded`,
+`missing`, `invalid`), `solve_rate`, `dead_fraction`, `retained`. Preserve plan
+order and exclusions. Only an eligible task with all G valid, locally consistent
+slots gets a rate: successes/G, existing `dead_group_fraction(rate, g)`, and
+retained iff fraction <= caller ceiling. Present invalid slots outrank missing
+slots. Missing/invalid/excluded rates and decisions are `None`, never zero.
+
+`ArchiveReport` contains `tasks`, `binding_report`, `g`, `dead_ceiling`,
+`n_complete_tasks`, `n_retained_tasks`, `retention`. Retention uses the original
+eligible-task denominator and is `None` unless all eligible tasks are complete
+and that denominator is nonzero. It does not silently reduce the denominator
+to observed tasks. `provenance` is `"unverified"`, `attested_facts` is empty,
+`genuine_measurement_accepted` and `training_authorized` remain false.
+
+Render only genuine returned reports: fixed labels, numeric counts and task
+ordinals, not caller IDs, paths or opaque payloads; unavailable values render
+`unavailable`. Preserve planned/eligible/excluded and scheduled/observed counts.
+No new estimator, retention threshold policy, scientific gate or evidence authority.
+
 ## Non-goals
 
 No model/provider/corpus acquisition, SQL/scorer invocation by transport, network,

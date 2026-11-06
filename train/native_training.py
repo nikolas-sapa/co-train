@@ -8,7 +8,7 @@ not establish the unresolved runtime/isolation authority, so admission is closed
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 import copy
 import os
 import pathlib
@@ -18,6 +18,8 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from train.sql_capture import SqlCapture
+    from train.sql_episodes import EpisodeIds
     from train.sql_reporting import ReportingConfig
 
 from bench.task import SqlTask
@@ -173,6 +175,8 @@ def build_sql_trainer(
     steps: int = 200,
     root: pathlib.Path = guards.REPO_ROOT,
     reporting: ReportingConfig | None = None,
+    capture_ids: Callable[[str], EpisodeIds] | None = None,
+    capture_sink: Callable[[SqlCapture], None] | None = None,
 ) -> Any:
     """Construct an explicit-task native Trainer; never start training.
 
@@ -198,11 +202,17 @@ def build_sql_trainer(
     if max_seq_length <= config["max_completion_length"]:
         raise ValueError("max_seq_length must leave prompt context beyond the completion cap")
     source = native_model.verify_local_model(model_path, model_revision=model_revision)
+    capture_options = (
+        {"capture_ids": capture_ids, "capture_sink": capture_sink}
+        if capture_ids is not None or capture_sink is not None else {}
+    )
     if reporting is None:
-        prepared = sql_bridge.prepare_sql_training(tasks, db_root, root=root)
+        prepared = sql_bridge.prepare_sql_training(
+            tasks, db_root, root=root, **capture_options,
+        )
     else:
         prepared = sql_bridge.prepare_sql_training(
-            tasks, db_root, root=root, reporting=reporting,
+            tasks, db_root, root=root, reporting=reporting, **capture_options,
         )
     runtime = _load_runtime()
     dataset = runtime.Dataset.from_list(prepared.dataset_rows)

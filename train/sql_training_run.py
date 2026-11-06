@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 import os
 import pathlib
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
+    from train.sql_capture import SqlCapture
+    from train.sql_episodes import EpisodeIds
     from train.sql_reporting import ReportingConfig
 
 from bench.task import SqlTask
@@ -45,6 +47,8 @@ def build_monitored_sql_trainer(
     steps: int = 200,
     root: pathlib.Path = native_training.guards.REPO_ROOT,
     reporting: ReportingConfig | None = None,
+    capture_ids: Callable[[str], EpisodeIds] | None = None,
+    capture_sink: Callable[[SqlCapture], None] | None = None,
 ) -> MonitoredSqlTrainer:
     """Attach one callback after successful original construction; never train."""
     trainer = native_training.build_sql_trainer(
@@ -57,6 +61,8 @@ def build_monitored_sql_trainer(
         steps=steps,
         root=root,
         **({"reporting": reporting} if reporting is not None else {}),
+        **({"capture_ids": capture_ids, "capture_sink": capture_sink}
+           if capture_ids is not None or capture_sink is not None else {}),
     )
     monitor = RunMonitor()
     callback = _make_callback(monitor)

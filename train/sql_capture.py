@@ -65,7 +65,7 @@ def _execution_binding(executor):
     return isolation.build_execution_binding(executor.profile, source_root=_ROOT)
 
 
-def _bounded_extract_sql(text):
+def _admit_extraction_work(text):
     """Bound raw UTF-8 prefix work before invoking the unchanged SQL extractor.
 
     This conservative per-invocation proxy counts even discarded prose/fences
@@ -79,10 +79,15 @@ def _bounded_extract_sql(text):
     while work <= MAX_EXTRACTION_WORK_BYTES:
         position = encoded.find(b";", start)
         if position < 0:
-            return evidence.extract_sql(text)
+            return
         work += position + 1
         start = position + 1
     raise ValueError("SQL extraction work exceeds 64 MiB per invocation")
+
+
+def _bounded_extract_sql(text):
+    _admit_extraction_work(text)
+    return evidence.extract_sql(text)
 
 
 @dataclass(frozen=True)
@@ -476,6 +481,7 @@ class _CaptureSession:
         self._ids = ids
         self._capture = capture
         self._environment = environment
+        self._consumed_turns = 0
         self._executor = executor
         self._channel = channel
         self._reporting = reporting
@@ -485,6 +491,20 @@ class _CaptureSession:
     @property
     def prompt(self) -> str:
         return self._capture.prompt
+
+    @property
+    def _turns_used(self) -> int:
+        with self._lock:
+            if self._executor is not None:
+                return len(self._capture.steps)
+            return self._consumed_turns
+
+    @property
+    def snapshot(self) -> SqlCapture:
+        with self._lock:
+            capture = self._with_telemetry(self._capture)
+            encode_capture(capture)
+            return capture
 
     @property
     def reporting_snapshot(self):
@@ -549,7 +569,11 @@ class _CaptureSession:
                 ):
                     raise ValueError("session execution budget differs from evidence")
                 executed = environment.turns_used < cap
-                observation = environment.step(code)
+                try:
+                    observation = environment.step(code)
+                finally:
+                    # A faulted dispatch may consume a turn without a completed step.
+                    self._consumed_turns = environment.turns_used
                 evidence._check_database(self._task, self._capture.db_sha256)
                 step = evidence.ActionObservation(code, observation)
                 name = "steps" if executed else "refusals"
@@ -638,6 +662,56 @@ class _CaptureSession:
                 self._invalidate()
                 raise
 
+    def _admit_scored_final(self, final_answer: str) -> None:
+        with self._lock:
+            self._require_active()
+            try:
+                if self._executor is not None:
+                    raise ValueError("pre-scored finalization is in-process only")
+                self._admit_text(final_answer, "final_answer")
+                _bind(
+                    self._capture, self._task, self._ids, self._executor,
+                    expected_reporting=self._reporting,
+                )
+                _admit_extraction_work(final_answer)
+            except BaseException:
+                self._invalidate()
+                raise
+
+    def _finish_scored(
+        self, final_answer: str, *, extracted_sql: str, result: ExResult,
+    ) -> SqlCapture:
+        # Trusted bridge seam only: the original scorer result is not artifact
+        # authority. Recheck the same live bindings without executing SQL again.
+        with self._lock:
+            self._require_active()
+            try:
+                if self._executor is not None:
+                    raise ValueError("pre-scored finalization is in-process only")
+                self._admit_text(final_answer, "final_answer")
+                _bind(
+                    self._capture, self._task, self._ids, self._executor,
+                    expected_reporting=self._reporting,
+                )
+                evidence._text(extracted_sql, "extracted_sql")
+                if _bounded_extract_sql(final_answer) != extracted_sql:
+                    raise ValueError("extracted SQL disagrees with the submitted final")
+                evidence._validate_result(result)
+                evidence._check_database(self._task, self._capture.db_sha256)
+                capture = replace(
+                    self._capture, terminal_label="final_submitted",
+                    final_answer=final_answer, extracted_sql=extracted_sql, result=result,
+                )
+                capture = self._with_telemetry(capture)
+                encode_capture(capture)
+                self._capture = capture
+                self._state = "final_submitted"
+                self._environment = None
+                return capture
+            except BaseException:
+                self._invalidate()
+                raise
+
     def abort(self) -> SqlCapture:
         with self._lock:
             self._require_active()
@@ -658,6 +732,7 @@ def start_capture(
     executor: isolation.PilotExecutor | None = None,
     expected_db_sha256: str | None = None,
     reporting: ReportingConfig | None = None,
+    root: Path = guards.REPO_ROOT,
 ) -> _CaptureSession:
     """Admit trusted execution explicitly, then bind a fresh canonical environment."""
     if allow_execution is not True:
@@ -687,12 +762,12 @@ def start_capture(
             else evidence.sql_arms.build_sql_arms(task, qa=channel))
     if executor is None:
         prompt, environment = (
-            grpo_ptc.sql_environment(task) if channel is None
-            else grpo_ptc.sql_environment(task, qa=channel)
+            grpo_ptc.sql_environment(task, root=root) if channel is None
+            else grpo_ptc.sql_environment(task, root=root, qa=channel)
         )
     else:
         prompt, environment = pair.prompt("ptc"), None
-    cap = guards.eval_max_turns()
+    cap = guards.eval_max_turns(root)
     instrument = _instrument(pair, cap, executor, reporting=reporting)
     if prompt != pair.prompt("ptc") or (environment is not None and environment.max_turns != cap):
         raise ValueError("canonical execution environment differs from capture binding")

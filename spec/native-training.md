@@ -219,6 +219,63 @@ Partial construction can allocate approved runtime resources. Do not claim
 cleanup, checkpoint existence, AMP update or arbitrary-program determinism
 from constructor success. Runtime activation remains blocked today.
 
+## Optional rollout capture and monitored retention
+
+2026-11-06 source-only contract addition. Parent acceptance remains pending.
+The original constructor summary above is the default path. Current public
+constructor signatures are:
+
+```python
+build_sql_trainer(
+    tasks: Iterable[SqlTask], db_root: str | pathlib.Path, *,
+    output_dir: str | os.PathLike[str], model_dir: str | os.PathLike[str],
+    model_revision: str, max_seq_length: int, steps: int = 200,
+    root: pathlib.Path = guards.REPO_ROOT,
+    reporting: ReportingConfig | None = None,
+    capture_ids: Callable[[str], EpisodeIds] | None = None,
+    capture_sink: Callable[[SqlCapture], None] | None = None,
+) -> Any
+build_monitored_sql_trainer(
+    tasks: Iterable[SqlTask], db_root: str | pathlib.Path, *,
+    output_dir: str | os.PathLike[str], model_dir: str | os.PathLike[str],
+    model_revision: str, max_seq_length: int, steps: int = 200,
+    root: pathlib.Path = native_training.guards.REPO_ROOT,
+    reporting: ReportingConfig | None = None,
+    capture_ids: Callable[[str], EpisodeIds] | None = None,
+    capture_sink: Callable[[SqlCapture], None] | None = None,
+) -> MonitoredSqlTrainer
+```
+
+Sources: `train/native_training.py` and `train/sql_training_run.py`.
+Both capture hooks are optional together, callable and require reporting at
+preparation. Forward their exact identities only when supplied; absent hooks
+leave the existing preparation/reward path unchanged. `capture_ids(task_id)`
+supplies caller-owned `EpisodeIds` for each reset. Freshness, uniqueness across
+runs and authenticated identity are not established by these declarations.
+The caller's sink owns retention, not the Trainer or a new global recorder.
+
+Capture uses the one actual executor/reporting channel and the native reward's
+aligned environment instances, not task IDs or FIFO as rollout identity.
+See [rollout capture contract](sql-execution-capture.md#native-rollout-capture-opt-in-contract)
+for score-once, preflight and partial-publication requirements. Active
+genuine-final preflight must precede extraction/scoring. This contract does not
+certify runtime behavior.
+
+`MonitoredSqlTrainer` returns `trainer` and the actual `monitor`. Its existing
+`on_log` callback passes non-None logs to `monitor.observe` and requests stop on
+the same control after an abort. Optional caller-owned raw JSONL retention is
+specified in [RUN metrics retention](run-metrics-retention.md). Returning the
+builder does not prove framework-constructor/callback-registration quiescence;
+attachment must precede every observation, with late attachment refused.
+
+The official pinned upstream source supports the static pool/reset/reward seam,
+not qualification of a loaded native runtime. No `get_reward` observer, new
+discovered tool, SDK loop or native CLI enablement is introduced. Reporting is
+not exact transcript, token, billing, native qualification or training evidence.
+Existing version/source pins, real-runtime and scientific gates, and deliberate
+`grpo_ptc` refusal remain unchanged. BIRD baseline is missing, not zero; stages
+4/5 remain PARTIAL and stage 6 BLOCKED.
+
 ## Local artifact identity, not immutable storage
 
 `train/native_model.py::verify_local_model(model_dir, *, model_revision)` accepts

@@ -115,6 +115,34 @@ exclude secrets/PII. No raw capture text or local paths are output. Reasons and
 statuses originate from fixed closed codes. Format only genuine returned
 records, not manually constructed or adversarially mutated projections.
 
+## Optional read-only CLI
+
+2026-11-06 source-only addition. The earlier adapter-only CLI non-goal remains
+the boundary of that original increment; this separate opt-in wrapper changes
+no comparison, codec, estimator or admission contract.
+
+Actual module `train/sql_capture_compare_cli.py` exposes `main(argv=None) -> int`
+and the `python -m train.sql_capture_compare_cli` entrypoint. Repeated `--case ID`
+declarations form the independent ordered case plan. Repeated
+`--baseline CASE ABS_PATH` and `--treatment CASE ABS_PATH` declare each arm.
+Nothing discovers captures, infers cases, reads config, writes output artifacts
+or rescores SQL. Existing comparison performs bounded reads; formatted projection
+goes to stdout.
+
+Declaration illustration only, not an execution request or measured result:
+`--case CALLER_CASE --baseline CALLER_CASE /caller/baseline.json`.
+`CALLER_CASE` and the absolute path are placeholders for caller-owned data.
+An omitted treatment remains missing, not an observed zero.
+
+Argument-parser syntax errors and duplicate case/arm declarations exit 2.
+Argument abbreviation is disabled. Known comparison-argument `ValueError`
+refusal returns 1 with fixed bounded stderr:
+`Capture comparison refused: invalid comparison arguments.`
+Programmer errors outside that handled refusal propagate, not successful reports.
+Valid declarations return 0 after formatting even when evidence is incomplete
+or aggregate statistics are inadmissible. Exit 0 is not a completeness,
+scientific, provenance, financial or training-authorization verdict.
+
 ## Limits and non-goals
 
 Caller mappings, self-digests and equal bindings are not authenticated
