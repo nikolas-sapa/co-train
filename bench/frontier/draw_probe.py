@@ -6,7 +6,7 @@ import math
 from collections.abc import Callable
 from pathlib import Path
 
-from bench.frontier.probe import ProbeResult, probe
+from bench.frontier.probe import ProbeResult, SampleObservation, probe
 from bench.prepare import load_validated_draw
 from bench.task import SqlTask
 
@@ -23,6 +23,7 @@ def probe_validated_draw(
     policy: str,
     g: int,
     dead_ceiling: float,
+    sample_observer: Callable[[SampleObservation], None] | None = None,
 ) -> ProbeResult:
     """Probe only admitted eligible tasks, refusing drift before returning.
 
@@ -45,10 +46,14 @@ def probe_validated_draw(
         expected_supplement_sha256=expected_supplement_sha256,
         fixture=fixture,
     )
+    observation_kwargs = {}
+    if sample_observer is not None:
+        observation_kwargs["sample_observer"] = sample_observer
     result = probe(
         admitted.eligible, generate, policy=policy, g=g,
         dead_ceiling=dead_ceiling, compare=admitted.comparison,
         timeout_s=admitted.timeout_s, max_rows=admitted.max_rows,
+        **observation_kwargs,
     )
     load_validated_draw(
         root, draw_path, supplement_path,

@@ -43,7 +43,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from bench.score import execution_accuracy, extract_sql
+from bench.score import ExResult, execution_accuracy, extract_sql
 from bench.task import SqlTask
 
 MANIFEST_PATH = Path(__file__).resolve().parent / "manifest.json"
@@ -172,13 +172,25 @@ class ProbeResult:
         }
 
 
+@dataclass(frozen=True, repr=False)
+class SampleObservation:
+    """Sensitive host-side sample and the original scorer return, not a receipt."""
+
+    task_id: str
+    slot_index: int
+    completion: str
+    extracted_sql: str
+    result: ExResult
+
+
 def probe(tasks: Sequence[SqlTask],
           generate: Callable[[SqlTask], str],
           *, policy: str, g: int = DEFAULT_G,
           dead_ceiling: float = DEFAULT_DEAD_CEILING,
           compare: str = "set",
           timeout_s: float = 30.0,
-          max_rows: int = 500_000) -> ProbeResult:
+          max_rows: int = 500_000,
+          sample_observer: Callable[[SampleObservation], None] | None = None) -> ProbeResult:
     """Sample each task `g` times and measure its solve rate.
 
     `generate(task) -> str` is the policy. It is injected rather than imported so this
@@ -215,10 +227,15 @@ def probe(tasks: Sequence[SqlTask],
     for t in tasks:
         wins = 0
         voided = ""
-        for _ in range(g):
-            r = execution_accuracy(extract_sql(generate(t)), t,
+        for slot_index in range(g):
+            completion = generate(t)
+            prediction = extract_sql(completion)
+            r = execution_accuracy(prediction, t,
                                    compare=compare, timeout_s=timeout_s,
                                    max_rows=max_rows)
+            if sample_observer is not None:
+                sample_observer(SampleObservation(
+                    t.name, slot_index, completion, prediction, r))
             if not r.valid:
                 voided = r.status
                 break
