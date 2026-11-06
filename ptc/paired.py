@@ -14,10 +14,69 @@ from __future__ import annotations
 import json
 import random
 import sys
+from collections.abc import Iterator
 from fractions import Fraction
-from math import comb, exp, inf, lgamma, log, log1p
+from math import comb, exp, inf, isfinite, lgamma, log, log1p
 
 from ptc.metrics import bootstrap_ci
+
+
+def _unique_object(pairs: list[tuple[str, object]]) -> dict:
+    out = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError("invalid paired trace record")
+        out[key] = value
+    return out
+
+
+def _reject_constant(value: str) -> None:
+    raise ValueError("invalid paired trace record")
+
+
+def _finite_number(value: object) -> bool:
+    return type(value) is int or (type(value) is float and isfinite(value))
+
+
+def _records(path: str, *, check_ok: bool = False) -> Iterator[tuple[str, float, dict]]:
+    seen: set[str] = set()
+    try:
+        with open(path) as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                d = json.loads(line, object_pairs_hook=_unique_object,
+                               parse_constant=_reject_constant)
+                if not isinstance(d, dict) or not isinstance(d.get("task"), dict):
+                    raise ValueError("invalid paired trace record")
+                data = d["task"].get("data")
+                if not isinstance(data, dict) or not isinstance(data.get("name"), str):
+                    raise ValueError("invalid paired trace record")
+                name = data["name"]
+                if name in seen or not isinstance(d.get("traces"), list):
+                    raise ValueError("invalid paired trace record")
+                if check_ok and type(d.get("ok", False)) is not bool:
+                    raise ValueError("invalid paired trace record")
+                score = 0.0
+                for tr in d["traces"]:
+                    if not isinstance(tr, dict) or not isinstance(tr.get("rewards"), dict):
+                        raise ValueError("invalid paired trace record")
+                    for comp in tr["rewards"].values():
+                        if not isinstance(comp, dict):
+                            raise ValueError("invalid paired trace record")
+                        value, weight = comp.get("score"), comp.get("weight", 1.0)
+                        if not _finite_number(value) or not _finite_number(weight):
+                            raise ValueError("invalid paired trace record")
+                        product = value * weight
+                        if not _finite_number(product):
+                            raise ValueError("invalid paired trace record")
+                        score += product
+                        if not isfinite(score):
+                            raise ValueError("invalid paired trace record")
+                seen.add(name)
+                yield name, score, d
+    except (ValueError, TypeError, OverflowError, RecursionError):
+        raise ValueError("invalid paired trace record") from None
 
 
 def load(path: str) -> dict[str, float]:
@@ -26,17 +85,8 @@ def load(path: str) -> dict[str, float]:
     silently produced nothing.
     """
     out: dict[str, float] = {}
-    with open(path) as fh:
-        for line in fh:
-            if not line.strip():
-                continue
-            d = json.loads(line)
-            name = d["task"]["data"]["name"]
-            score = 0.0
-            for tr in d["traces"]:
-                for comp in tr["rewards"].values():
-                    score += comp["score"] * comp.get("weight", 1.0)
-            out[name] = score
+    for name, score, _ in _records(path):
+        out[name] = score
     return out
 
 
@@ -212,20 +262,12 @@ def rollouts(path: str) -> dict[str, dict]:
     and the marginal score across both averages them away.
     """
     out: dict[str, dict] = {}
-    with open(path) as fh:
-        for line in fh:
-            if not line.strip():
-                continue
-            d = json.loads(line)
-            score = 0.0
-            for tr in d["traces"]:
-                for comp in tr["rewards"].values():
-                    score += comp["score"] * comp.get("weight", 1.0)
-            out[d["task"]["data"]["name"]] = {
-                "score": score,
-                "ok": bool(d.get("ok")),
-                "min_calls": d["task"]["data"].get("min_calls"),
-            }
+    for name, score, d in _records(path, check_ok=True):
+        out[name] = {
+            "score": score,
+            "ok": d.get("ok", False),
+            "min_calls": d["task"]["data"].get("min_calls"),
+        }
     return out
 
 
