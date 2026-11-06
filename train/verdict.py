@@ -80,7 +80,12 @@ paper gives the mechanism, not a number)."""
 
 
 def _finite(x: Any) -> bool:
-    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+    if not isinstance(x, (int, float)) or isinstance(x, bool):
+        return False
+    try:
+        return math.isfinite(x)
+    except OverflowError:
+        return False
 
 
 def training_steps(logs: Iterable[dict]) -> list[dict]:
@@ -483,9 +488,19 @@ def observations(logs: Sequence[dict]) -> list[str]:
     return out
 
 
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict:
+    obj: dict = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ValueError("duplicate decoded JSON object key")
+        obj[key] = value
+    return obj
+
+
 def load(path: str) -> list[dict]:
     with open(path) as fh:
-        return [json.loads(line) for line in fh if line.strip()]
+        return [json.loads(line, object_pairs_hook=_unique_object)
+                for line in fh if line.strip()]
 
 
 def main(argv: Sequence[str] | None = None) -> int:

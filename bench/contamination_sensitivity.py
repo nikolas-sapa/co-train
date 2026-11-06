@@ -41,6 +41,23 @@ def token_lengths(sqls: list[str], tok) -> np.ndarray:
     return np.array([len(tok(s, add_special_tokens=False).input_ids) for s in sqls])
 
 
+def _aligned_vectors(bird_scores, bird_lens, fresh_scores, fresh_lens):
+    vectors = tuple(np.asarray(values) for values in
+                    (bird_scores, bird_lens, fresh_scores, fresh_lens))
+    names = ("bird_scores", "bird_lens", "fresh_scores", "fresh_lens")
+    for name, vector in zip(names, vectors):
+        if vector.ndim != 1:
+            raise ValueError(f"{name} must be one-dimensional")
+        if not np.issubdtype(vector.dtype, np.number):
+            raise ValueError(f"{name} must be numeric")
+        if not np.isfinite(vector).all():
+            raise ValueError(f"{name} must contain only finite values")
+    b, bl, f, fl = vectors
+    if b.shape != bl.shape or f.shape != fl.shape:
+        raise ValueError("scores and lengths must be aligned within each group")
+    return vectors
+
+
 def stratified_auc(bird_scores, bird_lens, fresh_scores, fresh_lens) -> tuple[float, int]:
     """AUC computed only over BIRD/fresh pairs whose gold lengths fall in the same bin,
     pooled across bins. The estimator the primary statistic should have been: it asks
@@ -49,8 +66,8 @@ def stratified_auc(bird_scores, bird_lens, fresh_scores, fresh_lens) -> tuple[fl
     Returns (auc, n_pairs). A bin with no fresh items contributes no pairs, which is the
     honest treatment: there is nothing to compare against there.
     """
-    b = np.asarray(bird_scores)
-    f = np.asarray(fresh_scores)
+    b, bird_lens, f, fresh_lens = _aligned_vectors(
+        bird_scores, bird_lens, fresh_scores, fresh_lens)
     wins = total = 0.0
     for lo, hi in LENGTH_BINS:
         bb = b[(bird_lens >= lo) & (bird_lens <= hi)]
@@ -68,7 +85,8 @@ def stratified_auc(bird_scores, bird_lens, fresh_scores, fresh_lens) -> tuple[fl
 def stratified_ci(bird_scores, bird_lens, fresh_scores, fresh_lens, *,
                   n_boot: int = 2000, seed: int = 0) -> tuple[float, float]:
     """Bootstrap the FRESH side (BIRD is the fixed reference set), percentile interval."""
-    f = np.asarray(fresh_scores)
+    bird_scores, bird_lens, f, fresh_lens = _aligned_vectors(
+        bird_scores, bird_lens, fresh_scores, fresh_lens)
     rng = np.random.default_rng(seed)
     stats = []
     for _ in range(n_boot):

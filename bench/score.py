@@ -44,6 +44,7 @@ from __future__ import annotations
 import math
 import re
 import sqlite3
+import sys
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -299,10 +300,22 @@ def execution_accuracy(predicted_sql: str, task: SqlTask, *,
     `predicted_sql` must already be extracted from the model's output -- see
     `extract_sql`. `compare` is `"set"` (default, official BIRD `evaluation.py`
     behaviour, leaderboard-comparable) or `"multiset"` (stricter, a sensitivity check);
-    see the module docstring.
+    see the module docstring. Invalid timeout or row bounds raise ValueError before
+    database access, rather than classifying the task as defective.
     """
     if compare not in ("multiset", "set"):
         raise ValueError(f"compare must be 'multiset' or 'set', got {compare!r}")
+    try:
+        valid_timeout = (isinstance(timeout_s, (int, float))
+                         and not isinstance(timeout_s, bool)
+                         and math.isfinite(timeout_s) and timeout_s > 0)
+    except OverflowError:
+        valid_timeout = False
+    if not valid_timeout:
+        raise ValueError("timeout_s must be a finite positive int or float")
+    if (not isinstance(max_rows, int) or isinstance(max_rows, bool)
+            or not 0 <= max_rows < sys.maxsize):
+        raise ValueError("max_rows must be a nonnegative int with representable cap+1")
     if not Path(task.db_path).is_file():
         return ExResult(0.0, "db_missing", False,
                         f"no sqlite file at {task.db_path}")

@@ -340,6 +340,8 @@ def auroc(pos: list[float], neg: list[float]) -> float:
     """
     if not pos or not neg:
         raise ValueError("auroc needs both groups non-empty")
+    if not all(math.isfinite(value) for value in pos + neg):
+        raise ValueError("auroc needs finite scores")
     wins = 0.0
     for p in pos:
         for q in neg:
@@ -440,6 +442,9 @@ def decide_verdict(*, control_auc: float, control_p: float,
     - FAIL: BIRD separable from fresh at the contamination floor, outside the CI's tie.
     - Otherwise INCONCLUSIVE.
     """
+    if not all(math.isfinite(value) for value in
+               (control_auc, control_p, bird_auc, bird_p, *bird_ci)):
+        return "INCONCLUSIVE"
     if control_auc < CONTROL_AUC_FLOOR or control_p >= CONTROL_P_FLOOR:
         return "INCONCLUSIVE"
     if bird_ci[1] < PASS_AUC_CEILING:
@@ -461,6 +466,9 @@ def decide_binary_verdict(*, control_rates: tuple[float, float], control_p: floa
     rate is not a problem here -- reproductions are rare, which is the point -- but a
     zero positive rate is, and it lands in the same INCONCLUSIVE branch.
     """
+    if not all(math.isfinite(value) for value in
+               (*control_rates, control_p, *bird_rates, bird_p)):
+        return "INCONCLUSIVE"
     pos, fresh = control_rates[0], control_rates[1]
     bird, _ = bird_rates
     if pos - fresh < BINARY_RATE_GAP or control_p >= CONTROL_P_FLOOR:

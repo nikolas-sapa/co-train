@@ -249,8 +249,11 @@ def _row_problem(plan, arm, row):
 
 def _arm_scores(plan, arm, rows):
     scores, diagnostics = {}, []
+    expected = {t.name for t in plan.draw.eligible}
     for index, row in enumerate(rows):
         problem = _row_problem(plan, arm, row)
+        if problem is None and row.task_id not in expected:
+            problem = "outcome_association"
         if problem is not None:
             # Never interpolate driver fields, exception text, SQL or paths.
             diagnostics.append(f"{arm}:row[{index}]:{problem}")
@@ -259,7 +262,6 @@ def _arm_scores(plan, arm, rows):
             diagnostics.append(f"{arm}:row[{index}]:duplicate_task")
             continue
         scores[row.task_id] = _score(row)
-    expected = {t.name for t in plan.draw.eligible}
     if len(expected) != len(plan.draw.eligible):
         diagnostics.append("admitted_duplicate_task")
     if set(scores) != expected or len(rows) != len(expected):

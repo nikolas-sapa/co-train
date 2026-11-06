@@ -87,7 +87,7 @@ Schema:
 
 def schema_for(db_path: str) -> str:
     """The CREATE statements, which is what the model needs and all it needs."""
-    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    con = sqlite3.connect(pathlib.Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
     try:
         rows = con.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL"
@@ -105,7 +105,7 @@ def scalar_answer(task: SqlTask) -> str | None:
     "too hard" instead of "broken". Two of BIRD dev's 1534 golds never terminate.
     """
     try:
-        con = sqlite3.connect(f"file:{task.db_path}?mode=ro", uri=True)
+        con = sqlite3.connect(pathlib.Path(task.db_path).resolve().as_uri() + "?mode=ro", uri=True)
     except sqlite3.Error:
         return None
     try:

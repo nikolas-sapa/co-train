@@ -228,16 +228,17 @@ def skeleton(sql: str) -> Skeleton:
     # inside one. Commas at that exact depth separate table references, while commas
     # anywhere else (argument lists, select lists) must not count.
     from_depth: int | None = None
+    from_stack: list[int | None] = []
     pending_join_mod: list[str] = []
 
     for i, t in enumerate(toks):
         prev = toks[i - 1] if i else ""
         if t == "(":
+            from_stack.append(from_depth)
             depth += 1
             continue
         if t == ")":
-            if from_depth is not None and depth <= from_depth:
-                from_depth = None
+            from_depth = from_stack.pop() if from_stack else None
             depth -= 1
             continue
 

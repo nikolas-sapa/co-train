@@ -160,10 +160,21 @@ def _build(records: list[dict], root: Path, db_dir: str, sql_key: str,
     return tasks
 
 
+def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            # Only fixed public field names are safe to include in diagnostics.
+            field = f": {key}" if key in ("SQL", "query", "question", "db_id", "question_id") else ""
+            raise ValueError(f"duplicate JSON object key{field}")
+        result[key] = value
+    return result
+
+
 def load_bird(root: str | Path, require_db: bool = True) -> list[SqlTask]:
     """BIRD dev. `root` may be the corpus directory or its parent (see `_resolve`)."""
     base = _resolve(Path(root), "dev.json", "dev_databases", "BIRD dev")
-    records = json.loads((base / "dev.json").read_text())
+    records = json.loads((base / "dev.json").read_text(), object_pairs_hook=_unique_object)
     return _build(records, base, "dev_databases", "SQL", "bird", "bird", require_db)
 
 
@@ -171,5 +182,5 @@ def load_spider(root: str | Path, require_db: bool = True) -> list[SqlTask]:
     """Spider dev. Gold SQL is `query`, databases live under `database/`, and there is
     no difficulty annotation -- tiers come out `derived`."""
     base = _resolve(Path(root), "dev.json", "database", "Spider dev")
-    records = json.loads((base / "dev.json").read_text())
+    records = json.loads((base / "dev.json").read_text(), object_pairs_hook=_unique_object)
     return _build(records, base, "database", "query", "spider", "spider", require_db)

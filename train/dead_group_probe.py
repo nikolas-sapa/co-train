@@ -32,6 +32,7 @@ needs a T4.
 from __future__ import annotations
 
 import functools
+import itertools
 import json
 import math
 import pathlib
@@ -362,12 +363,19 @@ def sampling_reward(reward: Any, sampler: CompletionSampler) -> Any:
 
     @functools.wraps(reward)
     def sampling(*args: Any, **kwargs: Any) -> list[float]:
-        values = reward(*args, **kwargs)
         # TRL calls reward functions by keyword; `train/test_train.py` and the rewards'
         # own docstrings call them positionally. Both are accepted, and neither raises:
         # a diagnostic that could kill the run it is diagnosing is not worth having, and
         # recording nothing is a finding `verdict.observations` reports in words.
         completions = kwargs.get("completions", args[0] if args else ())
+        if not isinstance(completions, Sequence):
+            # Retain actual single-pass items without pulling any before reward runs.
+            scoring, completions = itertools.tee(completions)
+            if "completions" in kwargs:
+                kwargs["completions"] = scoring
+            else:
+                args = (scoring, *args[1:])
+        values = reward(*args, **kwargs)
         sampler.record(completions, values)
         return values
 

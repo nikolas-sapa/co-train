@@ -699,7 +699,8 @@ def _sync_dir(parent: Path) -> None:
 def _quiet_unlink(path) -> None:
     try:
         os.unlink(path)
-    except OSError:
+    except BaseException:
+        # Cleanup must not replace the active precommit failure.
         pass
 
 
