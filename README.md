@@ -8,6 +8,11 @@ is the goal, not a measured result of reuse.
 
 ## Status
 
+As of 6 Nov 2026, offline draw preparation, reporting, sample capture and evidence
+save/reload are implemented and fixture-tested. Real BIRD measurements and
+native-training qualification remain open.
+[Current milestones and limits](#current-research-milestones-4-6).
+
 On 29 Oct 2026, a checked, hand-written SQL skill was reused correctly in two
 fresh runs on two different databases.
 [Read the test and its limits](docs/2026-10-29-native-sql-skill-workflow.md).
@@ -42,7 +47,7 @@ ordering, not proof of a PTC accuracy advantage.
 
 ### Current research milestones 4-6
 
-As of 6 Nov 2026, this branch also includes tested offline tooling:
+As of 6 Nov 2026, the repository includes tested offline tooling:
 
 - Create-only draw preparation and validated probing, plus CLI admission and
   optional SQL reporting through native/monitored trainer builders.
@@ -121,7 +126,7 @@ The default offline test configuration covers `tests ptc ledger bench train`;
 it excludes tokenizer integration by default and does not collect `step2`.
 See [pytest.ini](pytest.ini). No tests were rerun for this documentation update.
 
-The offline additions above are included on this integration branch. Their
+The offline additions above are included in `main`. Their
 fixture tests do not qualify owned-SDK/native execution or production activation.
 Original scratch evidence is machine-local, not bundled with a clone.
 The previous long README remains in
