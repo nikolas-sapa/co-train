@@ -1,0 +1,1 @@
+FROM --platform=linux/amd64 docker.io/library/python@sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af
