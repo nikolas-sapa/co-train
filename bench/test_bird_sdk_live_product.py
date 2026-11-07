@@ -6,6 +6,7 @@ import copy
 import dataclasses
 import importlib
 import json
+import os
 import sys
 from types import SimpleNamespace
 
@@ -27,6 +28,18 @@ from ptc.harness import PTCHarness, PTCHarnessConfig
 from ptc.sql_owned_score import OwnedSqlScorer
 from ptc.test_sql_owned_program import _fixture
 from train.sql_episodes import InstrumentSettings
+
+
+@pytest.fixture(autouse=True)
+def restore_vf_run_id():
+    present, value = "VF_RUN_ID" in os.environ, os.environ.get("VF_RUN_ID")
+    try:
+        yield
+    finally:
+        if present:
+            os.environ["VF_RUN_ID"] = value
+        else:
+            os.environ.pop("VF_RUN_ID", None)
 
 
 def _api():

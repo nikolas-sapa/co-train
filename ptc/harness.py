@@ -209,25 +209,35 @@ async def _close_program_runner(runner: OwnedProgramRunner) -> None:
     # The runner owns its jobs; never let repeated caller cancellation detach
     # its cleanup. Acknowledgment is meaningful only for a qualified runner.
     cleanup = asyncio.create_task(runner.aclose())
-    cancelled: asyncio.CancelledError | None = None
+    cancellations: list[asyncio.CancelledError] = []
     while not cleanup.done():
         try:
             await asyncio.shield(cleanup)
         except asyncio.CancelledError as exc:
-            if cancelled is None:
-                cancelled = exc
+            cancellations.append(exc)
         except Exception:
             break
     try:
         result = cleanup.result()
     except asyncio.CancelledError as exc:
-        raise ProgramInfrastructureError("owned program cleanup was cancelled") from exc
+        error = ProgramInfrastructureError("owned program cleanup was cancelled")
+        for cancellation in cancellations:
+            error.add_note(f"secondary cleanup cancellation: {cancellation!r}")
+        raise error from exc
     except Exception as exc:
-        raise ProgramInfrastructureError("owned program cleanup failed") from exc
+        error = ProgramInfrastructureError("owned program cleanup failed")
+        for cancellation in cancellations:
+            error.add_note(f"secondary cleanup cancellation: {cancellation!r}")
+        raise error from exc
     if result is not None:
-        raise ProgramInfrastructureError("owned program cleanup must acknowledge with None")
-    if cancelled is not None:
-        raise cancelled
+        error = ProgramInfrastructureError("owned program cleanup must acknowledge with None")
+        for cancellation in cancellations:
+            error.add_note(f"secondary cleanup cancellation: {cancellation!r}")
+        raise error
+    if cancellations:
+        for cancellation in cancellations[1:]:
+            cancellations[0].add_note(f"secondary cleanup cancellation: {cancellation!r}")
+        raise cancellations[0]
 
 
 SYSTEM = (
@@ -694,7 +704,7 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                     for method in ("run_program", "aclose")
                 ):
                     raise TypeError("owned program runner requires async run_program and aclose")
-                body_cancel: asyncio.CancelledError | None = None
+                body_error: BaseException | None = None
                 try:
                     reference = _reference_protocol(runner)
                     _validate_program_runner_timeout(runner, program_timeout)
@@ -707,15 +717,19 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                         references_enabled=reference is not None,
                         host_check=check_host,
                     )
-                except asyncio.CancelledError as exc:
-                    body_cancel = exc
+                except BaseException as exc:
+                    body_error = exc
                     raise
                 finally:
                     try:
-                        await _close_program_runner(runner)
-                    except asyncio.CancelledError:
-                        if body_cancel is not None:
-                            raise body_cancel
+                        try:
+                            check_host()
+                        finally:
+                            await _close_program_runner(runner)
+                        check_host()
+                    except BaseException as secondary:
+                        if body_error is not None:
+                            raise body_error from secondary
                         raise
 
         return ProgramResult(exit_code=0, stdout="\n".join(log), stderr="")
@@ -807,6 +821,7 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                                     raise ProgramRejected("invalid skill reference")
                                 content = await _execute_owned_reference(
                                     program_runner, skill_id, pin, program_timeout)
+                                host_check()
                                 log.append(content)
                                 messages.append({
                                     "role": "tool", "tool_call_id": call.get("id", "0"),
@@ -838,6 +853,7 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                         content = f"rejected: {e}"
                     except Exception as e:  # the program itself raised
                         content = f"error: {type(e).__name__}: {e}"
+                    host_check()
                     log.append(content)
                     messages.append({
                         "role": "tool", "tool_call_id": call.get("id", "0"),

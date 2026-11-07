@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 from bench.score import ExResult
 from bench.task import SqlTask
 from ptc import sql_isolation as isolation
+from ptc.sql_owned_score import OwnedSqlScorer, _request
 from train import grpo_ptc, guards, sql_episodes as evidence
 
 
@@ -247,6 +248,78 @@ def encode_capture(capture: SqlCapture) -> bytes:
         "payload": payload,
         "sha256": hashlib.sha256(evidence._json_bytes(payload)).hexdigest(),
     })
+
+
+_OWNED_SOURCE_PATHS = tuple(dict.fromkeys(SOURCE_PATHS + (
+    "ptc/sql_owned_program.py", "ptc/sql_owned_score.py", "ptc/harness.py",
+    "train/sql_live_reuse.py", "bench/bird_sdk_live.py",
+    "train/sql_sdk_scientific.py",
+)))
+
+
+def _owned_sources():
+    sources = tuple(
+        (name, hashlib.sha256((_ROOT / name).read_bytes()).hexdigest())
+        for name in _OWNED_SOURCE_PATHS)
+    return _OWNED_SOURCE_PATHS, hashlib.sha256(evidence._json_bytes(sources)).hexdigest()
+
+
+def _completed_owned_capture(*, task, ids, schema, prompt, instrument, executor,
+                             db_sha256, programs, scorer, result, final_answer):
+    """Project retained original completions, with no execution or score call."""
+    evidence._validate_instrument(instrument)
+    if (instrument.source_paths, instrument.source_sha256) != _owned_sources():
+        raise ValueError("owned capture selected sources differ")
+    if type(scorer) is not OwnedSqlScorer or not scorer._closed:
+        raise ValueError("closed original scorer required")
+    scorer._check_binding()
+    if (scorer._task is not task or scorer._executor is not executor
+            or scorer._instrument is not instrument or scorer._db_sha256 != db_sha256
+            or len(scorer._jobs) != 1):
+        raise ValueError("owned capture scorer binding differs")
+    sql = _bounded_extract_sql(final_answer)
+    job, = scorer._jobs
+    completion = job.completion
+    if (type(completion) is not isolation.InvocationCompletion
+            or completion is not job.invocation._completion
+            or completion.abort is not None
+            or type(completion.outcome) is not isolation.ScoreOutcome
+            or completion.outcome.result is not result
+            or job.ack is not completion.cleanup_ack
+            or job.invocation.request != _request(task, sql, db_sha256, instrument)):
+        raise ValueError("owned capture final EX custody differs")
+    scorer._check_ack(job, job.ack)
+    completion.__post_init__()
+    if result.valid is not True:
+        raise ValueError("invalid EX cannot become a completed capture")
+    steps, receipts = [], []
+    if type(programs) is not tuple or len(programs) > instrument.action_cap:
+        raise ValueError("bounded original program tuple required")
+    for code, outcome in programs:
+        if type(outcome) is not isolation.ProgramOutcome or outcome.abort is not None:
+            raise ValueError("completed original PROGRAM outcome required")
+        outcome.__post_init__()
+        expected = isolation.request_sha256(isolation.ProgramRequest(
+            code, instrument.action_max_rows, db_sha256))
+        if outcome.receipt.request_sha256 != expected:
+            raise ValueError("owned capture PROGRAM request differs")
+        steps.append(evidence.ActionObservation(code, outcome.observation))
+        receipts.append(outcome.receipt)
+    receipts.append(completion.outcome.receipt)
+    if any(r.python_version != instrument.python_version
+           or r.sqlite_version != instrument.sqlite_version for r in receipts):
+        raise ValueError("owned capture runtime versions differ")
+    capture = SqlCapture(
+        schema_version=2, origin="incremental_execution", ids=ids, arm="ptc",
+        task_id=task.name,
+        task_fingerprint=evidence._fingerprint(evidence._task_payload(task)),
+        db_sha256=db_sha256, schema=schema, prompt=prompt, backend="owned_sql_program",
+        instrument=instrument, steps=tuple(steps), refusals=(),
+        final_answer=final_answer, extracted_sql=sql, terminal_label="final_submitted",
+        result=result, execution_binding=_execution_binding(executor),
+        runtime_receipts=tuple(receipts))
+    encode_capture(capture)
+    return capture
 
 
 def _from_payload(payload):

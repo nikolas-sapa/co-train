@@ -1,7 +1,6 @@
 """Private question/schema-only SQL plugin using original SDK execution."""
 from __future__ import annotations
 
-import asyncio
 from typing import Literal
 
 from verifiers.v1.agent import _EpisodeAgent
@@ -18,6 +17,8 @@ from bench.score import extract_sql
 from ptc import sql_owned_program
 from ptc.harness import PTCHarness, PTCHarnessConfig, _close_program_runner
 from ptc.sql_arms import TaskView, prompt_for
+from train import sql_capture
+from train.sql_episodes import EpisodeIds
 from train.sql_live_reuse import (
     _ACTIVE_ASSOCIATION, _Association, _require, _scope, _valid_result,
 )
@@ -119,7 +120,7 @@ class BirdSqlEnv(Env[BirdSqlEnvConfig]):
         association = _Association(scope, task, agents.agent)
         scope.associations[task.data.name] = association
         token = _ACTIVE_ASSOCIATION.set(association)
-        body_cancel = None
+        body_error = None
         try:
             sql_owned_program.build_owned_sql_program_harness(
                 association.harness.config, data=task.data, task=association.row.task,
@@ -128,7 +129,8 @@ class BirdSqlEnv(Env[BirdSqlEnvConfig]):
                 approved_skill=scope.approved_skill, reuse_case=association.row.reuse_case,
                 original_scorer_instrument=(
                     scope.instrument if scope.approved_skill is not None else None),
-                existing_harness=association.harness, host_authority=association.callback)
+                existing_harness=association.harness, host_authority=association.callback,
+                retention=association.retention)
             association.check()
             trace = await agents.agent.run(task)
             association.check()
@@ -136,17 +138,23 @@ class BirdSqlEnv(Env[BirdSqlEnvConfig]):
             _require(trace.ok and association.receipt is not None
                      and association.receipt.trace is trace,
                      "original SQL rollout did not produce a valid score")
-        except asyncio.CancelledError as exc:
-            body_cancel = exc
+        except BaseException as exc:
+            body_error = exc
             raise
         finally:
             association.live = False
             try:
                 try:
-                    await _close_program_runner(association.scorer)
-                except asyncio.CancelledError:
-                    if body_cancel is not None:
-                        raise body_cancel
+                    try:
+                        if scope.capture is not None:
+                            scope.check_task(task)
+                    finally:
+                        await _close_program_runner(association.scorer)
+                    if scope.capture is not None:
+                        scope.check_task(task)
+                except BaseException as secondary:
+                    if body_error is not None:
+                        raise body_error from secondary
                     raise
             finally:
                 _ACTIVE_ASSOCIATION.reset(token)
@@ -160,5 +168,17 @@ class BirdSqlEnv(Env[BirdSqlEnvConfig]):
         _require(task.data.name not in scope.completed
                  and episode.task.data is task.data and len(episode.traces) == 1
                  and episode.traces[0] is association.trace,
-                 "original SQL episode join differs")
+                  "original SQL episode join differs")
+        if scope.capture is not None:
+            settings = scope.capture
+            association.capture = sql_capture._completed_owned_capture(
+                task=association.row.task,
+                ids=EpisodeIds(
+                    settings.corpus_id, settings.split_id, settings.run_id,
+                    episode.id, settings.policy_id, settings.policy_revision),
+                schema=association.row.schema, prompt=task.data.prompt,
+                instrument=scope.instrument, executor=scope.executor,
+                db_sha256=association.row.db_sha256,
+                programs=association.retention.completed(), scorer=association.scorer,
+                result=association.result, final_answer=association.trace.last_reply or "")
         scope.completed[task.data.name] = episode

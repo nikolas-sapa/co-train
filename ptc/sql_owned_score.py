@@ -194,13 +194,12 @@ class OwnedSqlScorer:
 
     async def _join_close(self, job: _Job) -> None:
         task = self._ensure_close_task(job)
-        cancelled = None
+        cancellations = []
         while not task.done():
             try:
                 await asyncio.shield(task)
             except asyncio.CancelledError as exc:
-                if cancelled is None:
-                    cancelled = exc
+                cancellations.append(exc)
             except Exception:
                 break
         try:
@@ -208,13 +207,18 @@ class OwnedSqlScorer:
             if job._close_failed:
                 raise ScoreInfrastructureError("owned SQL scorer cleanup previously failed")
             self._check_ack(job, ack)
-        except (Exception, asyncio.CancelledError):
+        except (Exception, asyncio.CancelledError) as exc:
             job._close_failed = True
             job.ack = None
-            raise ScoreInfrastructureError("owned SQL scorer cleanup failed") from None
+            error = ScoreInfrastructureError("owned SQL scorer cleanup failed")
+            for cancellation in cancellations:
+                error.add_note(f"secondary cleanup cancellation: {cancellation!r}")
+            raise error from exc
         job.ack = ack
-        if cancelled is not None:
-            raise cancelled
+        if cancellations:
+            for cancellation in cancellations[1:]:
+                cancellations[0].add_note(f"secondary cleanup cancellation: {cancellation!r}")
+            raise cancellations[0]
 
     async def score_sql(self, predicted_sql: str) -> ExResult:
         if self._closed or self._database is None:
@@ -234,7 +238,8 @@ class OwnedSqlScorer:
         # No await occurs between allocation, registration and execute.
         job = _Job(invocation, digest)
         self._jobs.append(job)
-        body_cancel = None
+        body_error = None
+        cancelled_completion_error = None
         try:
             job.snapshot = invocation.snapshot()
             self._check_invocation(job)
@@ -249,24 +254,27 @@ class OwnedSqlScorer:
             outcome = completion.outcome
             if (completion.abort is not None or type(outcome) is not core.ScoreOutcome
                     or outcome.abort is not None or type(outcome.result) is not ExResult):
-                raise ScoreInfrastructureError("owned SQL scorer did not complete")
+                error = ScoreInfrastructureError("owned SQL scorer did not complete")
+                if completion.abort is not None and completion.abort.kind == "cancelled":
+                    cancelled_completion_error = error
+                raise error
             core.ScoreOutcome.__post_init__(outcome)
             # Includes native invalid-task results. No copy, reward conversion,
             # extraction or reconstructed result crosses this boundary.
             return outcome.result
-        except asyncio.CancelledError as exc:
-            body_cancel = exc
+        except BaseException as exc:
+            body_error = exc
             raise
-        except ScoreInfrastructureError:
-            raise
-        except Exception:
-            raise ScoreInfrastructureError("owned SQL scorer execution failed") from None
         finally:
             try:
                 await self._join_close(job)
-            except asyncio.CancelledError:
-                if body_cancel is not None:
-                    raise body_cancel
+            except BaseException as secondary:
+                if (isinstance(secondary, asyncio.CancelledError)
+                        and body_error is cancelled_completion_error
+                        and cancelled_completion_error is not None):
+                    raise
+                if body_error is not None:
+                    raise body_error from secondary
                 raise
 
     async def aclose(self) -> None:

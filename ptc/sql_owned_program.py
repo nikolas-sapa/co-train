@@ -78,6 +78,7 @@ class _Binding:
         self.callbacks = dict(catalog.tools)
         self.harness: PTCHarness | None = None
         self.host_authority: Callable[[], None] | None = None
+        self.retention = None
 
     def check(self, data, compiled, print_callback):
         try:
@@ -114,6 +115,42 @@ class _Job:
     completion: core.InvocationCompletion | None = None
 
 
+class _ProgramRetention:
+    """Private host custody, never exposed to the model or invoked as an observer."""
+
+    def __init__(self, action_cap: int):
+        core._integer(action_cap, minimum=1)
+        self.action_cap = action_cap
+        self.runner = None
+        self._bytes = 0
+
+    def _retain_size(self, code, outcome):
+        self._bytes += len(code.encode("utf-8")) + len(outcome.observation.encode("utf-8"))
+        if self._bytes > 8 * 1024 * 1024:
+            raise ProgramInfrastructureError("retained SQL evidence exceeds 8 MiB")
+
+    def completed(self):
+        runner = self.runner
+        if type(runner) is not _Runner or not runner._closed:
+            raise ProgramInfrastructureError("retained SQL runner did not close")
+        runner._check()
+        records = []
+        for job in runner._jobs:
+            completion = job.completion
+            if (type(completion) is not core.InvocationCompletion
+                    or completion is not job.invocation._completion
+                    or job.ack is not completion.cleanup_ack
+                    or completion.abort is not None
+                    or type(completion.outcome) is not core.ProgramOutcome):
+                raise ProgramInfrastructureError("retained SQL completion differs")
+            completion.__post_init__()
+            runner._check_ack(job, job.ack)
+            records.append((job.invocation.request.program, completion.outcome))
+        if len(records) > self.action_cap:
+            raise ProgramInfrastructureError("retained SQL action budget exceeded")
+        return tuple(records)
+
+
 class _Runner:
     def __init__(self, binding: _Binding, data: TaskData, catalog: Catalog):
         self._binding = binding
@@ -138,6 +175,8 @@ class _Runner:
 
     def _admit(self):
         binding = self._binding
+        if binding.retention is not None and len(self._jobs) >= binding.retention.action_cap:
+            raise ProgramInfrastructureError("owned SQL action budget exhausted")
         try:
             identity = binding.executor.admit_program(
                 db_path=binding.db_path, db_sha256=binding.db_sha256)
@@ -275,7 +314,8 @@ class _Runner:
         # No await separates allocation, registration and actual execute.
         job = _Job(invocation, invocation.snapshot())
         self._jobs.append(job)
-        body_cancel = None
+        body_error = None
+        cancelled_completion_error = None
         try:
             if (type(invocation) is not core.OwnedSqlInvocation
                     or invocation.executor is not binding.executor
@@ -295,22 +335,33 @@ class _Runner:
             outcome = completion.outcome
             if (completion.abort is not None or type(outcome) is not core.ProgramOutcome
                     or outcome.abort is not None or type(outcome.observation) is not str):
-                raise ProgramInfrastructureError("owned SQL program did not complete")
+                error = ProgramInfrastructureError("owned SQL program did not complete")
+                if completion.abort is not None and completion.abort.kind == "cancelled":
+                    cancelled_completion_error = error
+                raise error
             outcome.__post_init__()
+            if binding.retention is not None:
+                binding.retention._retain_size(code, outcome)
             return outcome.observation
         except asyncio.CancelledError as exc:
-            body_cancel = exc
+            body_error = exc
             raise
-        except ProgramInfrastructureError:
+        except ProgramInfrastructureError as exc:
+            body_error = exc
             raise
         except Exception:
-            raise ProgramInfrastructureError("owned SQL program execution failed") from None
+            body_error = ProgramInfrastructureError("owned SQL program execution failed")
+            raise body_error from None
         finally:
             try:
                 await self._close_job(job)
-            except asyncio.CancelledError:
-                if body_cancel is not None:
-                    raise body_cancel
+            except BaseException as secondary:
+                if (isinstance(secondary, asyncio.CancelledError)
+                        and body_error is cancelled_completion_error
+                        and cancelled_completion_error is not None):
+                    raise
+                if body_error is not None:
+                    raise body_error
                 raise
 
     async def aclose(self) -> None:
@@ -338,9 +389,14 @@ def build_owned_sql_program_harness(
     approved_skill=None, reuse_case=None, original_scorer_instrument=None,
     existing_harness: PTCHarness | None = None,
     host_authority: Callable[[], None] | None = None,
+    retention: _ProgramRetention | None = None,
 ) -> PTCHarness:
     """Bind one caller-associated public task, without file or native IO."""
     _validate_host_authority(host_authority)
+    if retention is not None and (
+            type(retention) is not _ProgramRetention or retention.runner is not None
+            or retention.action_cap != config.max_turns):
+        raise ValueError("unused private SQL retention with exact action cap required")
     if existing_harness is not None:
         if (type(existing_harness) is not PTCHarness
                 or type(config) is not PTCHarnessConfig
@@ -382,6 +438,7 @@ def build_owned_sql_program_harness(
     binding = _Binding(
         config, data, executor, task.db_path, db_sha256, max_rows, catalog)
     binding.host_authority = host_authority
+    binding.retention = retention
     binding.reuse = None
     if approved_skill is not None:
         from train import sql_episodes as evidence
@@ -401,7 +458,12 @@ def build_owned_sql_program_harness(
         except Exception:
             raise ProgramInfrastructureError("owned SQL compiled catalog invalid") from None
         binding.check(actual_data, compiled, print_callback)
-        return _Runner(binding, actual_data, compiled)
+        if retention is not None and retention.runner is not None:
+            raise ProgramInfrastructureError("retained SQL runner already created")
+        runner = _Runner(binding, actual_data, compiled)
+        if retention is not None:
+            retention.runner = runner
+        return runner
 
     if existing_harness is None:
         harness = PTCHarness(

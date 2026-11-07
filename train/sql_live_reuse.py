@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from verifiers.v1.agent import Agent, _EpisodeAgent
 from verifiers.v1.cli.eval.runner import run_eval
@@ -21,8 +21,9 @@ from bench.score import ExResult
 from bench.task import SqlTask
 from ptc import sql_isolation as core
 from ptc.harness import PTCHarness, PTCHarnessConfig
-from ptc.sql_owned_program import _json_digest
+from ptc.sql_owned_program import _ProgramRetention, _json_digest
 from ptc.sql_owned_score import OwnedSqlScorer, build_owned_sql_scorer
+from train import sql_capture
 from train.sql_episodes import InstrumentSettings, _validate_instrument
 from train.sql_skill_eval import SkillCase
 from train.sql_skill_pilot import ApprovedSkill
@@ -65,9 +66,26 @@ class SqlLivePolicy:
 
 
 @dataclass(frozen=True)
+class SqlLiveCapture:
+    corpus_id: str
+    split_id: str
+    run_id: str
+    policy_id: str
+    policy_revision: str
+
+    def __post_init__(self):
+        for value in (self.corpus_id, self.split_id, self.run_id,
+                      self.policy_id, self.policy_revision):
+            _require(type(value) is str and bool(value.strip()),
+                     "explicit capture identity required")
+
+
+@dataclass(frozen=True)
 class SqlLiveResult:
     episodes: tuple[Episode, ...]
     receipts: tuple[SqlScoreReceipt, ...]
+    captures: tuple[sql_capture.SqlCapture, ...] = ()
+    _associations: tuple[_Association, ...] = field(default=(), repr=False, compare=False)
 
 
 def _context_state(ctx):
@@ -96,7 +114,8 @@ def _scope():
 
 
 class _Scope:
-    def __init__(self, plan, config, executor, instrument, expected_policy, approved_skill):
+    def __init__(self, plan, config, executor, instrument, expected_policy, approved_skill,
+                 capture=None):
         from bench.bird_sdk_live import BirdSqlEnvConfig
 
         _require(type(plan) is SqlLivePlan and type(plan.inputs) is tuple
@@ -113,7 +132,14 @@ class _Scope:
                  and type(expected_policy.agent) is AgentConfig,
                  "independent expected policy required")
         _require(approved_skill is None or type(approved_skill) is ApprovedSkill,
-                 "original host approval required")
+                  "original host approval required")
+        _require(capture is None or type(capture) is SqlLiveCapture,
+                 "explicit original capture settings required")
+        if capture is not None:
+            _require((instrument.source_paths, instrument.source_sha256)
+                     == sql_capture._owned_sources(), "actual capture source binding differs")
+        self.capture = self._capture = capture
+        self._capture_state = core.canonical_json_bytes(capture)
         self.plan, self.config = plan, config
         self.executor, self.instrument = executor, instrument
         self.expected_policy, self.approved_skill = expected_policy, approved_skill
@@ -140,6 +166,9 @@ class _Scope:
         self._config_state = _json_digest(config)
         self._expected_agent = _json_digest(expected_policy.agent)
         self._expected_context = _context_state(expected_policy.context)
+        self._policy_objects = (
+            expected_policy.agent, expected_policy.context, expected_policy.agent.client,
+            expected_policy.context.client, expected_policy.context.sampling)
         self.tasks, self.data_states, self.associations, self.completed = {}, {}, {}, {}
         self.taskset = None
         self.live = True
@@ -147,17 +176,26 @@ class _Scope:
 
     def check(self):
         config = self.config
+        if self.capture is not None:
+            _require((self.instrument.source_paths, self.instrument.source_sha256)
+                     == sql_capture._owned_sources(), "actual capture source binding differs")
         _require(self.live and self.plan.inputs is self._inputs
                  and all(actual is original for actual, original in zip(
                      (self.plan, self.config, self.executor, self.instrument, self.expected_policy),
                      self._host_objects))
                  and self.approved_skill is self._approval
+                 and self.capture is self._capture
+                 and core.canonical_json_bytes(self.capture) == self._capture_state
                  and core.canonical_json_bytes(self.plan) == self._input_state
                  and core.canonical_json_bytes(self.instrument) == self._instrument_state
                  and set(self.private) == set(self._private)
                  and all(self.private[name] is row and row.task is self._sql_tasks[name]
                          for name, row in self._private.items())
                  and _json_digest(config) == self._config_state
+                 and (self.capture is None or all(actual is original for actual, original in zip(
+                     (self.expected_policy.agent, self.expected_policy.context,
+                      self.expected_policy.agent.client, self.expected_policy.context.client,
+                      self.expected_policy.context.sampling), self._policy_objects)))
                  and _json_digest(self.expected_policy.agent) == self._expected_agent
                  and _context_state(self.expected_policy.context) == self._expected_context,
                  "private SQL scope changed or revoked")
@@ -183,6 +221,13 @@ class _Scope:
             "model": spec.model if spec.model is not None else config.model,
             "client": spec.client if spec.client is not None else config.client,
             "sampling": sampling})
+        if self.capture is not None:
+            client = resolved.client
+            _require({"base_url", "api_key_var"} <= client.model_fields_set
+                     and type(client.base_url) is str and bool(client.base_url.strip())
+                     and type(client.api_key_var) is str and bool(client.api_key_var.strip())
+                     and client.api_key_var != "PRIME_API_KEY",
+                     "explicit effective endpoint and non-Prime credential source required")
         _require(_json_digest(resolved) == self._expected_agent
                  and _context_state(ModelContext(
                      resolved.model, resolved.client, resolved.sampling))
@@ -228,7 +273,9 @@ class _Scope:
         _require(set(self.tasks) == set(self.private)
                  and set(self.completed) == set(self.private)
                  and len(episodes) == len(self.private),
-                 "whole SQL episode coverage differs")
+                  "whole SQL episode coverage differs")
+        _require(tuple(episode.task.data.name for episode in episodes)
+                 == tuple(self.private), "whole SQL task order differs")
         receipts, seen = [], set()
         for episode in episodes:
             name = episode.task.data.name
@@ -253,7 +300,14 @@ class _Scope:
                      and reward.weight == 1,
                      "original SQL reward differs")
             receipts.append(receipt)
-        return SqlLiveResult(tuple(episodes), tuple(receipts))
+        captures = (() if self.capture is None else tuple(
+            self.associations[episode.task.data.name].capture for episode in episodes))
+        _require(all(type(capture) is sql_capture.SqlCapture for capture in captures),
+                 "whole SQL capture coverage differs")
+        return SqlLiveResult(
+            tuple(episodes), tuple(receipts), captures,
+            () if self.capture is None else tuple(
+                self.associations[episode.task.data.name] for episode in episodes))
 
 
 class _Association:
@@ -279,6 +333,10 @@ class _Association:
         self.executor, self.instrument = scope.executor, scope.instrument
         self.trace = self.receipt = self.result = None
         self.original_trace = None
+        self.retention = (None if scope.capture is None else _ProgramRetention(
+            scope.instrument.action_cap))
+        self._retention = self.retention
+        self.capture = None
         self.live = True
         self.callback = self.check
         self.check()
@@ -287,6 +345,9 @@ class _Association:
         self.scope.check_task(self.task)
         agent, scope = self.agent, self.scope
         _require((self.live or retired)
+                 and self.retention is self._retention
+                 and (self.retention is None
+                      or self.retention.action_cap == scope.instrument.action_cap)
                  and scope.executor is self.executor and scope.instrument is self.instrument
                  and scope.private[self.task.data.name] is self.row
                  and agent.config is self.config and agent.ctx is self.ctx
@@ -328,11 +389,12 @@ async def run_sql_live(
     instrument: InstrumentSettings, expected_policy: SqlLivePolicy,
     approved_skill: ApprovedSkill | None = None,
     allow_execution: bool = False, allow_model_requests: bool = False,
+    capture: SqlLiveCapture | None = None,
 ) -> SqlLiveResult:
     _require(allow_execution is True and allow_model_requests is True,
              "explicit execution and model-request opt-ins required")
     _require(_ACTIVE_SCOPE.get() is None, "nested private SQL scope refused")
-    scope = _Scope(plan, config, executor, instrument, expected_policy, approved_skill)
+    scope = _Scope(plan, config, executor, instrument, expected_policy, approved_skill, capture)
     token = _ACTIVE_SCOPE.set(scope)
     try:
         episodes = await run_eval(config)

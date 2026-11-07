@@ -605,6 +605,7 @@ def test_first_actual_cancellation_identity_survives_three_launch_cancels(
             self.release = asyncio.Event()
             self.completed = asyncio.Event()
             self.body_cancel = None
+            self.cleanup_error = RuntimeError("inert close failed")
             self.close_task = None
             self.closed = 0
 
@@ -623,7 +624,7 @@ def test_first_actual_cancellation_identity_survives_three_launch_cancels(
             await asyncio.wait_for(self.release.wait(), 2.0)
             self.completed.set()
             if mode == "close-error":
-                raise RuntimeError("inert close failed")
+                raise self.cleanup_error
 
     async def case():
         runner = InertRunner()
@@ -649,8 +650,15 @@ def test_first_actual_cancellation_identity_survives_three_launch_cancels(
             assert len(first_close_cancels) == count
             runner.release.set()
             if mode == "close-error":
-                with pytest.raises(dep.Fatal, match="cleanup failed"):
+                with pytest.raises(asyncio.CancelledError) as caught:
                     await caller
+                assert caught.value is first
+                failure = caught.value.__cause__
+                assert type(failure) is dep.Fatal and "cleanup failed" in str(failure)
+                assert failure.__cause__ is runner.cleanup_error
+                assert len(failure.__notes__) == 2
+                assert all(f"close-{index}" in failure.__notes__[index]
+                           for index in range(2))
             else:
                 with pytest.raises(asyncio.CancelledError) as caught:
                     await caller
