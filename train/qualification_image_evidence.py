@@ -132,6 +132,10 @@ def validate_image_evidence(
 ) -> ImageEvidenceConsistency:
     """Compare retained inputs only; never validate source/model/task admission.
 
+    This legacy API is CONSISTENCY ONLY. It does not enforce nested effective
+    configuration policy. Use qualification_image_configuration's separate
+    validate_image_configuration entrypoint for that additional comparison.
+
     request.image_digest must label the actual runtime manifest, not the base or
     recipe hash. expected_provider_image_id is a separate selection constraint,
     NOT a trusted-host capability. Inventory bytes stay opaque: existing runtime

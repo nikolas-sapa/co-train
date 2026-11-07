@@ -24,7 +24,7 @@ import stat
 import subprocess
 import sys
 import time
-from types import CodeType, FunctionType, MethodType, SimpleNamespace
+from types import CodeType, FunctionType, MethodType, ModuleType, SimpleNamespace
 from typing import TYPE_CHECKING, Any, ContextManager, Literal, Protocol
 import weakref
 import zipfile
@@ -1754,12 +1754,9 @@ def _candidate_prerequisites() -> None:
         _require(not report["issues"][category], f"candidate prerequisite failed: {category}")
 
 
-def _check_loaded_candidate(trainer: Any, config: Mapping[str, Any]) -> None:
+def _candidate_host_metadata() -> Mapping[str, Any]:
     from train import native_preflight, native_runtime
 
-    # This runs after the original trainer/model constructor, before train().
-    # Inspect that already-loaded process. Never invoke the fresh-only loader
-    # or reinterpret these observations as pre-allocation/runtime authority.
     _require(not native_preflight._host_issues(), "loaded native host observation failed")
     installed = native_runtime.native_runtime_report()
     _require(installed["metadata_source"] == "installed"
@@ -1767,12 +1764,35 @@ def _check_loaded_candidate(trainer: Any, config: Mapping[str, Any]) -> None:
              and all(installed["versions"].get(name) == exact
                      for name, exact in native_preflight._EXACT.items()),
              "loaded native installed metadata observation failed")
-    dependencies = _observer_dependencies()
-    torch = dependencies.torch
+    return installed
+
+
+def _check_loaded_runtime(
+    runtime: Any, installed: Mapping[str, Any], *, construction: bool = False,
+) -> Any:
+    from train import native_preflight
+
+    # Inspect the original loader's actual return. No observer imports or loader.
+    torch = _runtime_namespace(runtime)["torch"]
+    _require(type(torch) is ModuleType, "unsupported native Torch module type")
     _require(torch is sys.modules.get("torch"), "loaded native Torch binding differs")
+    # Do not let missing metadata fall through a module-level __getattr__.
+    # Missing modules still belong to the existing loaded inspector's refusal.
+    for name in (*native_preflight._EXACT, *_SELECTED_SOURCES):
+        module = sys.modules.get(name)
+        if module is None:
+            continue
+        _require(type(module) is ModuleType,
+                 "loaded native source/version observation failed: unsupported module type")
+        namespace = ModuleType.__getattribute__(module, "__dict__")
+        key = "__version__" if name in native_preflight._EXACT else "__file__"
+        _require(all(type(item) is str for item in namespace)
+                 and key in namespace and type(namespace[key]) is str,
+                 "loaded native source/version observation failed: missing static metadata")
     observation = {"issues": []}
     _require(native_preflight._inspect_loaded(observation, installed["versions"])
              and not observation["issues"], "loaded native source/version observation failed")
+    dispatch = _static_runtime_dispatch(runtime) if construction else None
     _require(torch.cuda.is_available() and torch.cuda.device_count() == 1,
              "exactly one visible CUDA device required")
     _require(native_preflight._inspect_device(torch, observation),
@@ -1780,6 +1800,307 @@ def _check_loaded_candidate(trainer: Any, config: Mapping[str, Any]) -> None:
     native_preflight._inspect_kernel(torch, observation)
     _require(not observation["issues"] and observation["kernel"]["status"] == "observed",
              "loaded native FP16 kernel observation failed")
+    return dispatch
+
+
+def _runtime_namespace(runtime: Any) -> dict[str, Any]:
+    _require(type(runtime) is SimpleNamespace, "unsupported native runtime container")
+    values = object.__getattribute__(runtime, "__dict__")
+    _require(type(values) is dict and all(type(name) is str for name in values)
+             and "torch" in values, "unsupported native runtime namespace")
+    return values
+
+
+def _static_runtime_dispatch(runtime: Any) -> tuple[tuple[Any, ...], Mapping[str, Any]]:
+    """Admit a narrow static dispatch grammar, never bind arbitrary descriptors."""
+    values = _runtime_namespace(runtime)
+    _require(set(values) == {"torch", "FastLanguageModel", "Dataset", "GRPOConfig",
+                             "GRPOTrainer", "get_json_schema"},
+             "native dispatch binding changed: unsupported namespace fields")
+    retained = []
+    targets = {}
+
+    def require(condition: Any) -> None:
+        _require(condition, "native dispatch binding changed: unsupported static dispatch")
+
+    def function(value: Any, receiver: Any = None, instance: bool = False) -> tuple[Any, ...]:
+        require(type(value) is FunctionType)
+        # Ordinary synchronous Python functions only, not deferred bodies.
+        require(not value.__code__.co_flags & (0x20 | 0x80 | 0x200))
+        require(receiver is None or value.__code__.co_argcount > 0)
+        retained.extend((value, value.__code__, value.__globals__))
+        return value.__code__, value.__globals__, receiver, instance
+
+    def owner(cls: Any) -> Any:
+        # Reject custom metaclasses before consulting any class attribute.
+        require(type(cls) is type)
+        mro = type.__getattribute__(cls, "__mro__")
+        require(type(mro) is tuple and all(type(base) is type for base in mro))
+        retained.extend((cls, mro, type.__dict__["__call__"],
+                         type.__dict__["__getattribute__"]))
+
+        def raw(name: str) -> Any:
+            for base in mro:
+                namespace = type.__getattribute__(base, "__dict__")
+                # Dict membership can call a colliding stored key's __eq__.
+                # Inspect exact key types before any lookup, including misses.
+                require(all(type(key) is str for key in namespace))
+                if name in namespace:
+                    value = namespace[name]
+                    retained.extend((base, value))
+                    return value
+            require(False)
+
+        # Supported allocation is the exact default builtin, not a proxy,
+        # Python __new__, custom allocator or custom metaclass __call__.
+        new = raw("__new__")
+        if type(new) is staticmethod:
+            new = object.__getattribute__(new, "__func__")
+        require(new is object.__dict__["__new__"])
+        retained.append(new)
+        init = raw("__init__")
+        if init is object.__dict__["__init__"]:
+            init_target = None
+        else:
+            init_target = function(init, cls, True)
+        return raw, init_target
+
+    def method(raw: Any, cls: Any, name: str) -> tuple[Any, ...]:
+        descriptor = raw(name)
+        receiver = None
+        if type(descriptor) is classmethod:
+            receiver = cls
+            descriptor = object.__getattribute__(descriptor, "__func__")
+        elif type(descriptor) is staticmethod:
+            descriptor = object.__getattribute__(descriptor, "__func__")
+        # No __get__, __func__, __self__ or __code__ lookup on an unknown type.
+        return function(descriptor, receiver)
+
+    model = values["FastLanguageModel"]
+    raw, _ = owner(model)
+    targets["from_pretrained"] = (method(raw, model, "from_pretrained"),)
+    targets["get_peft_model"] = (method(raw, model, "get_peft_model"),)
+    dataset = values["Dataset"]
+    raw, _ = owner(dataset)
+    targets["from_list"] = (method(raw, dataset, "from_list"),)
+    trainer = values["GRPOTrainer"]
+    _, init = owner(trainer)
+    require(init is not None)
+    targets["GRPOTrainer"] = (init,)
+    config = values["GRPOConfig"]
+    if type(config) is FunctionType:
+        targets["GRPOConfig"] = (function(config),)
+    else:
+        _, init = owner(config)
+        require(init is not None)
+        targets["GRPOConfig"] = (init,)
+    function(values["get_json_schema"])
+    return tuple(retained), targets
+
+
+def _construction_call_sites(code: CodeType) -> Mapping[int, str]:
+    """Map reviewed runtime attribute calls, including inline CALL cache offsets."""
+    instructions = tuple(dis.get_instructions(code))
+    names = {"from_pretrained", "get_peft_model", "from_list", "GRPOConfig", "GRPOTrainer"}
+    sites = {}
+    for attribute in instructions:
+        if attribute.opname not in {"LOAD_ATTR", "LOAD_METHOD"} or attribute.argval not in names:
+            continue
+        candidates = [(index, item) for index, item in enumerate(instructions)
+                      if item.offset > attribute.offset
+                      and item.opname in {"CALL", "CALL_FUNCTION_EX"}
+                      and (item.positions.lineno, item.positions.col_offset)
+                      == (attribute.positions.lineno, attribute.positions.col_offset)]
+        _require(len(candidates) == 1, "unsupported frozen runtime call-site representation")
+        index, call = candidates[0]
+        end = instructions[index + 1].offset if index + 1 < len(instructions) else len(code.co_code)
+        for offset in range(call.offset, end, 2):
+            _require(offset not in sites, "ambiguous frozen runtime call site")
+            sites[offset] = attribute.argval
+    return sites
+
+
+def _assert_construction_callee(frame: Any, event: str, arg: Any, targets: Any, role: str) -> None:
+    # Frames expose code/globals/receiver, not arbitrary C evaluation-stack
+    # objects. Do not reinterpret this narrow Python gate as a host sandbox.
+    _require(event == "call", f"unsupported native C dispatch at runtime call site: {role}")
+    for code, globals_, receiver, instance in targets[role]:
+        if frame.f_code is not code or frame.f_globals is not globals_:
+            continue
+        if receiver is None:
+            return
+        actual = frame.f_locals.get(code.co_varnames[0]) if code.co_argcount else None
+        if (type(actual) is receiver if instance else actual is receiver):
+            return
+    raise ValueError(f"unexpected native Python callee code/receiver: {role}")
+
+
+def _construction_targets() -> tuple[Any, Any]:
+    from train import native_training
+
+    path = _path(Path(native_training.__file__))
+    _require(path.stat().st_size <= _WIRE_LIMIT, "construction source exceeds byte bound")
+    raw = path.read_bytes()
+    _require(hashlib.sha256(raw).hexdigest() == _CONSTRUCTION_SHA,
+             "frozen construction source differs")
+    compiled = compile(raw, str(path), "exec", dont_inherit=True)
+    targets = (native_training._construct_sql_trainer, native_training._load_runtime)
+    for function, name in zip(targets, ("_construct_sql_trainer", "_load_runtime"), strict=True):
+        _require(type(function) is FunctionType
+                 and function.__globals__ is vars(native_training)
+                 and _code_shape(function.__code__) == _code_shape(_find_code(compiled, name)),
+                 f"frozen construction function differs: {name}")
+    return targets
+
+
+@contextmanager
+def _observe_construction_calls() -> ContextManager[None]:
+    """Gate the unchanged construction caller, not all import/allocation effects."""
+    from train import native_preflight, native_training
+
+    construct, loader = _construction_targets()
+    construct_code, loader_code = construct.__code__, loader.__code__
+    sites = _construction_call_sites(construct_code)
+    call_offsets = {item.offset for item in dis.get_instructions(construct_code)
+                    if item.opname in {"CALL", "CALL_FUNCTION_EX"}}
+    _require(call_offsets, "frozen construction call instructions unavailable")
+    _candidate_prerequisites()
+    installed = _candidate_host_metadata()
+    previous, previous_trace = sys.getprofile(), sys.gettrace()
+    construction_frame = None
+    runtime = None
+    bindings = ()
+    targets = {}
+    modules = {}
+    loader_calls = 0
+    loaded = False
+    returned = False
+    prior_state = None
+
+    def check(retained: bool = True) -> None:
+        _require(native_training._construct_sql_trainer is construct
+                 and native_training._load_runtime is loader
+                 and construct.__code__ is construct_code and loader.__code__ is loader_code,
+                 "original construction/loader binding changed")
+        if loaded:
+            _require(not retained or construction_frame.f_locals.get("runtime") is runtime,
+                     "retained native runtime binding changed")
+            _require(_runtime_namespace(runtime)["torch"] is sys.modules.get("torch"),
+                     "retained native Torch binding changed")
+            actual, _ = _static_runtime_dispatch(runtime)
+            _require(len(actual) == len(bindings)
+                     and all(a is b for a, b in zip(actual, bindings, strict=True)),
+                     "original native constructor binding changed")
+            _require(all(sys.modules.get(name) is module for name, module in modules.items()),
+                     "loaded native module binding changed before constructor")
+        elif construction_frame is not None:
+            _require("runtime" not in construction_frame.f_locals,
+                     "construction runtime preceded original loader return")
+
+    def profile(frame: Any, event: str, arg: Any) -> None:
+        nonlocal construction_frame, runtime, bindings, targets, modules, loader_calls, loaded, returned
+        # Chain first: a prior callback cannot change a binding after our decision.
+        if previous is not None:
+            previous(frame, event, arg)
+        if frame.f_code is construct_code and event == "call":
+            _require(construction_frame is None, "extra original construction call")
+            construction_frame = frame
+            check()
+        elif frame.f_code is loader_code and frame.f_back is construction_frame:
+            if event == "call":
+                check()
+                loader_calls += 1
+                _require(loader_calls == 1 and not loaded, "extra original runtime loader call")
+            elif event == "return" and _normal_return(frame):
+                _require(loader_calls == 1 and not loaded, "runtime return without original loader")
+                runtime = arg
+                modules = {name: sys.modules.get(name)
+                           for name in (*native_preflight._EXACT, *_SELECTED_SOURCES)}
+                bindings, targets = _check_loaded_runtime(runtime, installed, construction=True)
+                loaded = True
+                check(retained=False)
+            # An exceptional return is not an inspection opportunity.
+        elif construction_frame is not None and frame.f_back is construction_frame:
+            if event == "call":
+                check()
+                role = sites.get(construction_frame.f_lasti)
+                if loaded and role is not None:
+                    _assert_construction_callee(frame, event, arg, targets, role)
+        if frame is construction_frame and event == "c_call":
+            check()
+            role = sites.get(frame.f_lasti)
+            if loaded and role is not None:
+                _assert_construction_callee(frame, event, arg, targets, role)
+        if frame is construction_frame and event == "return" and _normal_return(frame):
+            check()
+            _require(loaded and loader_calls == 1, "construction missed original loader return")
+            returned = True
+
+    def trace(frame: Any, event: str, arg: Any) -> Any:
+        nonlocal prior_state
+        result = previous_trace(frame, event, arg) if previous_trace is not None else None
+        if frame.f_code is not construct_code:
+            if construction_frame is not None and frame.f_back is construction_frame and event == "call":
+                check()
+                role = sites.get(construction_frame.f_lasti)
+                if loaded and role is not None:
+                    _assert_construction_callee(frame, event, arg, targets, role)
+            return result
+        # Global None selects no local callback, unless the global explicitly
+        # assigned f_trace. Local None instead retains its current callback.
+        state = {"frame": frame, "local": result if result is not None else frame.f_trace,
+                 "lines": frame.f_trace_lines, "opcodes": frame.f_trace_opcodes}
+        prior_state = state
+
+        def local(current: Any, kind: str, value: Any) -> Any:
+            callback = state["local"]
+            deliver = ((kind != "opcode" or state["opcodes"])
+                       and (kind != "line" or state["lines"]))
+            if callback is not None and deliver:
+                current.f_trace = callback
+                current.f_trace_lines = state["lines"]
+                current.f_trace_opcodes = state["opcodes"]
+                replacement = callback(current, kind, value)
+                state["local"] = replacement if replacement is not None else current.f_trace
+                state["lines"], state["opcodes"] = current.f_trace_lines, current.f_trace_opcodes
+            current.f_trace = local
+            current.f_trace_lines = True
+            current.f_trace_opcodes = True
+            # A caller-line check precedes evaluating model/trainer callables.
+            # CALL checks follow argument evaluation, before class allocation or
+            # Python/C callee entry. Only the frozen caller gets opcode tracing.
+            if kind == "line" or kind == "opcode" and current.f_lasti in call_offsets:
+                check()
+            return local
+
+        frame.f_trace_lines = True
+        frame.f_trace_opcodes = True
+        return local
+
+    try:
+        sys.setprofile(profile)
+        sys.settrace(trace)
+        yield
+        _require(returned and loaded and loader_calls == 1,
+                 "missing normal original construction/loader return")
+    finally:
+        sys.setprofile(previous)
+        sys.settrace(previous_trace)
+        if prior_state is not None:
+            frame = prior_state["frame"]
+            frame.f_trace = prior_state["local"]
+            frame.f_trace_lines = prior_state["lines"]
+            frame.f_trace_opcodes = prior_state["opcodes"]
+        construction_frame = None
+        prior_state = None
+
+
+def _check_loaded_candidate(trainer: Any, config: Mapping[str, Any]) -> None:
+    # Retain the postconstruction recheck and all instance-dependent guards.
+    installed = _candidate_host_metadata()
+    dependencies = _observer_dependencies()
+    torch = dependencies.torch
+    _check_loaded_runtime(dependencies, installed)
     _require(trainer.args.world_size == 1 and trainer.args.process_index == 0,
              "distributed qualification is unsupported")
     _require(not trainer.is_deepspeed_enabled and not trainer.is_fsdp_enabled
@@ -1821,9 +2142,10 @@ def _run_phase(request: QualificationRequest, phase: Literal[1, 2]) -> None:
     config = grpo_ptc._preflight_invariants(grpo_ptc.TRAINED_ARMS_DEFAULT, guards.REPO_ROOT, 2)
     source = native_model.verify_local_model(request.model_dir, model_revision=native_model.MODEL_REVISION)
     prepared = sql_bridge.prepare_sql_training(request.tasks, request.db_root)
-    trainer = native_training._construct_sql_trainer(
-        prepared, source, config, output=request.output_dir, max_seq_length=8192,
-    )
+    with _observe_construction_calls():
+        trainer = native_training._construct_sql_trainer(
+            prepared, source, config, output=request.output_dir, max_seq_length=8192,
+        )
     checkpoint_1 = request.output_dir / "checkpoint-1" if phase == 2 else None
     observer = _make_callback(trainer, phase, checkpoint_1)
     trainer.add_callback(observer)

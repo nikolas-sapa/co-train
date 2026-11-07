@@ -13,6 +13,7 @@ from contextlib import contextmanager, nullcontext
 import copy
 import dataclasses
 from decimal import Decimal
+import dis
 import hashlib
 import importlib
 import importlib.util
@@ -28,7 +29,7 @@ import socket
 import subprocess
 import sys
 import time
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 import weakref
 import zipfile
 
@@ -49,6 +50,13 @@ def _implementation():
         "missing train.native_qualification implementation, intended baseline RED"
     )
     return importlib.import_module(MODULE)
+
+
+def _memory_module(name, **values):
+    """Exact module protocol double, never an imported framework."""
+    module = ModuleType(name)
+    module.__dict__.update(values)
+    return module
 
 
 def _four_tasks(root):
@@ -649,6 +657,7 @@ def _assembly_spies(api, monkeypatch, request, trainer):
     monkeypatch.setattr(native_model, "verify_local_model", verify)
     monkeypatch.setattr(sql_bridge, "prepare_sql_training", prepare)
     monkeypatch.setattr(native_training, "_construct_sql_trainer", construct)
+    monkeypatch.setattr(api, "_observe_construction_calls", nullcontext)
     monkeypatch.setattr(api, "_check_sampler", lambda current: calls.append(("sampler",)))
     # Assembly-only tests deliberately cannot produce observer/native evidence.
     monkeypatch.setattr(api, "_write_phase_observation",
@@ -1900,15 +1909,15 @@ def _composed_loaded_memory(monkeypatch):
 
     calls = Counter()
     versions = dict(native_preflight._EXACT)
-    torch = SimpleNamespace(
+    torch = _memory_module("torch",
         __version__=versions["torch"],
         cuda=SimpleNamespace(is_available=lambda: True, device_count=lambda: 1),
     )
     for name, version in versions.items():
-        monkeypatch.setitem(sys.modules, name, SimpleNamespace(__version__=version))
+        monkeypatch.setitem(sys.modules, name, _memory_module(name, __version__=version))
     monkeypatch.setitem(sys.modules, "torch", torch)
     for name in api._SELECTED_SOURCES:
-        monkeypatch.setitem(sys.modules, name, SimpleNamespace())
+        monkeypatch.setitem(sys.modules, name, _memory_module(name, __file__="/FakeRuntime/source.py"))
     monkeypatch.setattr(api, "_selected_module", lambda name: (
         calls.update(("selected",)), b"", None,
     ))
@@ -2206,7 +2215,10 @@ def test_31_memory_loaded_device_kernel_wiring_precedes_training(monkeypatch, fa
     from train import native_preflight, native_runtime
 
     calls = []
-    torch = SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: True, device_count=lambda: 1))
+    torch = _memory_module(
+        "torch", __version__=native_preflight._EXACT["torch"],
+        cuda=SimpleNamespace(is_available=lambda: True, device_count=lambda: 1),
+    )
     monkeypatch.setitem(sys.modules, "torch", torch)
     monkeypatch.setattr(native_preflight, "_host_issues", lambda: [])
     monkeypatch.setattr(native_runtime, "native_runtime_report", lambda: {
@@ -2462,3 +2474,677 @@ def test_21_low_precision_rejects_rounded_budget_overspend(monkeypatch, tmp_path
     assert effects["reads"] == 0
     assert effects["approval"] == 0
     assert effects["run"] == 0
+
+
+def _fake_constructor_memory(monkeypatch):
+    """FakeRuntime only; real frozen caller, tracing and loaded-inspector wiring."""
+    api = _implementation()
+    from train import native_preflight, native_runtime, native_training
+
+    calls = Counter()
+    state = SimpleNamespace(failure=None, dataset_hook=None, peft_hook=None, config_hook=None,
+                            runtime_override=None,
+                            loader_error=None, trainer_error=None)
+    versions = dict(native_preflight._EXACT)
+    for name, version in versions.items():
+        monkeypatch.setitem(sys.modules, name, _memory_module(name, __version__=version))
+    for name in api._SELECTED_SOURCES:
+        monkeypatch.setitem(sys.modules, name, _memory_module(name, __file__="/FakeRuntime/source.py"))
+    torch = _memory_module("torch",
+        __version__=versions["torch"], float16=object(),
+        cuda=SimpleNamespace(is_available=lambda: True, device_count=lambda: 1),
+    )
+    monkeypatch.setitem(sys.modules, "torch", torch)
+
+    class FakeLanguageModel:
+        @staticmethod
+        def from_pretrained(**kwargs):
+            calls["model"] += 1
+            assert kwargs["dtype"] is torch.float16
+            return object(), object()
+
+        @staticmethod
+        def get_peft_model(model, **kwargs):
+            calls["peft"] += 1
+            if state.peft_hook is not None:
+                state.peft_hook()
+            return model
+
+    class FakeDataset:
+        @staticmethod
+        def from_list(rows):
+            calls["dataset"] += 1
+            if state.dataset_hook is not None:
+                state.dataset_hook()
+            return rows
+
+    class FakeTrainer:
+        def __init__(self, **kwargs):
+            calls["trainer"] += 1
+            if state.trainer_error is not None:
+                raise state.trainer_error
+            self.kwargs = kwargs
+
+    def config(**kwargs):
+        calls["config"] += 1
+        if state.config_hook is not None:
+            state.config_hook()
+        return SimpleNamespace(**kwargs)
+
+    runtime = SimpleNamespace(
+        torch=torch, FastLanguageModel=FakeLanguageModel, Dataset=FakeDataset,
+        GRPOTrainer=FakeTrainer, GRPOConfig=config,
+        get_json_schema=lambda tool: {},
+    )
+
+    def loader():
+        calls["loader"] += 1
+        if state.loader_error is not None:
+            raise state.loader_error
+        return runtime if state.runtime_override is None else state.runtime_override
+
+    def forbidden(*args, **kwargs):
+        calls["second-loader-or-observer-import"] += 1
+        raise AssertionError("FakeRuntime path must not load frameworks or observer dependencies")
+
+    def prerequisites():
+        calls["prerequisites"] += 1
+        if state.failure == "prerequisite":
+            raise ValueError("candidate prerequisite failed: selected")
+
+    def host():
+        calls["host"] += 1
+        return ["host:soabi"] if state.failure == "host" else []
+
+    def metadata():
+        calls["metadata"] += 1
+        selected = dict(versions)
+        if state.failure == "version":
+            selected["torch"] = "wrong"
+        return {"metadata_source": "installed", "versions": selected,
+                "issues": dict.fromkeys(native_preflight._CATEGORIES, ())}
+
+    inspect_loaded = native_preflight._inspect_loaded
+
+    def loaded(report, selected):
+        calls["loaded"] += 1
+        if state.failure == "loaded-module":
+            monkeypatch.delitem(sys.modules, "trl.trainer.grpo_trainer")
+        return inspect_loaded(report, selected)
+
+    def device(actual, report):
+        assert actual is runtime.torch
+        calls["device"] += 1
+        return state.failure != "device"
+
+    def kernel(actual, report):
+        assert actual is runtime.torch
+        calls["kernel"] += 1
+        report["kernel"] = {"status": "failed" if state.failure == "kernel" else "observed"}
+        if state.failure == "kernel":
+            report["issues"].append("FakeRuntime kernel refusal")
+
+    original_construct = native_training._construct_sql_trainer
+    monkeypatch.setattr(native_training, "_load_runtime", loader)
+    # Explicit unit seam only. Production _construction_targets stays source-pinned.
+    monkeypatch.setattr(api, "_construction_targets", lambda: (
+        native_training._construct_sql_trainer, native_training._load_runtime,
+    ))
+    monkeypatch.setattr(api, "_candidate_prerequisites", prerequisites)
+    monkeypatch.setattr(api, "_observer_dependencies", forbidden)
+    monkeypatch.setattr(native_preflight, "_load_frameworks", forbidden)
+    monkeypatch.setattr(native_preflight, "_host_issues", host)
+    monkeypatch.setattr(native_runtime, "native_runtime_report", metadata)
+    monkeypatch.setattr(native_preflight, "_inspect_loaded", loaded)
+    monkeypatch.setattr(api, "_selected_module", lambda name: (sys.modules[name], b"", None))
+    monkeypatch.setattr(native_preflight, "_inspect_device", device)
+    monkeypatch.setattr(native_preflight, "_inspect_kernel", kernel)
+    monkeypatch.setattr(native_training, "_validate_native_view", lambda *args, **kwargs: None)
+    prepared = SimpleNamespace(dataset_rows=[], reward=object(),
+                               environment_factory=object(), max_tool_calling_iterations=7)
+
+    def run():
+        with api._observe_construction_calls():
+            return native_training._construct_sql_trainer(
+                prepared, SimpleNamespace(path="/FakeRuntime/model"),
+                {"max_steps": 2, "max_completion_length": 16, "chat_template_kwargs": {}},
+                output=Path("/FakeRuntime/output"), max_seq_length=8192,
+            )
+
+    return SimpleNamespace(api=api, native=native_training, preflight=native_preflight,
+                           runtime=runtime, calls=calls, state=state, loader=loader,
+                           construct=original_construct, run=run)
+
+
+def test_42_memory_constructor_normal_loader_return(monkeypatch):
+    unit = _fake_constructor_memory(monkeypatch)
+    previous = sys.getprofile()
+    normal_returns = []
+
+    def prior(frame, event, arg):
+        if previous is not None:
+            previous(frame, event, arg)
+        if frame.f_code is unit.loader.__code__ and event == "return":
+            normal_returns.append((unit.api._normal_return(frame), arg))
+
+    try:
+        sys.setprofile(prior)
+        unit.run()
+        assert sys.getprofile() is prior
+    finally:
+        sys.setprofile(previous)
+    assert normal_returns == [(True, unit.runtime)]
+    assert unit.calls["loader"] == unit.calls["loaded"] == 1
+    assert unit.calls["second-loader-or-observer-import"] == 0
+
+
+@pytest.mark.parametrize("failure", [
+    "host", "prerequisite", "version", "loaded-module", "device", "kernel",
+])
+def test_43_memory_constructor_denials(monkeypatch, failure):
+    unit = _fake_constructor_memory(monkeypatch)
+    unit.state.failure = failure
+    with pytest.raises(ValueError):
+        unit.run()
+    assert unit.calls["model"] == unit.calls["trainer"] == unit.calls["dataset"] == 0
+    assert unit.calls["loader"] == (0 if failure in {"host", "prerequisite", "version"} else 1)
+    assert unit.calls["second-loader-or-observer-import"] == 0
+
+
+def test_44_memory_constructor_original_route(monkeypatch):
+    unit = _fake_constructor_memory(monkeypatch)
+    loader_code, construct_code = unit.loader.__code__, unit.construct.__code__
+    result = unit.run()
+    assert type(result) is unit.runtime.GRPOTrainer
+    assert unit.calls["model"] == unit.calls["trainer"] == unit.calls["loader"] == 1
+    assert unit.calls["device"] == unit.calls["kernel"] == unit.calls["loaded"] == 1
+    assert unit.native._load_runtime is unit.loader and unit.loader.__code__ is loader_code
+    assert unit.native._construct_sql_trainer is unit.construct
+    assert unit.construct.__code__ is construct_code
+
+
+def test_45_memory_constructor_loader_exception(monkeypatch):
+    unit = _fake_constructor_memory(monkeypatch)
+    primary = RuntimeError("FakeRuntime original loader failure")
+    unit.state.loader_error = primary
+    with pytest.raises(RuntimeError) as caught:
+        unit.run()
+    assert caught.value is primary
+    assert unit.calls["loader"] == 1
+    assert unit.calls["loaded"] == unit.calls["device"] == unit.calls["kernel"] == 0
+    assert unit.calls["model"] == unit.calls["trainer"] == 0
+
+
+@pytest.mark.parametrize("drift", [
+    "runtime", "torch", "module", "model", "trainer", "loader-code", "arguments",
+])
+def test_46_memory_constructor_binding_drift(monkeypatch, drift):
+    unit = _fake_constructor_memory(monkeypatch)
+    if drift == "runtime":
+        def changed(*args, **kwargs):
+            runtime = unit.native._load_runtime()
+            runtime = SimpleNamespace(**vars(runtime))
+            return runtime.FastLanguageModel.from_pretrained(dtype=runtime.torch.float16)
+
+        monkeypatch.setattr(unit.native, "_construct_sql_trainer", changed)
+    else:
+        def mutate():
+            if drift == "torch":
+                monkeypatch.setitem(sys.modules, "torch", SimpleNamespace())
+            elif drift in {"module", "arguments"}:
+                monkeypatch.setitem(sys.modules, "trl.trainer.grpo_trainer", SimpleNamespace())
+            elif drift == "model":
+                monkeypatch.setattr(unit.runtime.FastLanguageModel, "from_pretrained",
+                                    staticmethod(lambda **kwargs: (object(), object())))
+            elif drift == "trainer":
+                monkeypatch.setattr(unit.runtime, "GRPOTrainer", lambda **kwargs: object())
+            else:
+                monkeypatch.setattr(unit.loader, "__code__",
+                                    unit.loader.__code__.replace(co_name="FakeRuntime_drift"))
+
+        if drift == "arguments":
+            unit.state.config_hook = mutate
+        elif drift == "trainer":
+            unit.state.peft_hook = mutate
+        else:
+            unit.state.dataset_hook = mutate
+    refused = False
+    try:
+        unit.run()
+    except ValueError as error:
+        assert "binding changed" in str(error)
+        refused = True
+    assert refused, "actual constructor binding decision must refuse FakeRuntime drift"
+    assert unit.calls["model"] == (1 if drift in {"trainer", "arguments"} else 0)
+    assert unit.calls["trainer"] == 0
+
+
+def test_47_memory_constructor_phase_independence(monkeypatch):
+    for phase in (1, 2):
+        with monkeypatch.context() as patch:
+            unit = _fake_constructor_memory(patch)
+            unit.run()
+            assert unit.calls["loader"] == unit.calls["loaded"] == 1, phase
+            assert unit.calls["model"] == unit.calls["trainer"] == 1, phase
+
+
+def test_48_memory_constructor_previous_profile(monkeypatch):
+    unit = _fake_constructor_memory(monkeypatch)
+    previous, previous_trace = sys.getprofile(), sys.gettrace()
+    events, trace_events = [], []
+    primary = RuntimeError("FakeRuntime trainer failure")
+    unit.state.trainer_error = primary
+
+    def prior(frame, event, arg):
+        if previous is not None:
+            previous(frame, event, arg)
+        if frame.f_code is unit.construct.__code__:
+            events.append(event)
+
+    def prior_trace(frame, event, arg):
+        if frame.f_code is unit.construct.__code__:
+            trace_events.append(event)
+        return prior_trace
+
+    try:
+        sys.setprofile(prior)
+        sys.settrace(prior_trace)
+        with pytest.raises(RuntimeError) as caught:
+            unit.run()
+        assert caught.value is primary
+        assert sys.getprofile() is prior, "constructor observer must restore exact previous profiler"
+        assert sys.gettrace() is prior_trace, "constructor observer must restore exact previous trace"
+        assert events.count("call") == events.count("return") == 1
+        assert "line" in trace_events and "exception" in trace_events
+        assert "opcode" not in trace_events, "do not inject opcode events into the previous trace"
+    finally:
+        sys.setprofile(previous)
+        sys.settrace(previous_trace)
+
+
+@pytest.mark.parametrize("route", ["missing", "repeated"])
+def test_49_memory_constructor_late_loader(monkeypatch, route):
+    unit = _fake_constructor_memory(monkeypatch)
+
+    def missing(*args, **kwargs):
+        runtime = unit.runtime
+        return runtime.FastLanguageModel.from_pretrained(dtype=runtime.torch.float16)
+
+    def repeated(*args, **kwargs):
+        runtime = unit.native._load_runtime()
+        runtime = unit.native._load_runtime()
+        return runtime.FastLanguageModel.from_pretrained(dtype=runtime.torch.float16)
+
+    monkeypatch.setattr(unit.native, "_construct_sql_trainer",
+                        missing if route == "missing" else repeated)
+    with pytest.raises(ValueError, match="preceded original loader|extra original runtime loader"):
+        unit.run()
+    assert unit.calls["model"] == unit.calls["trainer"] == 0
+    assert unit.calls["loader"] == (0 if route == "missing" else 1)
+
+
+@pytest.mark.parametrize("boundary", ["model", "trainer"])
+def test_50_memory_constructor_trace_callback_drift(monkeypatch, boundary):
+    unit = _fake_constructor_memory(monkeypatch)
+    previous_trace = sys.gettrace()
+    changed = []
+    # Real caller code constants/line table, no source files or framework import.
+    attribute = "from_pretrained" if boundary == "model" else "GRPOTrainer"
+    boundary_line = next(instruction.positions.lineno
+                         for instruction in dis.get_instructions(unit.construct)
+                         if instruction.argval == attribute)
+
+    def prior(frame, event, arg):
+        if frame.f_code is unit.construct.__code__ and event == "line" and not changed:
+            if frame.f_lineno == boundary_line:
+                changed.append(frame.f_lineno)
+                monkeypatch.setitem(sys.modules, "trl.trainer.grpo_trainer", SimpleNamespace())
+        return prior
+
+    try:
+        sys.settrace(prior)
+        with pytest.raises(ValueError, match="module binding changed"):
+            unit.run()
+        assert sys.gettrace() is prior
+    finally:
+        sys.settrace(previous_trace)
+    assert changed == [boundary_line]
+    assert unit.calls["model"] == (0 if boundary == "model" else 1)
+    assert unit.calls["trainer"] == 0
+
+
+def test_51_memory_constructor_frozen_source(monkeypatch):
+    api = _implementation()
+    from train import native_training
+
+    original = native_training._load_runtime
+    pin = api._CONSTRUCTION_SHA
+    fake_path = SimpleNamespace(
+        stat=lambda: SimpleNamespace(st_size=7),
+        read_bytes=lambda: b"changed",
+    )
+    monkeypatch.setattr(api, "_path", lambda path: fake_path)
+    with pytest.raises(ValueError, match="frozen construction source differs"):
+        api._construction_targets()
+    assert api._CONSTRUCTION_SHA == pin
+    assert native_training._load_runtime is original
+
+
+@pytest.mark.parametrize("dispatch", [
+    "trainer-new", "trainer-meta", "config-new", "config-meta", "model-new", "dataset-new",
+])
+def test_52_memory_static_dispatch_mutations(monkeypatch, dispatch):
+    unit = _fake_constructor_memory(monkeypatch)
+    effects = Counter()
+
+    def override_new(cls, *args, **kwargs):
+        effects["override"] += 1
+        return object.__new__(cls)
+
+    def override_call(cls, *args, **kwargs):
+        effects["override"] += 1
+        return type.__call__(cls, *args, **kwargs)
+
+    class UnsupportedMeta(type):
+        pass
+
+    class UnsupportedClass(metaclass=UnsupportedMeta):
+        def __init__(self, **kwargs):
+            effects["constructor"] += 1
+
+    class FakeConfig:
+        def __init__(self, **kwargs):
+            unit.calls["config"] += 1
+            self.__dict__.update(kwargs)
+
+    if dispatch.startswith("config"):
+        unit.runtime.GRPOConfig = FakeConfig
+
+    def mutate():
+        if dispatch.endswith("meta"):
+            monkeypatch.setattr(UnsupportedMeta, "__call__", override_call)
+            monkeypatch.setattr(unit.runtime,
+                                "GRPOTrainer" if dispatch.startswith("trainer") else "GRPOConfig",
+                                UnsupportedClass)
+        else:
+            target = {
+                "trainer-new": unit.runtime.GRPOTrainer,
+                "config-new": unit.runtime.GRPOConfig,
+                "model-new": unit.runtime.FastLanguageModel,
+                "dataset-new": unit.runtime.Dataset,
+            }[dispatch]
+            monkeypatch.setattr(target, "__new__", staticmethod(override_new))
+
+    if dispatch.startswith("trainer"):
+        unit.state.config_hook = mutate
+    else:
+        unit.state.dataset_hook = mutate
+    with pytest.raises(ValueError, match="binding changed"):
+        unit.run()
+    assert effects["override"] == effects["constructor"] == unit.calls["trainer"] == 0
+    assert unit.calls["model"] == (1 if dispatch.startswith("trainer") else 0)
+    assert unit.calls["loader"] == unit.calls["loaded"] == 1
+
+
+@pytest.mark.parametrize("form", ["runtime", "torch", "descriptor", "metaclass", "callable"])
+@pytest.mark.parametrize("loaded_denied", [False, True])
+def test_53_memory_static_getter_tripwires(monkeypatch, form, loaded_denied):
+    unit = _fake_constructor_memory(monkeypatch)
+    effects = Counter()
+
+    class RuntimeProxy:
+        def __getattribute__(self, name):
+            effects["getter"] += 1
+            effects["getter-constructor"] += 1
+            return object.__getattribute__(self, name)
+
+    class TorchProxy(ModuleType):
+        def __getattribute__(self, name):
+            effects["getter"] += 1
+            effects["getter-constructor"] += 1
+            return ModuleType.__getattribute__(self, name)
+
+    class Descriptor:
+        def __get__(self, instance, owner):
+            effects["getter"] += 1
+            effects["getter-constructor"] += 1
+            return lambda **kwargs: object()
+
+    class Meta(type):
+        def __getattribute__(cls, name):
+            effects["getter"] += 1
+            effects["getter-constructor"] += 1
+            return type.__getattribute__(cls, name)
+
+    class MetaModel(metaclass=Meta):
+        pass
+
+    class CallableProxy:
+        def __getattribute__(self, name):
+            effects["getter"] += 1
+            return object.__getattribute__(self, name)
+
+        def __call__(self, *args, **kwargs):
+            effects["getter-constructor"] += 1
+
+    if form == "runtime":
+        unit.state.runtime_override = RuntimeProxy()
+    elif form == "torch":
+        proxy = TorchProxy("FakeRuntimeTorch")
+        unit.runtime.torch = proxy
+        monkeypatch.setitem(sys.modules, "torch", proxy)
+    elif form == "descriptor":
+        monkeypatch.setattr(unit.runtime.FastLanguageModel, "from_pretrained", Descriptor())
+    elif form == "metaclass":
+        unit.runtime.FastLanguageModel = MetaModel
+    else:
+        unit.runtime.get_json_schema = CallableProxy()
+    if loaded_denied:
+        unit.state.failure = "loaded-module"
+    with pytest.raises(ValueError):
+        unit.run()
+    assert effects["getter"] == effects["getter-constructor"] == 0
+    assert unit.calls["model"] == unit.calls["trainer"] == 0
+    assert unit.calls["loader"] == 1
+    if form in {"descriptor", "metaclass", "callable"}:
+        assert unit.calls["loaded"] == 1
+        assert unit.calls["device"] == unit.calls["kernel"] == 0
+    else:
+        assert unit.calls["loaded"] == 0
+
+
+@pytest.mark.parametrize("key_type", ["object", "str_subclass"])
+@pytest.mark.parametrize("timing", ["initial", "postbaseline"])
+def test_56_memory_class_namespace_keys(monkeypatch, key_type, timing):
+    unit = _fake_constructor_memory(monkeypatch)
+    effects = Counter()
+    armed = False
+
+    class Key:
+        def __hash__(self):
+            if armed:
+                effects["hash"] += 1
+            return hash("__new__")
+
+        def __eq__(self, other):
+            if armed:
+                effects["eq"] += 1
+            return False
+
+    class StringKey(str):
+        __hash__ = Key.__hash__
+        __eq__ = Key.__eq__
+
+    key = Key() if key_type == "object" else StringKey("__new__")
+    replacement = type("FakeRuntimeNamespaceKeys", (unit.runtime.GRPOTrainer,),
+                       {key: object()})
+    # Fixture construction is excluded. Admission must not invoke either key.
+    effects.clear()
+    armed = True
+    if timing == "initial":
+        unit.runtime.GRPOTrainer = replacement
+    else:
+        def replace_trainer():
+            unit.runtime.GRPOTrainer = replacement
+        unit.state.config_hook = replace_trainer
+    previous_profile, previous_trace = sys.getprofile(), sys.gettrace()
+    with pytest.raises(ValueError, match="unsupported static dispatch"):
+        unit.run()
+    assert effects["hash"] == effects["eq"] == 0
+    assert unit.calls["trainer"] == 0
+    assert unit.calls["model"] == (0 if timing == "initial" else 1)
+    assert sys.getprofile() is previous_profile
+    assert sys.gettrace() is previous_trace
+
+
+def test_54_memory_actual_callee_code(monkeypatch):
+    unit = _fake_constructor_memory(monkeypatch)
+    effects = Counter()
+
+    def construct(*args, **kwargs):
+        runtime = unit.native._load_runtime()
+        return runtime.FastLanguageModel.from_pretrained(dtype=runtime.torch.float16)
+
+    def unexpected(**kwargs):
+        effects["override"] += 1
+        return object(), object()
+
+    monkeypatch.setattr(unit.native, "_construct_sql_trainer", construct)
+    original = unit.runtime.FastLanguageModel.__dict__["from_pretrained"]
+    instructions = tuple(dis.get_instructions(construct))
+    attribute_offset = next(item.offset for item in instructions if item.argval == "from_pretrained")
+    call_offset = next(offset for offset, name in unit.api._construction_call_sites(construct.__code__).items()
+                       if name == "from_pretrained")
+    changes = []
+    previous = sys.gettrace()
+
+    def prior(frame, event, arg):
+        if frame.f_code is construct.__code__:
+            frame.f_trace_opcodes = True
+            if event == "opcode" and frame.f_lasti == attribute_offset:
+                monkeypatch.setattr(unit.runtime.FastLanguageModel, "from_pretrained", staticmethod(unexpected))
+                changes.append("push")
+            elif event == "opcode" and frame.f_lasti == call_offset:
+                monkeypatch.setattr(unit.runtime.FastLanguageModel, "from_pretrained", original)
+                changes.append("restore")
+            return prior
+        return None
+
+    try:
+        sys.settrace(prior)
+        with pytest.raises(ValueError, match="unexpected native Python callee"):
+            unit.run()
+        assert sys.gettrace() is prior
+    finally:
+        sys.settrace(previous)
+    assert changes == ["push", "restore"], "the live attribute must be restored before actual-callee admission"
+    assert effects["override"] == unit.calls["model"] == unit.calls["trainer"] == 0
+    assert unit.runtime.FastLanguageModel.__dict__["from_pretrained"] is original
+
+
+@pytest.mark.parametrize("mode", ["local-none", "replace", "clear", "global-none", "opcodes", "lines"])
+@pytest.mark.parametrize("outcome", ["success", "exception"])
+def test_55_memory_trace_continuation(monkeypatch, mode, outcome):
+    unit = _fake_constructor_memory(monkeypatch)
+    previous_profile, previous_trace = sys.getprofile(), sys.gettrace()
+    primary = RuntimeError("FakeRuntime trace-continuation primary")
+    if outcome == "exception":
+        unit.state.trainer_error = primary
+    prepared = SimpleNamespace(dataset_rows=[], reward=object(),
+                               environment_factory=object(), max_tool_calling_iterations=7)
+
+    def raw():
+        # Trace oracle only, not native evidence or a production admission path.
+        return unit.native._construct_sql_trainer(
+            prepared, SimpleNamespace(path="/FakeRuntime/model"),
+            {"max_steps": 2, "max_completion_length": 16, "chat_template_kwargs": {}},
+            output=Path("/FakeRuntime/output"), max_seq_length=8192,
+        )
+
+    def observe(guarded):
+        events = []
+        seen = []
+        counts = Counter()
+
+        def record(label, frame, event):
+            events.append((label, event, frame.f_lineno, frame.f_lasti,
+                           frame.f_trace_lines, frame.f_trace_opcodes))
+
+        def second(frame, event, arg):
+            record("second", frame, event)
+            return None
+
+        def first(frame, event, arg):
+            record("first", frame, event)
+            if mode == "replace":
+                return second
+            if mode == "clear":
+                frame.f_trace = None
+                return None
+            if event == "opcode":
+                counts["opcode"] += 1
+            if mode == "opcodes":
+                if event == "opcode" and counts["opcode"] == 2:
+                    frame.f_trace_opcodes = False
+                elif event == "line" and counts["opcode"] >= 2:
+                    frame.f_trace_opcodes = True
+            elif mode == "lines":
+                if counts["opcode"] == 3:
+                    frame.f_trace_lines = True
+                if counts["opcode"] == 5:
+                    frame.f_trace_opcodes = False
+            # CPython retains this local callback on None.
+            return None
+
+        def global_trace(frame, event, arg):
+            if frame.f_code is not unit.construct.__code__:
+                return None
+            if event == "call":
+                seen.append(frame)
+            record("global", frame, event)
+            if mode == "global-none":
+                return None
+            frame.f_trace_opcodes = mode in {"opcodes", "lines"}
+            frame.f_trace_lines = mode != "lines"
+            return first
+
+        def prior_profile(frame, event, arg):
+            if previous_profile is not None:
+                previous_profile(frame, event, arg)
+            if frame.f_code is unit.construct.__code__:
+                counts[event] += 1
+
+        try:
+            sys.setprofile(prior_profile)
+            sys.settrace(global_trace)
+            with (unit.api._observe_construction_calls() if guarded else nullcontext()):
+                raw()
+        except RuntimeError as error:
+            assert outcome == "exception" and error is primary
+        else:
+            assert outcome == "success"
+        finally:
+            try:
+                assert sys.getprofile() is prior_profile, "exact previous profile restored"
+                assert sys.gettrace() is global_trace, "exact previous global trace restored"
+                assert counts["call"] == counts["return"] == 1
+            finally:
+                sys.setprofile(previous_profile)
+                sys.settrace(previous_trace)
+        assert len(seen) == 1
+        frame = seen[0]
+        callback = ("none" if frame.f_trace is None else "first" if frame.f_trace is first
+                    else "second" if frame.f_trace is second else "unexpected")
+        return events, (callback, frame.f_trace_lines, frame.f_trace_opcodes)
+
+    native = observe(False)
+    owned = observe(True)
+    assert owned == native, f"owned trace must preserve native continuation/preferences: {mode}/{outcome}"
+    events, _ = owned
+    if mode == "local-none":
+        assert sum(label == "first" for label, *_ in events) > 1
+    elif mode == "replace":
+        assert sum(label == "first" for label, *_ in events) == 1
+        assert any(label == "second" for label, *_ in events)
+    elif mode in {"clear", "global-none"}:
+        assert sum(label == "first" for label, *_ in events) == (1 if mode == "clear" else 0)
