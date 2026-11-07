@@ -173,7 +173,7 @@ def test_cold_source_plan_has_zero_external_calls_with_sensitive_guard():
 
 def _cost_inputs():
     bounds = AttemptBounds(
-        Decimal("25"), Decimal("0"), Decimal("25"), 1800, 1, 1, 60,
+        Decimal("25"), Decimal("0"), Decimal("25"), 1798, 1, 1, 60,
     )
     zero = Charge(Decimal("0"), "item", Decimal("0"), "USD/item", None)
     charges = dict.fromkeys((

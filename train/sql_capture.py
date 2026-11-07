@@ -47,7 +47,10 @@ _EXTRA_SOURCES = (
     "train/guards.py",
     "bench/task.py",
 )
-SOURCE_PATHS = evidence.SOURCE_PATHS + _EXTRA_SOURCES
+SOURCE_PATHS_LEGACY_V1 = evidence.SOURCE_PATHS + _EXTRA_SOURCES
+# The baseline/session instrument is unchanged. Owned-controller selection has
+# its own version, independent of capture envelope/record schema versions.
+SOURCE_PATHS = SOURCE_PATHS_LEGACY_V1
 _ROOT = Path(__file__).resolve().parents[1]
 _ISOLATED_FIELDS = ("execution_binding", "runtime_receipts", "execution_abort")
 _REPORTING_FIELDS = ("reporting", "telemetry")
@@ -250,18 +253,61 @@ def encode_capture(capture: SqlCapture) -> bytes:
     })
 
 
-_OWNED_SOURCE_PATHS = tuple(dict.fromkeys(SOURCE_PATHS + (
+OWNED_SOURCE_PATHS_LEGACY_V1 = tuple(dict.fromkeys(SOURCE_PATHS_LEGACY_V1 + (
     "ptc/sql_owned_program.py", "ptc/sql_owned_score.py", "ptc/harness.py",
     "train/sql_live_reuse.py", "bench/bird_sdk_live.py",
     "train/sql_sdk_scientific.py",
 )))
+OWNED_SOURCE_CONTRACT_V2 = "sql-owned-capture-controller-sources-v2"
+OWNED_SOURCE_PATHS_V2 = tuple(dict.fromkeys(OWNED_SOURCE_PATHS_LEGACY_V1 + (
+    # Explicit reviewed first-party controller imports. This is selected source
+    # evidence, not complete third-party/runtime closure or execution authority.
+    "train/sql_scientific_readiness.py",
+    "bench/paired_bird.py", "bench/prepare.py", "bench/bird_sdk_driver.py",
+    "bench/bird_bash_live.py", "bench/loader.py", "bench/shapes.py", "bench/suite.py",
+    "train/harness_swap_accounting.py", "train/sql_experiment_runner.py",
+    "train/sql_capture_comparison.py", "train/sql_skills.py", "train/sql_skill_eval.py",
+    "train/sql_skill_pilot.py", "train/sql_pilot_api.py", "train/sql_pilot_assets.py",
+    "train/sql_pilot_budget.py", "train/dead_group_probe.py", "train/native_runtime.py",
+    "train/verdict.py", "ptc/sql_isolation.py", "ptc/paired.py", "ptc/metrics.py",
+    "ptc/bash_owned_runtime.py", "ptc/bash_bridge_client.py", "ptc/bird_sql_worker.py",
+    "ptc/sql_owned_bash.py", "ptc/bird_sql_broker.py",
+    "ptc/bird_sql_worker_controller.py", "ptc/bird_sql_worker_lifecycle.py",
+    "train/__init__.py", "bench/__init__.py", "ptc/__init__.py",
+)))
+OWNED_SOURCE_CONTRACT = OWNED_SOURCE_CONTRACT_V2
+_OWNED_SOURCE_PATHS = OWNED_SOURCE_PATHS_V2
+
+
+def _source_contract_digest(version, sources):
+    """Domain-bind ordered source entries; never replace a caller's expected pin."""
+    evidence._text(version, "source contract", nonempty=True)
+    if type(sources) is not tuple:
+        raise TypeError("ordered source entries must be a tuple")
+    seen = set()
+    for entry in sources:
+        if type(entry) is not tuple or len(entry) != 2:
+            raise TypeError("source entry must be an ordered name/digest pair")
+        name, digest = entry
+        evidence._text(name, "source path", nonempty=True)
+        evidence._digest(digest, "source entry digest")
+        if name in seen:
+            raise ValueError("duplicate selected source")
+        seen.add(name)
+    return hashlib.sha256(evidence._json_bytes({
+        "source_contract": version, "sources": sources,
+    })).hexdigest()
+
+
+def _source_fingerprint(source_root, version, paths):
+    sources = tuple(
+        (name, hashlib.sha256((source_root / name).read_bytes()).hexdigest())
+        for name in paths)
+    return paths, _source_contract_digest(version, sources)
 
 
 def _owned_sources():
-    sources = tuple(
-        (name, hashlib.sha256((_ROOT / name).read_bytes()).hexdigest())
-        for name in _OWNED_SOURCE_PATHS)
-    return _OWNED_SOURCE_PATHS, hashlib.sha256(evidence._json_bytes(sources)).hexdigest()
+    return _source_fingerprint(_ROOT, OWNED_SOURCE_CONTRACT, _OWNED_SOURCE_PATHS)
 
 
 def _completed_owned_capture(*, task, ids, schema, prompt, instrument, executor,

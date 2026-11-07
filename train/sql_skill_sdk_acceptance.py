@@ -108,6 +108,7 @@ def required_source_paths():
     a = _api()
     return sorted(set(a.isolation._PROGRAM_PATHS) | set(a.isolation._SCORER_PATHS)
                   | set(a.evidence.SOURCE_PATHS) | set(a.capture.SOURCE_PATHS)
+                  | set(a.capture.OWNED_SOURCE_PATHS_V2)
                   | set(a.skills.SOURCE_PATHS) | {
                       "train/__init__.py", "train/guards.py", "train/sql_capture.py",
                       "train/sql_episodes.py", "train/sql_pilot_assets.py",

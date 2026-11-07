@@ -22,6 +22,47 @@ class Truthy:
         return True
 
 
+def test_memory_current_binding_uses_domain_bound_fresh_source_bytes(monkeypatch):
+    from train import sql_capture as capture, sql_episodes as episodes
+
+    evaluator, skills = api("sql_skill_eval"), api()
+    settings = episodes.InstrumentSettings(
+        2, 7, 7, "set", 30.0, 5.0, 30.0, "memory-python", "memory-sqlite",
+        ("synthetic/source.py",), "a" * 64,
+    )
+    inventory = {evaluator._ROOT / name: b"SYNTHETIC selected source\n"
+                 for name in skills.SOURCE_PATHS}
+    reads = []
+
+    def retained_bytes(path):
+        reads.append(path)
+        return inventory[path]
+
+    monkeypatch.setattr(Path, "read_bytes", retained_bytes)
+    monkeypatch.setattr(episodes.sql_arms, "build_sql_arms", lambda task: object())
+    monkeypatch.setattr(capture, "_instrument", lambda *args: settings)
+    monkeypatch.setattr(evaluator.guards, "eval_max_turns", lambda: 2)
+    binding = evaluator._current_binding(None)
+    entries = tuple((name, pin(inventory[evaluator._ROOT / name])) for name in skills.SOURCE_PATHS)
+    expected = pin(canonical({
+        "source_contract": "sql-skill-workflow-controller-sources-v2", "sources": entries,
+    }))
+    assert binding.source_sha256 == expected and binding.source_sha256 != pin(canonical(entries))
+    assert reads == [evaluator._ROOT / name for name in skills.SOURCE_PATHS]
+    bare = dataclasses.replace(binding, source_sha256=pin(canonical(entries)))
+    with pytest.raises(ValueError, match="current V2 workflow source fingerprint differs"):
+        skills._require_current_workflow_sources(bare, evaluator._ROOT)
+    assert capture._source_contract_digest(capture.OWNED_SOURCE_CONTRACT_V2, entries) != expected
+    assert capture._source_contract_digest(skills.SOURCE_CONTRACT_V2, tuple(reversed(entries))) != expected
+    inventory[evaluator._ROOT / "train/sql_scientific_readiness.py"] += b"# changed reviewed bytes\n"
+    reads.clear()
+    changed = evaluator._current_binding(None)
+    assert changed.source_paths == binding.source_paths and changed.source_sha256 != binding.source_sha256
+    assert reads == [evaluator._ROOT / name for name in skills.SOURCE_PATHS]
+    with pytest.raises(ValueError, match="current V2 workflow source fingerprint differs"):
+        skills._require_current_workflow_sources(binding, evaluator._ROOT)
+
+
 def reuse_case(evaluator, directory, label="eleven", rows=11, table=None):
     return evaluator.SkillCase(
         "reuse", task_at(directory, label, rows, table), ids(label, "reuse"),
@@ -1131,11 +1172,22 @@ def test_live_reuse_admission_shared_without_execution(tmp_path, monkeypatch):
     assert actual.result.valid is True and actual.result.score == 1
 
 
-def test_live_reuse_source_closure_appends_without_repin(tmp_path):
+def _assert_versioned_workflow_source_closure(module):
     from ptc.test_sql_skill_reuse_integration import OLD_SKILL_SOURCES, ADDED_SKILL_SOURCES
+    from train.test_sql_skill_sdk_acceptance import _REVIEWED_V2_CONTROLLER_SOURCES
 
+    assert module.SOURCE_PATHS_LEGACY_V1 == OLD_SKILL_SOURCES + ADDED_SKILL_SOURCES
+    assert len(module.SOURCE_PATHS) == 49
+    assert set(module.SOURCE_PATHS) == _REVIEWED_V2_CONTROLLER_SOURCES
+
+
+def test_memory_workflow_source_versions_preserve_legacy_history():
+    _assert_versioned_workflow_source_closure(api())
+
+
+def test_live_reuse_source_closure_appends_without_repin(tmp_path):
     module, evaluator = api(), api("sql_skill_eval")
-    assert module.SOURCE_PATHS == OLD_SKILL_SOURCES + ADDED_SKILL_SOURCES
+    _assert_versioned_workflow_source_closure(module)
     state = world(tmp_path, module, evaluator)
     receipt, _ = promote(module, evaluator, state)
     old = dataclasses.replace(

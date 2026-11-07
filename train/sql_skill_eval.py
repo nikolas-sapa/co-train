@@ -70,15 +70,9 @@ def _admit_scope(candidate, case):
 def _current_binding(task, executor=None):
     pair = evidence.sql_arms.build_sql_arms(task)
     instrument = capture._instrument(pair, guards.eval_max_turns(), executor)
-    try:
-        sources = tuple(
-            (name, skills._sha((_ROOT / name).read_bytes()))
-            for name in skills.SOURCE_PATHS
-        )
-    except OSError as exc:
-        raise ValueError("cannot read selected skill workflow sources") from exc
+    paths, source_sha256 = skills._workflow_sources(_ROOT)
     return skills.SkillBinding(
-        instrument, skills.SOURCE_PATHS, skills._sha(evidence._json_bytes(sources)),
+        instrument, paths, source_sha256,
         capture._execution_binding(executor),
     )
 
@@ -280,6 +274,7 @@ def admit_promoted_reuse(
     _admit_scope(candidate, case)
     if case.role != "reuse":
         raise ValueError("approved reuse requires reuse role")
+    skills._require_current_workflow_sources(promotion.binding, _ROOT)
     digest = case.expected_db_sha256
     if digest is None:
         digest = evidence._db_digest(case.task)

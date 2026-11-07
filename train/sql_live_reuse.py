@@ -34,6 +34,9 @@ from train.sql_skill_pilot import ApprovedSkill
 
 if TYPE_CHECKING:
     from bench.bird_bash_live import BashTaskResources
+    from train.sql_scientific_readiness import SqlReuseRequest, SqlScientificPlan
+    from train.sql_experiment_runner import ScientificOperation
+    from collections.abc import Callable
 
 _PLUGIN = "cotrain_bird_sql_live"
 _HARNESS = "cotrain_bird_sql_harness"
@@ -280,6 +283,12 @@ class _Scope:
             _require(all(_json_digest(item.runtime_config) == _json_digest(resolved.runtime)
                          for item in self.bash_resources),
                      "explicit Bash runtime configuration differs")
+        if self.approved_skill is not None:
+            from train import sql_skill_eval, sql_skills
+
+            sql_skills._require_current_workflow_sources(
+                self.approved_skill.promotion.binding, sql_skill_eval._ROOT,
+            )
 
     @staticmethod
     def _bash_state(item):
@@ -636,3 +645,57 @@ async def run_sql_live(
     finally:
         scope.live = False
         _ACTIVE_SCOPE.reset(token)
+
+
+async def run_sql_live_plan(
+    plan: SqlScientificPlan, *, operation: ScientificOperation,
+    approve: Callable[[SqlReuseRequest], bool] | None,
+    executor_factory: Callable[[SqlReuseRequest], core.PilotExecutor],
+    allow_execution: bool = False, allow_model_requests: bool = False,
+) -> SqlLiveResult:
+    """Admit one promoted-reuse operation before constructing its executor.
+
+    Capture-off retains original SDK episodes and the single final EX receipt.
+    Capture-on promotion needs a separate instrument bridge, not rewritten pins.
+    No scripted proposal/qualification is counted as live reference invocation.
+    """
+    from train import sql_scientific_readiness as readiness
+    from train.sql_skill_pilot import validate_approval
+
+    _require(type(plan) is readiness.SqlScientificPlan,
+             "original deferred scientific plan required")
+    _require(allow_execution is True and allow_model_requests is True,
+             "explicit execution and model-request opt-ins required")
+    plan.consume()
+    _require(plan.stage == "promoted_skill_reuse",
+             "promoted reuse stage required; paired operations use scientific coordinator")
+    readiness.check_operation(operation)
+    _require(callable(approve) and callable(executor_factory),
+             "separate scientific approval and deferred executor factory required")
+    request = readiness.SqlReuseRequest(
+        operation, plan, len(plan.live_plan.inputs), plan.policy_identity)
+    operation_state = core.canonical_json_bytes(operation)
+    readiness.require_science_approval(approve(request))
+    plan.check()
+    _require(request.operation is operation and request.execution_plan is plan
+             and request.eligible_count == len(plan.live_plan.inputs)
+             and request.policy_identity == plan.policy_identity
+             and type(request.num_rollouts) is int and request.num_rollouts == 1
+             and core.canonical_json_bytes(operation) == operation_state,
+             "scientific operation changed during approval")
+    validate_approval(plan.approved_skill)
+    from train import sql_skill_eval, sql_skills
+
+    # Current controller bytes must match the retained approved binding before
+    # allocating any executor. Never reissue an old approval under new sources.
+    sql_skills._require_current_workflow_sources(
+        plan.approved_skill.promotion.binding, sql_skill_eval._ROOT,
+    )
+    plan.check()
+    executor = executor_factory(request)
+    _require(type(executor) is core.PilotExecutor, "concrete SQL executor required")
+    plan.check()
+    return await run_sql_live(
+        plan.live_plan, plan.config, executor=executor, instrument=plan.settings,
+        expected_policy=plan.expected_policy, approved_skill=plan.approved_skill,
+        capture=plan.capture, allow_execution=True, allow_model_requests=True)

@@ -42,6 +42,55 @@ SOURCE_PATHS = (
 FIRST = 'print(execute_sql(query="SELECT COUNT(*) AS n FROM school")[0]["n"])'
 
 
+def test_memory_legacy_capture_bytes_unchanged_but_not_current_owned_authority(monkeypatch):
+    from train import sql_capture as capture, sql_episodes as episodes
+
+    legacy_paths = SOURCE_PATHS + (
+        "ptc/sql_owned_program.py", "ptc/sql_owned_score.py",
+        "train/sql_live_reuse.py", "bench/bird_sdk_live.py", "train/sql_sdk_scientific.py",
+    )
+    assert capture.OWNED_SOURCE_PATHS_LEGACY_V1 == legacy_paths
+    legacy_entries = tuple((name, "a" * 64) for name in legacy_paths)
+    legacy_digest = hashlib.sha256(_canonical(legacy_entries)).hexdigest()
+    instrument = episodes.InstrumentSettings(
+        2, 7, 7, "set", 30.0, 5.0, 30.0, "memory-python", "memory-sqlite",
+        legacy_paths, legacy_digest,
+    )
+    # V1 source-contract data in an unchanged legal capture envelope.
+    retained = capture.SqlCapture(
+        1, "incremental_execution", _ids(), "ptc", "memory-task",
+        "b" * 64, "c" * 64, "PUBLIC_SYNTHETIC_SCHEMA", "PUBLIC_SYNTHETIC_PROMPT",
+        "memory", instrument, (), (), None, None, "aborted", None,
+    )
+    payload = dataclasses.asdict(retained)
+    for field in ("execution_binding", "runtime_receipts", "execution_abort", "reporting", "telemetry"):
+        del payload[field]
+    raw = _envelope(payload)
+    assert capture.encode_capture(retained) == raw
+    original_pin = hashlib.sha256(raw).hexdigest()
+    decoded = capture.decode_capture(raw)
+    assert capture.encode_capture(decoded) == raw
+    assert decoded.instrument.source_paths == legacy_paths
+    assert decoded.instrument.source_sha256 == legacy_digest
+    monkeypatch.setattr(Path, "read_bytes", lambda path: b"SYNTHETIC current source\n")
+    # Source refusal occurs before the scorer, executor or program tuple is read.
+    with pytest.raises(ValueError, match="owned capture selected sources differ"):
+        capture._completed_owned_capture(
+            task=None, ids=None, schema=None, prompt=None, instrument=decoded.instrument,
+            executor=None, db_sha256=None, programs=None, scorer=None,
+            result=None, final_answer=None,
+        )
+    assert capture.encode_capture(decoded) == raw and hashlib.sha256(raw).hexdigest() == original_pin
+    current_paths, current_digest = capture._owned_sources()
+    entries = tuple((name, hashlib.sha256(b"SYNTHETIC current source\n").hexdigest())
+                    for name in current_paths)
+    expected = hashlib.sha256(_canonical({
+        "source_contract": "sql-owned-capture-controller-sources-v2", "sources": entries,
+    })).hexdigest()
+    assert current_digest == expected
+    assert current_digest != hashlib.sha256(_canonical(entries)).hexdigest()
+
+
 def _api():
     try:
         return importlib.import_module("train.sql_capture")

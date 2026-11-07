@@ -27,11 +27,17 @@ __all__ = [
 SCHEMA_VERSION = 1
 MAX_BYTES = evidence.MAX_BYTES
 MAX_PROGRAM_BYTES = 65536
-SOURCE_PATHS = (
+SOURCE_PATHS_LEGACY_V1 = (
     "train/sql_skills.py", "train/sql_skill_eval.py",
     "ptc/sql_owned_program.py", "train/sql_skill_pilot.py",
     "train/sql_pilot_api.py", "train/sql_pilot_assets.py",
 )
+SOURCE_CONTRACT_V2 = "sql-skill-workflow-controller-sources-v2"
+SOURCE_PATHS_V2 = tuple(dict.fromkeys(
+    SOURCE_PATHS_LEGACY_V1 + capture.OWNED_SOURCE_PATHS_V2,
+))
+SOURCE_CONTRACT = SOURCE_CONTRACT_V2
+SOURCE_PATHS = SOURCE_PATHS_V2
 CANDIDATE_FORMAT = "sql_skill_candidate"
 PROMOTION_FORMAT = "sql_skill_promotion"
 
@@ -140,11 +146,28 @@ def _validate_binding(binding):
         raise TypeError("workflow source_paths must be a tuple")
     for path in binding.source_paths:
         evidence._text(path, "workflow source path", nonempty=True)
-    if binding.source_paths != SOURCE_PATHS:
+    # Historical records remain data-readable/byte-preserving. This validator
+    # grants no live authority; current execution separately requires V2 bytes.
+    if binding.source_paths not in (SOURCE_PATHS_LEGACY_V1, SOURCE_PATHS_V2):
         raise ValueError("workflow source_paths differ from the selected modules")
     evidence._digest(binding.source_sha256, "source_sha256")
     if binding.execution_binding is not None:
         isolation.execution_binding_to_dict(binding.execution_binding)
+
+
+def _workflow_sources(source_root):
+    try:
+        return capture._source_fingerprint(source_root, SOURCE_CONTRACT, SOURCE_PATHS)
+    except OSError as exc:
+        raise ValueError("cannot read selected skill workflow sources") from exc
+
+
+def _require_current_workflow_sources(binding, source_root):
+    _validate_binding(binding)
+    if binding.source_paths != SOURCE_PATHS:
+        raise ValueError("current V2 workflow source contract required")
+    if (binding.source_paths, binding.source_sha256) != _workflow_sources(source_root):
+        raise ValueError("current V2 workflow source fingerprint differs")
 
 
 @dataclass(frozen=True)

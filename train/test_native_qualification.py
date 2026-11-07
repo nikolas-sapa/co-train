@@ -17,6 +17,7 @@ import hashlib
 import importlib
 import importlib.util
 import inspect
+import io
 import json
 import math
 import os
@@ -414,8 +415,9 @@ class _UnitTrainer:
         return None
 
 
-def _unit_trainer(api, monkeypatch, root):
-    root.mkdir(parents=True, exist_ok=True)
+def _unit_trainer(api, monkeypatch, root, *, create_directory=True):
+    if create_directory:
+        root.mkdir(parents=True, exist_ok=True)
     parameters = [TinyTensor(1.0), TinyTensor(2.0)]
     parameters[0].grad, parameters[1].grad = TinyTensor(0.5), TinyTensor(0.0)
     names = (
@@ -648,6 +650,12 @@ def _assembly_spies(api, monkeypatch, request, trainer):
     monkeypatch.setattr(sql_bridge, "prepare_sql_training", prepare)
     monkeypatch.setattr(native_training, "_construct_sql_trainer", construct)
     monkeypatch.setattr(api, "_check_sampler", lambda current: calls.append(("sampler",)))
+    # Assembly-only tests deliberately cannot produce observer/native evidence.
+    monkeypatch.setattr(api, "_write_phase_observation",
+                        lambda *args, **kwargs: calls.append(("receipt-wiring-only",)))
+    monkeypatch.setattr(api, "_read_phase_observation", lambda current, phase: {
+        "pid": os.getpid() + 1, "parent_pid": os.getppid(),
+    })
     return calls, prepared, source
 
 
@@ -1517,6 +1525,9 @@ def test_16_checkpoint_completeness_and_safe_read_policy(monkeypatch, tmp_path):
     snapshots, adapters = {}, {}
     for step in (1, 2):
         checkpoint, adapter = _checkpoint(api, unit, request.output_dir, step=step)
+        # Explicit serializer/observer protocol fixture, not native evidence.
+        observation = _observation(phase=step, binding=api._request_binding(request))
+        (checkpoint / "native-observation.json").write_text(json.dumps(observation), encoding="ascii")
         snapshots[str(checkpoint)] = copy.deepcopy(unit.states)
         adapters[str(checkpoint)] = adapter
     original_load = unit.dependencies.torch.load
@@ -1698,7 +1709,7 @@ def test_19_two_fresh_sequential_children_and_one_external_launch(monkeypatch, t
                 deadline=time.monotonic() + 1.0, output_limit=1024,
             )
             if label == "zero-then-exit":
-                assert action() is None
+                assert action() == child.pid
                 assert waits == 2 and child.returncode == 0
             else:
                 causes = {
@@ -1769,6 +1780,16 @@ def test_19_two_fresh_sequential_children_and_one_external_launch(monkeypatch, t
             patch.setattr(api, "_decode_worker_transport", lambda payload: {})
             patch.setattr(api, "_request_from_wire", lambda document: request)
             patch.setattr(api, "_validate_request", lambda current: None)
+            def child_protocol_observation(current, phase):
+                entries = [json.loads(line) for line in events_file.read_text().splitlines()]
+                events = [entry for entry in entries if entry["phase"] == phase]
+                assert len(events) == 2 and [entry["event"] for entry in events] == ["start", "end"]
+                return _observation(
+                    phase=phase, pid=events[0]["pid"], parent_pid=os.getpid(),
+                    started_ns=int(events[0]["time"] * 10**9),
+                    finished_ns=int(events[1]["time"] * 10**9),
+                )
+            patch.setattr(api, "_read_phase_observation", child_protocol_observation)
             started = time.monotonic()
             if first_exit:
                 try:
@@ -1834,6 +1855,568 @@ def test_20_default_precision_rejects_subprecision_budget_overspend(monkeypatch,
     assert effects["reads"] == 0
     assert effects["approval"] == 0
     assert effects["run"] == 0
+
+
+def _observation(*, phase, binding="a" * 64, **changes):
+    """In-memory receipt protocol double. Never a native execution witness."""
+    value = {
+        "schema": "native-sql-observation-v1",
+        "scope": "engineering_observation_not_qualification",
+        "phase": phase, "request_sha256": binding,
+        "pid": 100 + phase, "parent_pid": 99,
+        "started_ns": phase * 100, "finished_ns": phase * 100 + 50,
+        "updates": 1, "generations": 1, "rng_restores": phase - 1,
+    }
+    value.update(changes)
+    return value
+
+
+def _memory_request(api):
+    """Unvalidated in-memory pins/tasks. No file or model discovery."""
+    from bench.task import SqlTask
+    from train import guards
+
+    data = Path("/unit-contract/data")
+    tasks = tuple(SqlTask(
+        name=name, question=f"What amount is recorded? FIXTURE_{name.upper()}",
+        evidence="Use readings.", gold_sql=f"SELECT amount FROM readings /* GOLD_{name} */",
+        db_id=name, db_path=str(data / name / f"{name}.sqlite"), tier="simple",
+        tier_source="derived", shape="fixture-select", coarse_shape="fixture-select",
+        source="fixture",
+    ) for name, _ in FIXTURES)
+    return api.QualificationRequest(
+        tasks, data, Path("/unit-contract/model"), Path("/unit-contract/export"),
+        (api.FilePin(guards.REPO_ROOT / "train/native_training.py", 1, "b" * 64),),
+        tuple(api.FilePin(Path(task.db_path), 1, "c" * 64) for task in tasks),
+        api.FilePin(Path("/unit-contract/runtime.json"), 1, "d" * 64),
+        "sha256:" + "e" * 64, _bounds(api),
+    )
+
+
+def _composed_loaded_memory(monkeypatch):
+    """Synthetic installed/selected leaves, real loaded inspector, no loader."""
+    api = _implementation()
+    from train import native_preflight, native_runtime, native_training
+
+    calls = Counter()
+    versions = dict(native_preflight._EXACT)
+    torch = SimpleNamespace(
+        __version__=versions["torch"],
+        cuda=SimpleNamespace(is_available=lambda: True, device_count=lambda: 1),
+    )
+    for name, version in versions.items():
+        monkeypatch.setitem(sys.modules, name, SimpleNamespace(__version__=version))
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    for name in api._SELECTED_SOURCES:
+        monkeypatch.setitem(sys.modules, name, SimpleNamespace())
+    monkeypatch.setattr(api, "_selected_module", lambda name: (
+        calls.update(("selected",)), b"", None,
+    ))
+    monkeypatch.setattr(api, "_observer_dependencies", lambda: SimpleNamespace(torch=torch))
+    monkeypatch.setattr(native_preflight, "_host_issues", lambda: [])
+    monkeypatch.setattr(native_runtime, "native_runtime_report", lambda: {
+        "metadata_source": "installed", "versions": versions,
+        "issues": dict.fromkeys(native_preflight._CATEGORIES, ()),
+    })
+
+    def forbidden_loader():
+        calls["loader"] += 1
+        raise AssertionError("already-loaded preflight must not load frameworks again")
+
+    monkeypatch.setattr(native_preflight, "_load_frameworks", forbidden_loader)
+    monkeypatch.setattr(native_training, "_load_runtime", forbidden_loader)
+
+    def device(actual, report):
+        assert actual is torch
+        calls["device"] += 1
+        return True
+
+    def kernel(actual, report):
+        assert actual is torch
+        calls["kernel"] += 1
+        report["kernel"] = {"status": "observed"}
+
+    monkeypatch.setattr(native_preflight, "_inspect_device", device)
+    monkeypatch.setattr(native_preflight, "_inspect_kernel", kernel)
+    # Stop at the existing topology guard after the actual loaded checks.
+    trainer = SimpleNamespace(args=SimpleNamespace(world_size=2, process_index=0))
+    return api, native_preflight, trainer, calls
+
+
+def test_38_memory_composed_loaded_preflight_never_calls_second_loader(monkeypatch):
+    api, _, trainer, calls = _composed_loaded_memory(monkeypatch)
+    with pytest.raises(ValueError, match="distributed qualification"):
+        api._check_loaded_candidate(trainer, {})
+    assert calls == Counter({"selected": len(api._SELECTED_SOURCES), "device": 1, "kernel": 1})
+    assert calls["loader"] == 0
+
+
+def test_39_memory_composed_host_denial_precedes_device_and_training(monkeypatch):
+    api, preflight, trainer, calls = _composed_loaded_memory(monkeypatch)
+    monkeypatch.setattr(preflight, "_host_issues", lambda: ["host:soabi"])
+    trainer.train = lambda: calls.update(("train",))
+    refused = False
+    try:
+        api._check_loaded_candidate(trainer, {})
+        trainer.train()
+    except ValueError as error:
+        assert "host observation" in str(error)
+        refused = True
+    assert refused and calls == Counter(), "host denial must block training with zero loader/device operations"
+
+
+def test_40_memory_composed_loaded_source_denial_precedes_device_and_training(monkeypatch):
+    api, _, trainer, calls = _composed_loaded_memory(monkeypatch)
+    # Actual _inspect_loaded notices the missing selected root, no hash exemption.
+    monkeypatch.delitem(sys.modules, "trl.trainer.grpo_trainer")
+    trainer.train = lambda: calls.update(("train",))
+    refused = False
+    try:
+        api._check_loaded_candidate(trainer, {})
+        trainer.train()
+    except ValueError as error:
+        assert "source/version observation" in str(error)
+        refused = True
+    assert refused, "missing selected runtime source must deny training"
+    assert calls["loader"] == calls["device"] == calls["kernel"] == calls["train"] == 0
+
+
+def test_41_memory_composed_science_pin_survives_exact_native_staging(monkeypatch):
+    api = _implementation()
+    from train import guards
+
+    request = _memory_request(api)
+    pin = api.FilePin(guards.REPO_ROOT / "train/sql_scientific_readiness.py", 17, "f" * 64)
+    request = dataclasses.replace(request, source_pins=request.source_pins + (pin,))
+    checked = []
+    monkeypatch.setattr(api, "_validate_request", lambda current: None)
+    monkeypatch.setattr(api, "_verified_model_members", lambda current: ())
+    monkeypatch.setattr(api, "_check_asset_bytes", lambda path, **kwargs: checked.append(
+        (path, kwargs["size"], kwargs["sha256"])))
+    payload, staged = api._prepare_worker_transport(request)
+    document = api._decode_worker_transport(payload)
+    restored = api._request_from_wire(document)
+    expected = ("source", "train/sql_scientific_readiness.py", pin.size, pin.sha256)
+    assert [(row.kind, row.key, row.size, row.sha256) for row in staged].count(expected) == 1
+    assert api.FilePin(api._SOURCE / expected[1], pin.size, pin.sha256) in restored.source_pins
+    assert checked.count((pin.path, pin.size, pin.sha256)) == 1
+    assert not hasattr(restored, "science_approved")
+
+
+def test_22_memory_distinct_child_identity():
+    api = _implementation()
+    observations = [_observation(phase=phase) for phase in (1, 2)]
+    for phase, value in enumerate(observations, 1):
+        api._validate_phase_observation(value, phase=phase, binding="a" * 64)
+    assert api._check_phase_observations(observations) is None
+    observations[1]["pid"] = observations[0]["pid"]
+    with pytest.raises(ValueError, match="distinct child processes"):
+        api._check_phase_observations(observations)
+
+
+@pytest.mark.parametrize("corruption", ["reversed", "overlap", "different-supervisor"])
+def test_23_memory_phase_order_and_nonoverlap(corruption):
+    api = _implementation()
+    observations = [_observation(phase=phase) for phase in (1, 2)]
+    if corruption == "reversed":
+        observations.reverse()
+    elif corruption == "overlap":
+        observations[1]["started_ns"] = observations[0]["finished_ns"] - 1
+    else:
+        observations[1]["parent_pid"] += 1
+    with pytest.raises(ValueError, match="order|overlap|supervisors"):
+        api._check_phase_observations(observations)
+
+
+@pytest.mark.parametrize("outcome", ["good", "phase1-failure", "wrong-child"])
+def test_24_memory_worker_binds_child_and_stops_after_phase1_failure(monkeypatch, outcome):
+    api = _implementation()
+    request = _memory_request(api)
+    request = dataclasses.replace(request, output_dir=SimpleNamespace(exists=lambda: False))
+    phases, reads = [], []
+    monkeypatch.setattr(api, "_path", lambda path: path)
+    monkeypatch.setattr(Path, "open", lambda *args, **kwargs: io.BytesIO(b"unit-protocol"))
+    monkeypatch.setattr(api, "_decode_worker_transport", lambda payload: {})
+    monkeypatch.setattr(api, "_request_from_wire", lambda document: request)
+    monkeypatch.setattr(api, "_validate_request", lambda current: None)
+    monkeypatch.setattr(api.time, "monotonic", lambda: 100.0)
+
+    def launch(path, phase, **kwargs):
+        phases.append(phase)
+        assert kwargs == {"deadline": 1900.0, "output_limit": 1024}
+        if outcome == "phase1-failure":
+            raise RuntimeError("unit phase1 failed")
+        return 100 + phase
+
+    def receipt(current, phase):
+        reads.append(phase)
+        return _observation(
+            phase=phase, pid=900 if outcome == "wrong-child" else 100 + phase,
+            parent_pid=os.getpid(),
+        )
+
+    monkeypatch.setattr(api, "_run_child", launch)
+    monkeypatch.setattr(api, "_read_phase_observation", receipt)
+    if outcome == "good":
+        assert api._worker_main(api._REQUEST_FILE) == 0
+        assert phases == reads == [1, 2]
+    else:
+        with pytest.raises(REFUSAL, match="phase1 failed|launched child"):
+            api._worker_main(api._REQUEST_FILE)
+        assert phases == [1]
+        assert reads == ([] if outcome == "phase1-failure" else [1])
+
+
+@pytest.mark.parametrize("component", ["model", "optimizer", "scheduler", "scaler"])
+def test_25_memory_restore_mismatch_refuses_before_generation(monkeypatch, component):
+    api = _implementation()
+    unit = _unit_trainer(api, monkeypatch, Path("/unit-memory"), create_directory=False)
+    trainer = unit.trainer
+    trainer.state.global_step = trainer.lr_scheduler.last_epoch = 1
+    trainer.optimizer.step()
+    adapter = copy.deepcopy(api._native_adapter_state(trainer, unit.dependencies))
+    saved = {
+        "optimizer.pt": copy.deepcopy(trainer.optimizer.state_dict()),
+        "scheduler.pt": copy.deepcopy(trainer.lr_scheduler.state_dict()),
+        "scaler.pt": copy.deepcopy(trainer.accelerator.scaler.state_dict()),
+    }
+    trainer.use_adaptive_entropy = False
+    monkeypatch.setattr(api, "_load_adapter_state", lambda path: copy.deepcopy(adapter))
+    monkeypatch.setattr(api, "_load_native_state", lambda path, name, deps: copy.deepcopy(saved[name]))
+    if component == "model":
+        unit.parameters[0].values[0] += 1
+    else:
+        saved[f"{component}.pt"] = {"intentional-unit-mismatch": 1}
+    callback = _callback(api, unit, phase=2, checkpoint=Path("/unit-memory/checkpoint-1"))
+    with pytest.raises(ValueError, match="differ"):
+        _event(callback, "on_train_begin", trainer)
+    assert callback.generations == callback.updates == 0
+    assert trainer.events == [] and trainer.train_calls == []
+    assert not callback.hooks
+
+
+def test_26_memory_nonzero_gradient_without_displacement_is_not_update(monkeypatch):
+    api = _implementation()
+    unit = _unit_trainer(api, monkeypatch, Path("/unit-memory"), create_directory=False)
+    callback = _callback(api, unit)
+    _event(callback, "on_train_begin", unit.trainer)
+    assert unit.parameters[0].grad.item() != 0
+    with pytest.raises(ValueError, match="no same-parameter finite displacement"):
+        _update(callback, unit.trainer, move=False, advance=True)
+    assert callback.updates == 0
+    callback.close()
+    assert not callback.hooks
+
+
+def test_27_memory_source_wire_binding_and_closed_receipt():
+    api = _implementation()
+    request = _memory_request(api)
+    binding = api._request_binding(request)
+    altered = dataclasses.replace(request, source_pins=(
+        dataclasses.replace(request.source_pins[0], sha256="f" * 64),
+    ))
+    changed = api._request_binding(altered)
+    assert changed != binding and len(binding) == len(changed) == 64
+    value = _observation(phase=1, binding=binding)
+    assert api._validate_phase_observation(value, phase=1, binding=binding) is None
+    with pytest.raises(ValueError, match="request/source binding"):
+        api._validate_phase_observation(value, phase=1, binding=changed)
+    for field, replacement in (("qualified", True), ("updates", 0), ("rng_restores", 1)):
+        invalid = dict(value)
+        invalid[field] = replacement
+        with pytest.raises(ValueError, match="observation|counts"):
+            api._validate_phase_observation(invalid, phase=1, binding=binding)
+
+
+def test_28_memory_expired_external_admission_has_zero_service_operations(monkeypatch):
+    api = _implementation()
+    from train import qualification_launch_admission as admission
+    from train.qualification_owner import _QualificationOwner
+    from train.test_qualification_owner import _quote
+
+    request = _memory_request(api)
+    now = [100.0]
+    effects = Counter()
+    # Explicit SYNTHETIC frozen cost quote and test-local external review seam.
+    # Production provider review remains unconditionally CLOSED.
+    monkeypatch.setattr(admission, "_require_provider_review", lambda current, quote: None)
+
+    def forbidden_operation(*args, **kwargs):
+        effects["service"] += 1
+        raise AssertionError("expired admission must not operate on provider")
+
+    operations = SimpleNamespace(**dict.fromkeys(
+        ("prepare", "create", "wait", "export", "teardown"), forbidden_operation,
+    ))
+    owner = _QualificationOwner(
+        operations=operations, operation_identity=object(),
+        approve=lambda current: current is request, clock=lambda: now[0],
+        quote=_quote(request),
+    )
+    assert owner.require_approved(request) is None
+    now[0] += request.bounds.lifetime_seconds
+    with pytest.raises(TimeoutError, match="lifetime exhausted"):
+        owner.run_once(request)
+    assert effects["service"] == 0 and owner.state == "failed"
+
+
+def test_29_memory_synthetic_exit_zero_result_is_not_native_evidence(monkeypatch):
+    api = _implementation()
+    request = _memory_request(api)
+    effects = Counter()
+    monkeypatch.setattr(api, "_path", lambda root: SimpleNamespace(
+        is_dir=lambda: True, iterdir=lambda: iter(()),
+    ))
+    monkeypatch.setattr(api, "_output_size", lambda *args: 0)
+
+    def missing_receipt(*args):
+        effects["receipt-read"] += 1
+        raise ValueError("synthetic result has no observer receipt")
+
+    def forbidden_runtime():
+        effects["runtime"] += 1
+        raise AssertionError("missing observer handoff must fail before framework imports")
+
+    monkeypatch.setattr(api, "_read_member", missing_receipt)
+    monkeypatch.setattr(api, "_observer_dependencies", forbidden_runtime)
+    result = api.OwnedJobResult(object(), request.output_dir, (0, 0))
+    with pytest.raises(ValueError, match="missing or invalid native phase observation"):
+        api._check_exported_artifacts(request, result)
+    assert effects == Counter({"receipt-read": 1})
+    assert set(dataclasses.asdict(result)) == {"service_handle", "exported_root", "phase_returncodes"}
+    assert not any("qualified" in field.name for field in dataclasses.fields(result))
+
+
+def test_30_memory_observer_completion_requires_normal_trace_exit(monkeypatch):
+    api = _implementation()
+    unit = _unit_trainer(api, monkeypatch, Path("/unit-memory"), create_directory=False)
+    callback = _callback(api, unit)
+    _event(callback, "on_train_begin", unit.trainer)
+    _update(callback, unit.trainer)
+    # Callback events alone must not authorize a completion receipt.
+    assert callback.updates == 1 and callback.completed is False
+    with pytest.raises(ValueError, match="did not complete normally"):
+        api._write_phase_observation(_memory_request(api), 1, callback, started_ns=1)
+    callback.close()
+
+
+@pytest.mark.parametrize("failure", ["device", "kernel", "after-kernel"])
+def test_31_memory_loaded_device_kernel_wiring_precedes_training(monkeypatch, failure):
+    api = _implementation()
+    from train import native_preflight, native_runtime
+
+    calls = []
+    torch = SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: True, device_count=lambda: 1))
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    monkeypatch.setattr(native_preflight, "_host_issues", lambda: [])
+    monkeypatch.setattr(native_runtime, "native_runtime_report", lambda: {
+        "metadata_source": "installed", "versions": dict(native_preflight._EXACT),
+        "issues": dict.fromkeys(native_preflight._CATEGORIES, ()),
+    })
+    monkeypatch.setattr(native_preflight, "_inspect_loaded", lambda report, versions: True)
+    monkeypatch.setattr(api, "_observer_dependencies", lambda: SimpleNamespace(torch=torch))
+
+    def device(actual, report):
+        assert actual is torch
+        calls.append("device")
+        return failure != "device"
+
+    def kernel(actual, report):
+        assert actual is torch
+        calls.append("kernel")
+        report["kernel"] = {"status": "failed" if failure == "kernel" else "observed"}
+        if failure == "kernel":
+            report["issues"].append("intentional-unit-kernel-failure")
+
+    monkeypatch.setattr(native_preflight, "_inspect_device", device)
+    monkeypatch.setattr(native_preflight, "_inspect_kernel", kernel)
+    trainer = SimpleNamespace(args=SimpleNamespace(world_size=2, process_index=0))
+    expected = {"device": "device observation", "kernel": "kernel observation",
+                "after-kernel": "distributed qualification"}[failure]
+    with pytest.raises(ValueError, match=expected):
+        api._check_loaded_candidate(trainer, {})
+    assert calls == (["device"] if failure == "device" else ["device", "kernel"])
+
+
+def test_32_memory_firstparty_module_cannot_escape_source_mount(monkeypatch):
+    api = _implementation()
+    request = _memory_request(api)
+    shadow = SimpleNamespace(__file__="/outside-source/train/shadow.py")
+    with monkeypatch.context() as patch:
+        patch.setattr(sys, "modules", {"train.shadow": shadow})
+        with pytest.raises(ValueError, match="escaped approved source root: train.shadow"):
+            api._check_firstparty_sources(request)
+
+
+@pytest.mark.parametrize("guard,condition,message", [
+    ("pid", 'first["pid"] != second["pid"]', "distinct child processes"),
+    ("order", 'first["finished_ns"] <= second["started_ns"]', "overlap or reversed"),
+])
+def test_33_memory_real_guard_negative_controls(guard, condition, message):
+    """Execute cloned production function, remove one guard, keep assertion fixed.
+
+    Parent must run this. Source-only author has NOT observed RED/restored PASS.
+    Only production source is read, no provider/tensor/checkpoint execution.
+    """
+    api = _implementation()
+    observations = [_observation(phase=phase) for phase in (1, 2)]
+    if guard == "pid":
+        observations[1]["pid"] = observations[0]["pid"]
+    else:
+        observations[1]["started_ns"] = observations[0]["finished_ns"] - 1
+
+    def original_refusal_assertion(check):
+        with pytest.raises(ValueError, match=message):
+            check(observations)
+
+    original_refusal_assertion(api._check_phase_observations)
+    source = inspect.getsource(api._check_phase_observations)
+    assert source.count(condition) == 1, "negative control must mutate exactly one real guard"
+    namespace = dict(vars(api))
+    exec(compile(source.replace(condition, "True", 1), "<unit-guard-mutation>", "exec"), namespace)
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        original_refusal_assertion(namespace["_check_phase_observations"])
+    original_refusal_assertion(api._check_phase_observations)
+
+
+def test_34_memory_receipt_writer_binds_two_phases_and_never_overwrites(monkeypatch):
+    api = _implementation()
+    request = _memory_request(api)
+    binding = api._request_binding(request)
+    captured, opened = {}, []
+    identity = [101]
+    finished = [150]
+    monkeypatch.setattr(api.os, "getpid", lambda: identity[0])
+    monkeypatch.setattr(api.os, "getppid", lambda: 99)
+    monkeypatch.setattr(api.time, "monotonic_ns", lambda: finished[0])
+    monkeypatch.setattr(api, "_checkpoint_members", lambda *args: set())
+
+    @contextmanager
+    def capture(path, mode):
+        assert mode == "xb", "receipt may only be created exclusively"
+        opened.append(path)
+        if path in captured:
+            raise FileExistsError("unit receipt already exists")
+        stream = io.BytesIO()
+        yield stream
+        captured[path] = stream.getvalue()
+
+    monkeypatch.setattr(Path, "open", capture)
+
+    def prior(current, phase):
+        return json.loads(captured[current.output_dir / f"checkpoint-{phase}" / "native-observation.json"])
+
+    monkeypatch.setattr(api, "_read_phase_observation", prior)
+    for phase in (1, 2):
+        identity[0], finished[0] = 100 + phase, phase * 100 + 50
+        # Completion-state protocol fixture, NOT a native observer witness.
+        observer = SimpleNamespace(
+            completed=True, phase=phase, violation=None, trace_active=False,
+            updates=1, generations=1, restores=phase - 1,
+        )
+        assert api._write_phase_observation(
+            request, phase, observer, started_ns=phase * 100,
+        ) is None
+        value = prior(request, phase)
+        api._validate_phase_observation(value, phase=phase, binding=binding)
+        assert len(captured[opened[-1]]) <= 4096
+        assert value["scope"] == "engineering_observation_not_qualification"
+    assert len(captured) == len(opened) == 2
+    api._check_phase_observations([prior(request, phase) for phase in (1, 2)])
+    before = dict(captured)
+    with pytest.raises(FileExistsError, match="already exists"):
+        api._write_phase_observation(request, 2, observer, started_ns=200)
+    assert captured == before, "repeat attempt must preserve existing receipt bytes"
+
+
+@pytest.mark.parametrize("save_normally", [True, False])
+def test_35_memory_trace_completion_bit_requires_full_normal_path(monkeypatch, save_normally):
+    api = _implementation()
+    unit = _unit_trainer(api, monkeypatch, Path("/unit-memory"), create_directory=False)
+    trainer = unit.trainer
+    callback = _callback(api, unit)
+    monkeypatch.setattr(api, "_check_checkpoint", lambda *args: None)
+
+    def actions():
+        _event(callback, "on_train_begin", trainer)
+        trainer._generate_and_score_completions(["unit-only"])
+        _update(callback, trainer)
+        if save_normally:
+            trainer._save_checkpoint(trainer.model)
+            _event(callback, "on_save", trainer)
+
+    trainer._unit_action = actions
+
+    def attempt():
+        with api._observe_calls(trainer, callback):
+            trainer.train()
+
+    assert callback.completed is False
+    if save_normally:
+        attempt()
+        assert callback.completed is True
+    else:
+        with pytest.raises(ValueError, match="missing native train/update/save observation"):
+            attempt()
+        assert callback.completed is False
+    assert callback.trace_active is False and not callback.hooks
+    assert callback.updates == callback.generations == 1
+    assert trainer.train_calls == [None]
+
+
+@pytest.mark.parametrize("approval_label", [True, False])
+def test_36_memory_approval_labels_are_not_admission(monkeypatch, approval_label):
+    api = _implementation()
+    request = _memory_request(api)
+    calls = Counter()
+    monkeypatch.setattr(api, "_validate_request", lambda current: None)
+
+    class Controller:
+        def require_approved(self, current):
+            calls["approve"] += 1
+            return approval_label
+
+        def run_once(self, current):
+            calls["run"] += 1
+            raise AssertionError("bool approval label must not launch")
+
+    with pytest.raises(ValueError, match="external approval must return None or raise"):
+        api.attempt_sql_qualification(request, controller=Controller())
+    assert calls == Counter({"approve": 1})
+
+
+@pytest.mark.parametrize("expiry_point", ["request-read", "subreaper-entry"])
+def test_37_memory_deadline_expiring_during_prelaunch_prevents_popen(monkeypatch, expiry_point):
+    api = _implementation()
+    now = [100.0]
+    effects = Counter()
+    monkeypatch.setattr(api.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(api, "_decode_worker_transport", lambda payload: {"bounds": {}})
+    monkeypatch.setattr(api, "_bounds_from_wire", lambda value: _bounds(api))
+
+    @contextmanager
+    def request_read(path, mode):
+        assert path == api._REQUEST_FILE and mode == "rb"
+        if expiry_point == "request-read":
+            now[0] = 101.0
+        yield io.BytesIO(b"unit-protocol")
+
+    @contextmanager
+    def subreaper():
+        if expiry_point == "subreaper-entry":
+            now[0] = 101.0
+        yield
+
+    def forbidden_popen(*args, **kwargs):
+        effects["popen"] += 1
+        raise AssertionError("expired prelaunch deadline must prevent process creation")
+
+    monkeypatch.setattr(Path, "open", request_read)
+    monkeypatch.setattr(api, "_owned_subreaper", subreaper)
+    monkeypatch.setattr(api.subprocess, "Popen", forbidden_popen)
+    with pytest.raises(ValueError, match="deadline expired before process creation"):
+        api._run_child(api._REQUEST_FILE, 1, deadline=101.0, output_limit=1024)
+    assert effects["popen"] == 0
 
 
 def test_21_low_precision_rejects_rounded_budget_overspend(monkeypatch, tmp_path):

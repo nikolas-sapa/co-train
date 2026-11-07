@@ -476,7 +476,7 @@ def _owned_subreaper() -> ContextManager[None]:
 
 def _run_child(
     request_file: Path, phase: Literal[1, 2], *, deadline: float, output_limit: int,
-) -> None:
+) -> int:
     _positive(output_limit, "output limit")
     _require(type(deadline) is float and 0 < deadline < float("inf"), "finite aggregate deadline required")
     _require(time.monotonic() < deadline, "aggregate deadline expired before launch")
@@ -487,6 +487,7 @@ def _run_child(
         artifact_limit = _bounds_from_wire(document["bounds"]).artifact_bytes
     nonreaping = hasattr(os, "waitid") and hasattr(os, "WNOWAIT")
     with _owned_subreaper():
+        _require(time.monotonic() < deadline, "aggregate deadline expired before process creation")
         child = subprocess.Popen(
             _phase_argv(request_file, phase), stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True,
@@ -570,6 +571,7 @@ def _run_child(
                     pass
                 else:
                     raise ValueError("phase group remains after leader reap; external owner teardown required")
+    return child.pid
 
 
 def _worker_main(request_file: Path) -> int:
@@ -581,9 +583,17 @@ def _worker_main(request_file: Path) -> int:
     _validate_request(request)
     deadline = started + request.bounds.lifetime_seconds
     _require(not request.output_dir.exists(), "worker output must initially be fresh")
+    observations = []
     for phase in (1, 2):
-        _run_child(request_file, phase, deadline=deadline,
-                   output_limit=request.bounds.output_bytes_per_phase)
+        pid = _run_child(request_file, phase, deadline=deadline,
+                         output_limit=request.bounds.output_bytes_per_phase)
+        observation = _read_phase_observation(request, phase)
+        _require(observation["pid"] == pid and observation["parent_pid"] == os.getpid(),
+                 "phase observation does not belong to launched child")
+        observations.append(observation)
+        if phase == 2:
+            _check_phase_observations(observations)
+        _require(time.monotonic() < deadline, "aggregate deadline exceeded after phase observation")
     _require(time.monotonic() < deadline, "aggregate deadline exceeded during cleanup")
     return 0
 
@@ -708,7 +718,7 @@ _CHECKPOINT_MEMBERS = frozenset({
     "entropy_ctrl_state.json", "training_args.bin", "README.md",
     "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json",
     "added_tokens.json", "vocab.json", "merges.txt", "chat_template.jinja",
-    "config.json", "generation_config.json",
+    "config.json", "generation_config.json", "native-observation.json",
 })
 _MAX_CHECKPOINT_BYTES = 2 * 1024**3
 _MAX_MEMBER_BYTES = 1024**3
@@ -752,6 +762,118 @@ def _json_member(checkpoint: Path, name: str) -> dict[str, Any]:
         raise ValueError(f"invalid checkpoint JSON: {name}") from error
     _require(type(value) is dict, "native JSON object required")
     return value
+
+
+def _request_binding(request: QualificationRequest) -> str:
+    """Path-independent request identity, not attestation or admission.
+
+    Model bytes remain bound by the registered inventory and existing verifier.
+    This digest additionally binds receipts to exact source/data/runtime pins,
+    tasks, bounds and image label across host-to-worker path translation.
+    """
+    from train import guards, native_model
+
+    def pins(values: tuple[FilePin, ...], root: Path) -> list[tuple[str, int, str]]:
+        return sorted((pin.path.relative_to(root).as_posix(), pin.size, pin.sha256)
+                      for pin in values)
+
+    tasks = []
+    for task in request.tasks:
+        row = asdict(task)
+        row["db_asset"] = Path(row.pop("db_path")).relative_to(request.db_root).as_posix()
+        tasks.append(row)
+    bounds = {key: format(value, "f") if isinstance(value, Decimal) else value
+              for key, value in asdict(request.bounds).items()}
+    document = {
+        "tasks": tasks, "source": pins(request.source_pins, guards.REPO_ROOT),
+        "data": pins(request.database_pins, request.db_root),
+        "runtime": (request.runtime_inventory.size, request.runtime_inventory.sha256),
+        "model_revision": native_model.MODEL_REVISION,
+        "model_inventory": native_model.INVENTORY_SHA256,
+        "image_digest": request.image_digest, "bounds": bounds,
+    }
+    payload = json.dumps(document, sort_keys=True, ensure_ascii=True,
+                         allow_nan=False, separators=(",", ":")).encode("ascii")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _validate_phase_observation(
+    value: Any, *, phase: Literal[1, 2], binding: str,
+) -> None:
+    _require(type(phase) is int and phase in (1, 2), "invalid observation phase")
+    _closed(value, {"schema", "scope", "phase", "request_sha256", "pid", "parent_pid",
+                    "started_ns", "finished_ns", "updates", "generations", "rng_restores"},
+            "native observation")
+    _require(value["schema"] == "native-sql-observation-v1"
+             and value["scope"] == "engineering_observation_not_qualification",
+             "unknown native observation scope/schema")
+    _require(type(value["phase"]) is int and value["phase"] == phase,
+             "native observation phase differs")
+    _require(type(binding) is str and re.fullmatch("[0-9a-f]{64}", binding)
+             and type(value["request_sha256"]) is str and value["request_sha256"] == binding,
+             "native observation request/source binding differs")
+    for name in ("pid", "parent_pid", "started_ns", "finished_ns"):
+        _positive(value[name], f"native observation {name}")
+    _require(value["pid"] != value["parent_pid"], "native phase is not a child process")
+    _require(value["started_ns"] < value["finished_ns"], "native phase interval is invalid")
+    _require(all(type(value[name]) is int and value[name] == expected
+                 for name, expected in (("updates", 1), ("generations", 1),
+                                        ("rng_restores", phase - 1))),
+             "native observation update/generation/restore counts differ")
+
+
+def _read_phase_observation(request: QualificationRequest, phase: Literal[1, 2]) -> dict[str, Any]:
+    checkpoint = request.output_dir / f"checkpoint-{phase}"
+    try:
+        value = json.loads(_read_member(checkpoint, "native-observation.json", 4096),
+                           object_pairs_hook=_pairs)
+    except (UnicodeError, ValueError, RecursionError) as error:
+        raise ValueError("missing or invalid native phase observation") from error
+    _validate_phase_observation(value, phase=phase, binding=_request_binding(request))
+    return value
+
+
+def _check_phase_observations(observations: list[dict[str, Any]]) -> None:
+    _require(type(observations) is list and len(observations) == 2,
+             "exactly two native phase observations required")
+    first, second = observations
+    _require(first["phase"] == 1 and second["phase"] == 2, "native phase order differs")
+    for phase, observation in enumerate(observations, 1):
+        _validate_phase_observation(observation, phase=phase, binding=first["request_sha256"])
+    _require(first["request_sha256"] == second["request_sha256"], "native phase requests differ")
+    _require(first["parent_pid"] == second["parent_pid"], "native phase supervisors differ")
+    _require(first["pid"] != second["pid"], "native phases require distinct child processes")
+    _require(first["finished_ns"] <= second["started_ns"], "native phases overlap or reversed")
+
+
+def _write_phase_observation(
+    request: QualificationRequest, phase: Literal[1, 2], observer: Any, *, started_ns: int,
+) -> None:
+    # Only the normal-return observer exit sets completed. Callback labels and
+    # train() return values alone cannot reach this handoff.
+    _require(getattr(observer, "completed", False) is True
+             and observer.phase == phase and observer.violation is None
+             and observer.trace_active is False,
+             "native observer did not complete normally")
+    value = {
+        "schema": "native-sql-observation-v1",
+        "scope": "engineering_observation_not_qualification",
+        "phase": phase, "request_sha256": _request_binding(request),
+        "pid": os.getpid(), "parent_pid": os.getppid(),
+        "started_ns": started_ns, "finished_ns": time.monotonic_ns(),
+        "updates": observer.updates, "generations": observer.generations,
+        "rng_restores": observer.restores,
+    }
+    _validate_phase_observation(value, phase=phase, binding=_request_binding(request))
+    if phase == 2:
+        _check_phase_observations([_read_phase_observation(request, 1), value])
+    checkpoint = request.output_dir / f"checkpoint-{phase}"
+    _checkpoint_members(checkpoint, request.bounds.artifact_bytes)
+    payload = json.dumps(value, sort_keys=True, allow_nan=False).encode("ascii")
+    _require(len(payload) <= 4096, "native observation exceeds byte bound")
+    # Exclusive create, never overwrite a prior/stale completion record.
+    with (checkpoint / "native-observation.json").open("xb") as stream:
+        _require(stream.write(payload) == len(payload), "native observation write incomplete")
 
 
 def _rng_allowlist(dependencies: SimpleNamespace) -> list[Any]:
@@ -1138,6 +1260,7 @@ def _make_callback(trainer: Any, phase: Literal[1, 2], checkpoint_1: Path | None
             self.scheduler_epoch = None
             self.saved_rng = None
             self.provenance = ()
+            self.completed = False
 
         def _bindings(self) -> None:
             _require(self.violation is None, self.violation or "native observer violation")
@@ -1310,6 +1433,10 @@ def _check_firstparty_sources(request: QualificationRequest) -> None:
         if not filename:
             continue
         path = Path(filename)
+        spec = getattr(module, "__spec__", None)
+        identity = getattr(spec, "name", None) if name == "__main__" else name
+        if isinstance(identity, str) and identity.split(".")[0] in {"train", "bench"}:
+            _require(path.is_relative_to(_SOURCE), f"first-party module escaped approved source root: {identity}")
         if not path.is_relative_to(_SOURCE):
             continue
         _require(path in pins and path.suffix == ".py", f"loaded first-party source lacks approved pin: {name}")
@@ -1604,6 +1731,7 @@ def _observe_calls(trainer: Any, observer: Any) -> ContextManager[None]:
                  and observer.saved and observer.native_save_returned and not active and not optimizer_active,
                  "missing native train/update/save observation")
         _require(observer.phase == 1 or observer.restores == 1, "missing normal native RNG restore")
+        observer.completed = True
     finally:
         sys.setprofile(previous)
         # We never install a trace hook, but preserve the preexisting trace too.
@@ -1627,10 +1755,31 @@ def _candidate_prerequisites() -> None:
 
 
 def _check_loaded_candidate(trainer: Any, config: Mapping[str, Any]) -> None:
+    from train import native_preflight, native_runtime
+
+    # This runs after the original trainer/model constructor, before train().
+    # Inspect that already-loaded process. Never invoke the fresh-only loader
+    # or reinterpret these observations as pre-allocation/runtime authority.
+    _require(not native_preflight._host_issues(), "loaded native host observation failed")
+    installed = native_runtime.native_runtime_report()
+    _require(installed["metadata_source"] == "installed"
+             and all(not installed["issues"][name] for name in native_preflight._CATEGORIES)
+             and all(installed["versions"].get(name) == exact
+                     for name, exact in native_preflight._EXACT.items()),
+             "loaded native installed metadata observation failed")
     dependencies = _observer_dependencies()
     torch = dependencies.torch
+    _require(torch is sys.modules.get("torch"), "loaded native Torch binding differs")
+    observation = {"issues": []}
+    _require(native_preflight._inspect_loaded(observation, installed["versions"])
+             and not observation["issues"], "loaded native source/version observation failed")
     _require(torch.cuda.is_available() and torch.cuda.device_count() == 1,
              "exactly one visible CUDA device required")
+    _require(native_preflight._inspect_device(torch, observation),
+             "loaded native device observation failed")
+    native_preflight._inspect_kernel(torch, observation)
+    _require(not observation["issues"] and observation["kernel"]["status"] == "observed",
+             "loaded native FP16 kernel observation failed")
     _require(trainer.args.world_size == 1 and trainer.args.process_index == 0,
              "distributed qualification is unsupported")
     _require(not trainer.is_deepspeed_enabled and not trainer.is_fsdp_enabled
@@ -1660,8 +1809,15 @@ def _check_loaded_candidate(trainer: Any, config: Mapping[str, Any]) -> None:
 def _run_phase(request: QualificationRequest, phase: Literal[1, 2]) -> None:
     from train import grpo_ptc, guards, native_model, native_training, sql_bridge
 
+    started_ns = time.monotonic_ns()
     _require(type(phase) is int and phase in (1, 2), "invalid native phase")
     _validate_request(request)
+    if phase == 1:
+        _require(not request.output_dir.exists(), "phase1 output must initially be fresh")
+    else:
+        prior = _read_phase_observation(request, 1)
+        _require(prior["pid"] != os.getpid() and prior["parent_pid"] == os.getppid(),
+                 "resume requires a fresh child of the same supervisor")
     config = grpo_ptc._preflight_invariants(grpo_ptc.TRAINED_ARMS_DEFAULT, guards.REPO_ROOT, 2)
     source = native_model.verify_local_model(request.model_dir, model_revision=native_model.MODEL_REVISION)
     prepared = sql_bridge.prepare_sql_training(request.tasks, request.db_root)
@@ -1672,12 +1828,18 @@ def _run_phase(request: QualificationRequest, phase: Literal[1, 2]) -> None:
     observer = _make_callback(trainer, phase, checkpoint_1)
     trainer.add_callback(observer)
     with _observe_calls(trainer, observer):
+        if guards.REPO_ROOT == _SOURCE:
+            _check_firstparty_sources(request)
         _check_sampler(trainer)
         if phase == 1:
             trainer.train()
         else:
             trainer.train(resume_from_checkpoint=str(checkpoint_1))
+    if guards.REPO_ROOT == _SOURCE:
+        _check_firstparty_sources(request)
     _check_checkpoint(trainer, request.output_dir / f"checkpoint-{phase}", phase)
+    _output_size(request.output_dir, request.bounds.artifact_bytes)
+    _write_phase_observation(request, phase, observer, started_ns=started_ns)
     _output_size(request.output_dir, request.bounds.artifact_bytes)
 
 
@@ -1717,6 +1879,7 @@ def _check_exported_artifacts(request: QualificationRequest, result: OwnedJobRes
     _output_size(root, request.bounds.artifact_bytes)
     _require({path.name for path in root.iterdir()} <= {"checkpoint-1", "checkpoint-2", "README.md"},
              "unexpected native export root members")
+    _check_phase_observations([_read_phase_observation(request, phase) for phase in (1, 2)])
     dependencies = _observer_dependencies()
     states = []
     adapters = []
@@ -1769,7 +1932,8 @@ def attempt_sql_qualification(
 ) -> tuple[Path, Path]:
     """Ask one trusted external owner for one attempt; never retry or authorize production."""
     _validate_request(request)
-    controller.require_approved(request)
+    _require(controller.require_approved(request) is None,
+             "external approval must return None or raise, not an approval label")
     result = controller.run_once(request)
     return _check_exported_artifacts(request, result)
 

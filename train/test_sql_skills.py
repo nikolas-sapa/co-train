@@ -26,6 +26,71 @@ if len(tables) == 1:
 '''
 
 
+def test_memory_legacy_promotion_bytes_unchanged_but_not_current_workflow_authority(monkeypatch):
+    from train import sql_episodes as episodes, sql_skills as skills
+    from train.sql_skill_pilot import ApprovedSkill
+
+    legacy_paths = (
+        "train/sql_skills.py", "train/sql_skill_eval.py", "ptc/sql_owned_program.py",
+        "train/sql_skill_pilot.py", "train/sql_pilot_api.py", "train/sql_pilot_assets.py",
+    )
+    assert skills.SOURCE_PATHS_LEGACY_V1 == legacy_paths
+    settings = episodes.InstrumentSettings(
+        2, 7, 7, "set", 30.0, 5.0, 30.0, "memory-python", "memory-sqlite",
+        ("synthetic/source.py",), "a" * 64,
+    )
+    source = skills.SourceRef("b" * 64, ids(), "source-task", "c" * 64, "d" * 64, settings)
+    scope = skills.SkillScope("fixture", "memory-shape", "memory-coarse")
+    candidate = skills.SkillCandidate(1, "memory-skill", "print('synthetic')", scope, source)
+    legacy_digest = pin(canonical(tuple((name, "e" * 64) for name in legacy_paths)))
+    binding = skills.SkillBinding(settings, legacy_paths, legacy_digest)
+    from bench.score import ExResult
+    refs = tuple(skills.QualificationRef(
+        "qualification", ids("q-" + str(i), "qualification"), "q-task-" + str(i),
+        str(i + 1) * 64, str(i + 5) * 64, "f" * 64, ExResult(1.0, "match", True),
+    ) for i in range(4))
+    promotion = skills.SkillPromotion(
+        1, pin(skills.encode_candidate(candidate)), scope, source,
+        ids("approval", "approval"), binding, refs,
+    )
+    historical = dataclasses.asdict(promotion)
+    del historical["binding"]["execution_binding"]
+    raw = envelope(historical, "sql_skill_promotion")
+    assert skills.encode_promotion(promotion) == raw
+    approved = ApprovedSkill(candidate, promotion, pin(raw),
+                             Path("/never-read-memory-approval"), "9" * 64)
+    decoded = skills.decode_promotion(raw)
+    assert skills.encode_promotion(decoded) == raw
+    assert decoded.binding.source_paths == legacy_paths
+    assert decoded.binding.source_sha256 == legacy_digest
+    effects = []
+
+    def forbidden_read(path):
+        effects.append("read-or-allocation")
+        raise AssertionError("legacy tuple should refuse before current-source reads")
+
+    monkeypatch.setattr(Path, "read_bytes", forbidden_read)
+    with pytest.raises(ValueError, match="current V2 workflow source contract required"):
+        skills._require_current_workflow_sources(decoded.binding, Path("/synthetic"))
+    from bench.task import SqlTask
+    from train import sql_skill_eval as evaluator
+
+    task = SqlTask(
+        name="reuse-task", question="memory question", evidence="", gold_sql="SELECT 1",
+        db_id="memory-db", db_path="/never-read-memory-database",
+        tier="simple", tier_source="annotated", shape="memory-shape",
+        coarse_shape="memory-coarse", source="fixture",
+    )
+    case = evaluator.SkillCase("reuse", task, ids("reuse", "reuse"))
+    with pytest.raises(ValueError, match="current V2 workflow source contract required"):
+        evaluator.reuse_promoted(candidate, decoded, case,
+                                 expected_promotion_sha256=pin(raw),
+                                 ids=decoded.ids, allow_execution=True)
+    assert effects == []
+    assert approved.promotion is promotion and approved.promotion_sha256 == pin(raw)
+    assert approved.approval_sha256 == "9" * 64 and skills.encode_promotion(decoded) == raw
+
+
 def api(name="sql_skills"):
     try:
         return importlib.import_module("train." + name)

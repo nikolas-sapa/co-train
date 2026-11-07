@@ -9,6 +9,37 @@ import pickle
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _local_lifecycle_only(monkeypatch):
+    """Stub unavailable external review only for these local lifecycle checks."""
+    from train import qualification_launch_admission as admission
+
+    monkeypatch.setattr(admission, "_require_provider_review", lambda request, quote: None)
+
+
+def _quote(request, *, issued_at=100.0, expires_at=4000.0, provisioning=0, teardown=0):
+    from train.qualification_costs import Charge, CostLedger
+    from train.qualification_launch_admission import freeze_cost_quote
+
+    zero = Decimal("0")
+    charges = {
+        name: Charge(zero, "item", zero, "USD/item", None)
+        for name in ("preparation", "build", "provisioning", "teardown", "replay", "ancillary")
+    }
+    seconds = Decimal(request.bounds.lifetime_seconds + provisioning + teardown)
+    charges.update({
+        "gpu": Charge(Decimal("1"), "gpu", zero, "USD/gpu-second", seconds),
+        "cpu": Charge(Decimal("1"), "physical-core", zero, "USD/physical-core-second", seconds),
+        "ram": Charge(Decimal("1"), "GiB", zero, "USD/GiB-second", seconds),
+        "storage": Charge(Decimal("1"), "GiB", zero, "USD/GiB-second", seconds),
+        "retention": Charge(Decimal("1"), "GiB", zero, "USD/GiB-second",
+                            Decimal(request.bounds.retention_seconds)),
+        "egress": Charge(Decimal("1"), "GiB", zero, "USD/GiB", None),
+    })
+    ledger = CostLedger(request.bounds.prior_usage_usd, zero, provisioning, teardown, charges)
+    return freeze_cost_quote(request.bounds, ledger, issued_at=issued_at, expires_at=expires_at)
+
+
 def _api():
     assert importlib.util.find_spec("train.qualification_owner") is not None, (
         "host lifecycle controller packet missing"
@@ -98,7 +129,7 @@ def _setup(approval=None):
     owner = module._QualificationOwner(
         operations=operations, operation_identity=identity,
         approve=approval if approval is not None else lambda request: True,
-        clock=clock,
+        clock=clock, quote=_quote(request),
     )
     return owner, operations, request, clock, identity
 
@@ -157,7 +188,8 @@ def test_success_retains_one_service_handle():
     assert custody.operation_identity is identity
     assert custody.app_identity is operations.app
     assert custody.resource_identity is operations.resource
-    assert owner.state == "closed"
+    assert owner.state == "termination_unknown"
+    assert owner.remote_termination == owner.charged_end == "UNKNOWN"
     assert _names(operations).count("create") == 1
 
 
@@ -173,6 +205,7 @@ def test_ambiguous_prehandle_failure_never_resubmits():
     assert _names(operations) == ["prepare", "create", "teardown"]
     assert operations.calls[-1][1].operation_identity is identity
     assert operations.calls[-1][1].resource_identity is None
+    assert operations.calls[-1][1].creation_ambiguous is True
     with pytest.raises(RuntimeError):
         owner.run_once(request)
     assert _names(operations).count("create") == 1

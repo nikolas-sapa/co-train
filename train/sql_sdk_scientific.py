@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable, Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from verifiers.v1.configs.cli.eval import EvalConfig
 from verifiers.v1.episode import Episode
@@ -12,6 +13,9 @@ from bench import paired_bird
 from bench.bird_sdk_driver import SqlScoreReceipt
 from ptc import sql_arms, sql_isolation as core
 from train import sql_capture, sql_episodes, sql_experiment_runner, sql_live_reuse
+
+if TYPE_CHECKING:
+    from train.sql_scientific_readiness import SqlScientificPlan
 
 
 class SqlScientificError(ValueError):
@@ -230,28 +234,71 @@ class SqlSdkScientificDriver:
 
 
 async def run_sql_sdk_scientific(
-    driver: SqlSdkScientificDriver, *,
+    driver: SqlSdkScientificDriver | SqlScientificPlan, *,
     operation: sql_experiment_runner.ScientificOperation,
     approve: Callable[[sql_experiment_runner.ScientificRequest], bool] | None,
     bash_run_arm: Callable[[paired_bird.ArmRequest], AsyncIterator[paired_bird.TaskOutcome]],
     bash_evidence_for: Callable[[paired_bird.TaskOutcome], sql_experiment_runner.CompletedEvidence],
     output_dir: Path, historical_baseline: Mapping[str, Path] | None = None,
+    executor_factory: Callable[
+        [sql_experiment_runner.ScientificRequest], core.PilotExecutor] | None = None,
+    allow_execution: bool = False, allow_model_requests: bool = False,
 ) -> sql_experiment_runner.ExperimentResult:
-    _require(type(driver) is SqlSdkScientificDriver
+    from train import sql_scientific_readiness as readiness
+
+    deferred = driver if type(driver) is readiness.SqlScientificPlan else None
+    _require((deferred is not None or type(driver) is SqlSdkScientificDriver)
              and callable(bash_run_arm) and callable(bash_evidence_for),
              "explicit original PTC driver and separately supplied Bash evidence required")
-    _require(not driver._composition_started, "scientific composition already consumed")
-    driver._composition_started = True
-    driver._check()
+    if deferred is None:
+        _require(executor_factory is None, "executor factory requires a deferred plan")
+        _require(not driver._composition_started, "scientific composition already consumed")
+        driver._composition_started = True
+        driver._check()
+        plan, instrument, policy_identity = driver.plan, driver.instrument, driver.policy_identity
+    else:
+        _require(allow_execution is True and allow_model_requests is True,
+                 "explicit execution and model-request opt-ins required")
+        deferred.consume()
+        _require(deferred.stage == "paired_bird" and callable(executor_factory),
+                 "paired scientific stage and deferred executor factory required")
+        plan, instrument = deferred.paired_plan, deferred.instrument
+        policy_identity = deferred.policy_identity
+        driver = None
 
     def admission(request):
+        nonlocal driver
         _require(type(request) is sql_experiment_runner.ScientificRequest
-                 and request.operation is operation and request.instrument is driver.instrument
-                 and request.plan_id == driver.plan.plan_id
-                 and request.policy_identity == driver.policy_identity
+                 and request.operation is operation and request.instrument is instrument
+                 and request.plan_id == plan.plan_id
+                 and request.eligible_count == len(plan.draw.eligible)
+                 and request.arms == ("bash", "ptc")
+                 and type(request.num_rollouts) is int and request.num_rollouts == 1
+                 and request.policy_identity == policy_identity
                  and callable(approve), "original scientific admission request required")
+        if deferred is not None:
+            deferred.check()
+        operation_state = core.canonical_json_bytes(operation)
+        request_state = core.canonical_json_bytes(request)
         accepted = approve(request)
         if accepted is True:
+            _require(core.canonical_json_bytes(request) == request_state
+                     and request.operation is operation and request.instrument is instrument
+                     and core.canonical_json_bytes(operation) == operation_state,
+                     "scientific operation changed during approval")
+            if deferred is not None:
+                deferred.check()
+                _require((deferred.settings.source_paths, deferred.settings.source_sha256)
+                         == sql_capture._owned_sources(),
+                         "current V2 owned capture source binding differs")
+                executor = executor_factory(request)
+                deferred.check()
+                driver = SqlSdkScientificDriver(
+                    plan, deferred.live_plan, deferred.config, executor=executor,
+                    instrument=instrument, settings=deferred.settings,
+                    expected_policy=deferred.expected_policy, policy_identity=policy_identity,
+                    capture=deferred.capture, allow_execution=True, allow_model_requests=True)
+                driver._composition_started = True
             driver._approval = request
             driver._active = True
             driver._check_approval()
@@ -267,10 +314,11 @@ async def run_sql_sdk_scientific(
 
     try:
         return await sql_experiment_runner.run_sql_experiment(
-            driver.plan, instrument=driver.instrument, policy_identity=driver.policy_identity,
+            plan, instrument=instrument, policy_identity=policy_identity,
             operation=operation, approve=admission, run_arm=run_arm,
             evidence_for=evidence_for, output_dir=output_dir,
             historical_baseline=historical_baseline)
     finally:
-        driver._active = False
-        driver._approval = None
+        if driver is not None:
+            driver._active = False
+            driver._approval = None

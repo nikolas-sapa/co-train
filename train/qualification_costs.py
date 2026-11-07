@@ -161,6 +161,8 @@ def evaluate_costs(bounds: AttemptBounds, ledger: CostLedger) -> CostArithmetic:
     provisioning = _integer(ledger.provisioning_seconds, "provisioning_seconds")
     teardown = _integer(ledger.teardown_seconds, "teardown_seconds")
     compute_seconds = bounds.lifetime_seconds + provisioning + teardown
+    if compute_seconds > 1800:
+        raise ValueError("aggregate lifetime including provisioning/teardown exceeds 1800 seconds")
     if not isinstance(ledger.charges, Mapping) or len(ledger.charges) != len(_CATEGORIES):
         raise ValueError("explicit complete charge mapping required")
     charges = dict(ledger.charges)

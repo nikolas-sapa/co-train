@@ -13,6 +13,93 @@ import weakref
 import pytest
 
 
+_REVIEWED_V2_CONTROLLER_SOURCES = frozenset({
+    "bench/__init__.py", "bench/bird_bash_live.py", "bench/bird_sdk_driver.py",
+    "bench/bird_sdk_live.py", "bench/loader.py", "bench/paired_bird.py",
+    "bench/prepare.py", "bench/score.py", "bench/shapes.py", "bench/suite.py", "bench/task.py",
+    "ptc/__init__.py", "ptc/bash_bridge_client.py", "ptc/bash_owned_runtime.py",
+    "ptc/bird_sql_broker.py", "ptc/bird_sql_worker.py", "ptc/bird_sql_worker_controller.py",
+    "ptc/bird_sql_worker_lifecycle.py", "ptc/harness.py", "ptc/metrics.py", "ptc/paired.py",
+    "ptc/runtime.py", "ptc/sql_arms.py", "ptc/sql_isolation.py", "ptc/sql_owned_bash.py",
+    "ptc/sql_owned_program.py", "ptc/sql_owned_score.py", "ptc/sql_runtime.py", "ptc/sqlite_safety.py",
+    "train/__init__.py", "train/dead_group_probe.py", "train/grpo_ptc.py", "train/guards.py",
+    "train/harness_swap_accounting.py", "train/native_runtime.py", "train/sql_capture.py",
+    "train/sql_capture_comparison.py", "train/sql_episodes.py", "train/sql_experiment_runner.py",
+    "train/sql_live_reuse.py", "train/sql_pilot_api.py", "train/sql_pilot_assets.py",
+    "train/sql_pilot_budget.py", "train/sql_scientific_readiness.py",
+    "train/sql_sdk_scientific.py", "train/sql_skill_eval.py", "train/sql_skill_pilot.py",
+    "train/sql_skills.py", "train/verdict.py",
+})
+_REVIEWED_STAGE_ONLY_SOURCES = frozenset({
+    "ptc/sql_worker.py", "bench/sql_score_worker.py", "train/sql_skill_workflow.py",
+    "train/sql_skill_isolation_acceptance.py", "train/sql_skill_sdk_acceptance.py",
+    "train/test_sql_skill_sdk_acceptance.py", "bench/sql_reuse_timing.py",
+    "ptc/sql_isolation_acceptance.py",
+})
+
+
+def test_memory_required_sources_exact_current_controller_closure():
+    from train import sql_capture, sql_skills, sql_skill_sdk_acceptance as acceptance
+
+    expected = _REVIEWED_V2_CONTROLLER_SOURCES | _REVIEWED_STAGE_ONLY_SOURCES
+    actual = acceptance.required_source_paths()
+    assert len(_REVIEWED_V2_CONTROLLER_SOURCES) == 49 and len(expected) == 57
+    assert actual == sorted(expected)
+    assert set(sql_capture.OWNED_SOURCE_PATHS_V2) == _REVIEWED_V2_CONTROLLER_SOURCES
+    assert set(sql_skills.SOURCE_PATHS_V2) == _REVIEWED_V2_CONTROLLER_SOURCES
+    # Current controller selection must not broaden the isolated worker roles.
+    a = acceptance._api()
+    assert a.isolation._PROGRAM_PATHS == (
+        "ptc/__init__.py", "ptc/runtime.py", "ptc/sql_arms.py", "ptc/sql_runtime.py",
+        "ptc/sqlite_safety.py", "ptc/sql_isolation.py", "ptc/sql_worker.py",
+    )
+    assert a.isolation._SCORER_PATHS == (
+        "bench/__init__.py", "bench/task.py", "bench/score.py", "bench/loader.py",
+        "bench/shapes.py", "bench/suite.py", "ptc/__init__.py", "ptc/runtime.py",
+        "ptc/sqlite_safety.py", "ptc/paired.py", "ptc/metrics.py",
+        "ptc/sql_isolation.py", "bench/sql_score_worker.py",
+    )
+
+
+def test_memory_staged_readiness_import_availability(monkeypatch):
+    from train import sql_capture, sql_skills, sql_skill_sdk_acceptance as acceptance
+
+    # Pure retained inventory, no module import, SDK run or runtime allocation
+    # is performed by the production source fingerprint operations below.
+    root = acceptance.ROOT
+    expected = _REVIEWED_V2_CONTROLLER_SOURCES | _REVIEWED_STAGE_ONLY_SOURCES
+    assert set(acceptance.required_source_paths()) == expected
+    inventory = {root / name: b"SYNTHETIC retained reviewed controller\n" for name in expected}
+    reads = []
+
+    def retained_bytes(path):
+        reads.append(path)
+        if path not in inventory:
+            raise FileNotFoundError("missing staged reviewed controller source")
+        return inventory[path]
+
+    monkeypatch.setattr(sql_capture, "_ROOT", root)
+    monkeypatch.setattr(Path, "read_bytes", retained_bytes)
+    current = sql_capture._owned_sources()
+    assert set(reads) == {root / name for name in _REVIEWED_V2_CONTROLLER_SOURCES}
+    assert len(reads) == 49
+    # All direct readiness dependencies and the experiment comparison dependency
+    # are frozen inventory members, not inferred from a module's basename.
+    for missing in (
+        "train/sql_scientific_readiness.py", "bench/paired_bird.py",
+        "train/harness_swap_accounting.py", "train/sql_experiment_runner.py",
+        "train/sql_capture_comparison.py",
+    ):
+        path = root / missing
+        retained = inventory.pop(path)
+        with pytest.raises(FileNotFoundError, match="missing staged"):
+            sql_capture._owned_sources()
+        with pytest.raises(ValueError, match="cannot read selected skill workflow sources"):
+            sql_skills._workflow_sources(root)
+        inventory[path] = retained
+        assert sql_capture._owned_sources() == current
+
+
 @pytest.fixture
 def api():
     return importlib.import_module("train.sql_skill_sdk_acceptance")
