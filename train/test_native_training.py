@@ -257,7 +257,7 @@ def test_public_constructor_has_no_runtime_or_gate_injection(api):
     signature = inspect.signature(api.build_sql_trainer)
     assert list(signature.parameters) == [
         "tasks", "db_root", "output_dir", "model_dir", "model_revision", "max_seq_length", "steps", "root",
-        "reporting",
+        "reporting", "capture_ids", "capture_sink",
     ]
     for name in ("output_dir", "model_dir", "model_revision", "max_seq_length", "steps", "root", "reporting"):
         assert signature.parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
@@ -571,3 +571,312 @@ def test_real_dataset_arrow_interop_only_not_selected_runtime_compatibility(wiri
     environment = trainer.kwargs["environment_factory"]()
     environment.reset(**dataset[1])
     assert environment.run_program(PROGRAM).strip() == "29"
+
+
+def test_shared_construction_preserves_settings_and_optimizer_ownership(api, tasks, tmp_path, monkeypatch):
+    construct = getattr(api, "_construct_sql_trainer", None)
+    assert callable(construct), "missing private _construct_sql_trainer, expected failure-first RED"
+    assert list(inspect.signature(construct).parameters) == [
+        "prepared", "source", "config", "output", "max_seq_length",
+    ]
+    for name in ("output", "max_seq_length"):
+        assert inspect.signature(construct).parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
+    assert list(inspect.signature(api.build_sql_trainer).parameters) == [
+        "tasks", "db_root", "output_dir", "model_dir", "model_revision", "max_seq_length",
+        "steps", "root", "reporting", "capture_ids", "capture_sink",
+    ]
+    prepared = api.sql_bridge.prepare_sql_training(tasks, tmp_path)
+    assert isinstance(prepared, api.sql_bridge.SQLTrainingInputs)
+    source = api.native_model.VerifiedLocalModel(
+        path=str(tmp_path / "model-source-wiring-only"),
+        model_id=grpo_ptc.MODEL, revision=REVISION,
+        inventory_sha256="b" * 64, files_verified=1,
+    )
+    assert isinstance(source, api.native_model.VerifiedLocalModel)
+    config = grpo_ptc.training_config(steps=17)
+    before = copy.deepcopy(config)
+    rows_before = copy.deepcopy(prepared.dataset_rows)
+    output = tmp_path / "shared-construction-wiring-only"
+    max_seq_length = config["max_completion_length"] + 21
+    calls = SimpleNamespace(
+        runtime=[], dataset=[], model=[], peft=[], config=[], trainer=[],
+        renders=[], suffix=[], forbidden=[],
+    )
+    base_model, adapted_model, dataset, dtype = object(), object(), object(), object()
+    selected_template = "NATIVE_TRAINER_TEMPLATE_WIRING_ONLY"
+    stock_template = "STOCK_TOKENIZER_TEMPLATE_WIRING_ONLY"
+
+    def forbidden(*args, **kwargs):
+        calls.forbidden.append((args, kwargs))
+        raise AssertionError("construction must not step, train or save")
+
+    class Tokenizer:
+        chat_template = stock_template
+
+        def apply_chat_template(self, conversation=None, **kwargs):
+            calls.renders.append((copy.deepcopy(conversation), kwargs))
+            return [3] * 21
+
+    tokenizer = Tokenizer()
+
+    class Dataset:
+        @staticmethod
+        def from_list(rows):
+            assert rows is prepared.dataset_rows
+            calls.dataset.append(copy.deepcopy(rows))
+            return dataset
+
+    class FastLanguageModel:
+        @staticmethod
+        def from_pretrained(**kwargs):
+            calls.model.append(kwargs)
+            return base_model, tokenizer
+
+        @staticmethod
+        def get_peft_model(model, **kwargs):
+            assert model is base_model
+            calls.peft.append(kwargs)
+            return adapted_model
+
+    class GRPOConfig:
+        def __init__(self, **kwargs):
+            calls.config.append(kwargs)
+            self.__dict__.update(kwargs)
+
+    class GRPOTrainer:
+        def __init__(self, **kwargs):
+            calls.trainer.append(kwargs)
+            self.processing_class = kwargs["processing_class"]
+            self.chat_template = selected_template
+            self.chat_template_kwargs = dict(kwargs["args"].chat_template_kwargs)
+            environment = kwargs["environment_factory"]()
+            self._env_tools = {None: [
+                method for name, method in inspect.getmembers(environment, inspect.ismethod)
+                if name not in {"reset", "get_reward"} and not name.startswith("_")
+            ]}
+
+        def _get_tool_suffix_ids(self, tool_messages):
+            calls.suffix.append(copy.deepcopy(tool_messages))
+            return [50, 51]
+
+        train = save_model = save_state = _save_checkpoint = step = forbidden
+        create_optimizer = create_optimizer_and_scheduler = forbidden
+
+    def get_json_schema(method):
+        assert method.__name__ == "run_program"
+        return copy.deepcopy(grpo_ptc.THE_TOOL_SCHEMA)
+
+    runtime = SimpleNamespace(
+        Dataset=Dataset, FastLanguageModel=FastLanguageModel,
+        torch=SimpleNamespace(float16=dtype), GRPOConfig=GRPOConfig,
+        GRPOTrainer=GRPOTrainer, get_json_schema=get_json_schema,
+    )
+
+    def load_runtime():
+        calls.runtime.append("load_runtime")
+        return runtime
+
+    # Only the private runtime seam is replaced, not production admission.
+    monkeypatch.setattr(api, "_load_runtime", load_runtime)
+    trainer = construct(prepared, source, config, output=output, max_seq_length=max_seq_length)
+    assert type(trainer) is GRPOTrainer
+    assert calls.runtime == ["load_runtime"]
+    assert calls.dataset == [rows_before]
+    assert calls.model == [{
+        "model_name": source.path, "use_exact_model_name": True, "local_files_only": True,
+        "dtype": dtype, "max_seq_length": max_seq_length, "load_in_4bit": False,
+        "fast_inference": True, "max_lora_rank": dead_group_probe.LORA_RANK,
+        "gpu_memory_utilization": dead_group_probe.GPU_MEMORY_UTILIZATION,
+    }]
+    assert calls.peft == [{
+        "r": dead_group_probe.LORA_RANK, "lora_alpha": dead_group_probe.LORA_RANK,
+    }]
+    per_device, accumulation = dead_group_probe.batch_for(dead_group_probe.NUM_GENERATIONS)
+    expected_config = dict(before)
+    expected_config.update(
+        output_dir=str(output), remove_unused_columns=False,
+        per_device_train_batch_size=per_device, gradient_accumulation_steps=accumulation,
+        max_tool_calling_iterations=prepared.max_tool_calling_iterations,
+        save_strategy="steps", save_steps=17, save_only_model=False, push_to_hub=False,
+    )
+    assert calls.config == [expected_config]
+    assert len(calls.trainer) == 1
+    arguments = calls.trainer[0]
+    assert set(arguments) == {
+        "model", "processing_class", "reward_funcs", "args", "train_dataset",
+        "environment_factory",
+    }
+    assert arguments["model"] is adapted_model
+    assert arguments["processing_class"] is tokenizer
+    assert type(arguments["args"]) is GRPOConfig
+    assert vars(arguments["args"]) == expected_config
+    assert arguments["train_dataset"] is dataset
+    assert len(arguments["reward_funcs"]) == 1
+    assert arguments["reward_funcs"][0] is prepared.reward
+    assert arguments["environment_factory"] is prepared.environment_factory
+    assert "optimizers" not in arguments
+    tools = trainer._env_tools[None]
+    assert len(tools) == 1 and tools[0].__name__ == "run_program"
+    assert calls.suffix == [[{
+        "role": "tool", "name": guards.THE_TOOL, "content": "native prefix boundary probe",
+    }]]
+    assert len(calls.renders) == 2
+    for (conversation, kwargs), row in zip(calls.renders, rows_before, strict=True):
+        assert conversation == row["prompt"]
+        assert kwargs == {
+            "tools": tools, "chat_template": selected_template,
+            "add_generation_prompt": True, "tokenize": True, "return_dict": False,
+            **before["chat_template_kwargs"],
+        }
+    assert tokenizer.chat_template == stock_template
+    assert config == before
+    assert prepared.dataset_rows == rows_before
+    assert calls.forbidden == []
+    assert not output.exists()
+
+
+def test_production_constructor_remains_closed_without_qualification(api, tasks, tmp_path, monkeypatch):
+    attempted = []
+    real_import = builtins.__import__
+    real_import_module = importlib.import_module
+    frameworks = FRAMEWORKS | {"unsloth_zoo", "accelerate", "bitsandbytes"}
+
+    def guarded_import(name, *args, **kwargs):
+        if name.split(".")[0] in frameworks:
+            attempted.append(name)
+            raise AssertionError("framework import before closed production preflight")
+        return real_import(name, *args, **kwargs)
+
+    def guarded_import_module(name, *args, **kwargs):
+        if name.split(".")[0] in frameworks:
+            attempted.append(name)
+            raise AssertionError("framework import before closed production preflight")
+        return real_import_module(name, *args, **kwargs)
+
+    def forbidden(*args, **kwargs):
+        attempted.append("runtime/model/preparation")
+        raise AssertionError("closed production constructor reached construction")
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    monkeypatch.setattr(importlib, "import_module", guarded_import_module)
+    monkeypatch.setattr(api, "_load_runtime", forbidden)
+    monkeypatch.setattr(api.native_model, "verify_local_model", forbidden)
+    monkeypatch.setattr(api.sql_bridge, "prepare_sql_training", forbidden)
+    output = tmp_path / "production-constructor-never-created"
+    with pytest.raises(guards.PreconditionUnmet, match="gate|frontier"):
+        api.build_sql_trainer(
+            tasks, tmp_path, output_dir=output, model_dir=tmp_path / "unread-model",
+            model_revision=REVISION, max_seq_length=8192, steps=17,
+        )
+    assert attempted == []
+    assert not output.exists()
+
+
+def test_production_runtime_remains_closed_with_perfect_candidate_metadata(api, monkeypatch):
+    runtime = importlib.import_module("train.native_runtime")
+    selected = {
+        "unsloth": "2026.10.3", "unsloth_zoo": "2026.10.3", "trl": "1.13.0",
+        "transformers": "5.17.0", "torch": "2.11.0", "vllm": "0.23.0",
+        "datasets": "4.7.0", "accelerate": "1.4.0", "peft": "0.18.0",
+    }
+    attempted, metadata_reads = [], []
+    real_import = builtins.__import__
+    real_import_module = importlib.import_module
+    frameworks = FRAMEWORKS | {"unsloth_zoo", "accelerate", "bitsandbytes"}
+
+    def guarded_import(name, *args, **kwargs):
+        if name.split(".")[0] in frameworks:
+            attempted.append(name)
+            raise AssertionError("metadata policy imported a framework")
+        return real_import(name, *args, **kwargs)
+
+    def guarded_import_module(name, *args, **kwargs):
+        if name.split(".")[0] in frameworks:
+            attempted.append(name)
+            raise AssertionError("metadata policy imported a framework")
+        return real_import_module(name, *args, **kwargs)
+
+    def version(name):
+        metadata_reads.append(name)
+        return selected[name]
+
+    def forbidden(*args, **kwargs):
+        attempted.append("runtime/model")
+        raise AssertionError("metadata policy reached runtime/model work")
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    monkeypatch.setattr(importlib, "import_module", guarded_import_module)
+    monkeypatch.setattr(runtime.metadata, "version", version)
+    monkeypatch.setattr(api, "_load_runtime", forbidden)
+    monkeypatch.setattr(api.native_model, "verify_local_model", forbidden)
+    report = runtime.native_runtime_report(selected)
+    assert report["metadata_source"] == "fixture"
+    assert report["versions"] == selected
+    for category in ("missing", "invalid", "native", "selected", "policy"):
+        assert not report["issues"][category]
+    unresolved = report["issues"]["unresolved"]
+    assert len(unresolved) == 5
+    assert tuple(unresolved) == runtime._UNRESOLVED
+    for message, fragment in zip(unresolved, (
+        "transitive dependency", "driver/kernel ABI", "patched Unsloth/TRL runtime",
+        "read-only artifact isolation", "Scientific measurement review",
+    ), strict=True):
+        assert fragment in message
+    flags = (
+        "candidate_approved", "dependency_graph_verified", "abi_verified",
+        "runtime_verified", "training_verified", "launch_authorized",
+    )
+    assert all(report[name] is False for name in flags)
+    with pytest.raises(runtime.NativeRuntimeError, match="unresolved") as error:
+        runtime.require_native_runtime()
+    refused = error.value.report
+    assert refused["metadata_source"] == "installed"
+    assert refused["versions"] == selected
+    assert refused["issues"] == report["issues"]
+    assert all(refused[name] is False for name in flags)
+    assert len(metadata_reads) == 9
+    assert set(metadata_reads) == set(selected)
+    assert attempted == []
+
+
+def test_production_cli_remains_deliberately_closed(api, monkeypatch):
+    attempted, wiring_preflight_calls = [], []
+    real_import = builtins.__import__
+    real_import_module = importlib.import_module
+    frameworks = FRAMEWORKS | {"unsloth_zoo", "accelerate", "bitsandbytes"}
+
+    def guarded_import(name, *args, **kwargs):
+        if name.split(".")[0] in frameworks:
+            attempted.append(name)
+            raise AssertionError("closed CLI imported a training framework")
+        return real_import(name, *args, **kwargs)
+
+    def guarded_import_module(name, *args, **kwargs):
+        if name.split(".")[0] in frameworks:
+            attempted.append(name)
+            raise AssertionError("closed CLI imported a training framework")
+        return real_import_module(name, *args, **kwargs)
+
+    def forbidden(*args, **kwargs):
+        attempted.append("construction/training/save")
+        raise AssertionError("closed CLI attempted construction, training or saving")
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    monkeypatch.setattr(importlib, "import_module", guarded_import_module)
+    monkeypatch.setattr(api, "_load_runtime", forbidden)
+    monkeypatch.setattr(api, "build_sql_trainer", forbidden)
+    monkeypatch.setattr(api.native_model, "verify_local_model", forbidden)
+    with pytest.raises(guards.PreconditionUnmet, match="gate|frontier"):
+        grpo_ptc.main(["--steps", "17"])
+    assert attempted == []
+
+    def wiring_preflight(arms, *, steps):
+        wiring_preflight_calls.append((list(arms), steps))
+        return grpo_ptc.training_config(arms, steps=steps)
+
+    # Wiring only: expose the CLI's second refusal, never real runtime admission.
+    monkeypatch.setattr(grpo_ptc, "preflight", wiring_preflight)
+    with pytest.raises(NotImplementedError, match="cannot silently produce a run"):
+        grpo_ptc.main(["--steps", "17"])
+    assert wiring_preflight_calls == [(list(grpo_ptc.TRAINED_ARMS_DEFAULT), 17)]
+    assert attempted == []

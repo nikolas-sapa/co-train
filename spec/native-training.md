@@ -332,3 +332,108 @@ production deployment or push. Do not replace TRL/Unsloth with another trainer.
 Do not add a receipt checker that emits invented gradients/weights or calls
 fixture consistency real learning. Actual sampler/logprob, optimizer and
 checkpoint restore evidence remains a separately approved runtime task.
+
+## Private bounded engineering attempt (2026-11-07)
+
+`train/native_qualification.py` adds a separate engineering API, not production
+admission. Historical two-task constructor/unit semantics above remain unchanged.
+Default module initialization is stdlib-only, with no framework/provider import,
+file output, subprocess, model read/download or resource allocation.
+
+Typed entrypoint: `attempt_sql_qualification(request: QualificationRequest, *,
+controller: QualificationController) -> tuple[Path, Path]`.
+The four DTOs are frozen dataclasses with these exact fields:
+
+| Type | Fields |
+| --- | --- |
+| `FilePin` | `path: Path`, `size: int`, `sha256: str` |
+| `AttemptBounds` | `total_ceiling_usd: Decimal`, `prior_usage_usd: Decimal`, `remaining_worst_case_usd: Decimal`, `lifetime_seconds: int`, `output_bytes_per_phase: int`, `artifact_bytes: int`, `retention_seconds: int` |
+| `QualificationRequest` | `tasks: tuple[SqlTask, ...]`, `db_root: Path`, `model_dir: Path`, `output_dir: Path`, `source_pins: tuple[FilePin, ...]`, `database_pins: tuple[FilePin, ...]`, `runtime_inventory: FilePin`, `image_digest: str`, `bounds: AttemptBounds` |
+| `OwnedJobResult` | `service_handle: object`, `exported_root: Path`, `phase_returncodes: tuple[int, int]` |
+
+`QualificationController` is a Protocol with
+`require_approved(self, request: QualificationRequest) -> None` and
+`run_once(self, request: QualificationRequest) -> OwnedJobResult`.
+The entrypoint validates the request, calls approval, calls `run_once` once, then
+checks exported artifacts before returning checkpoint-1/checkpoint-2 paths.
+These paths are review artifacts, not a Trainer, certificate or launch approval.
+The trusted authenticated EXTERNAL controller owns exact-operation approval
+before build/upload/allocation, all charges, one service-issued resource/handle,
+external finite termination, bounded export/retention and unconditional teardown,
+including failure before a handle can be returned. No retry/replacement resource.
+There is no default provider adapter. JSON, hashes, DTO types, image-digest labels
+and healthy logs cannot manufacture approval, custody or service-image binding.
+
+One bounded attempt permits at most one GPU and two fresh sequential phase
+processes sharing a deadline of at most 1,800 seconds. Phase-1 failure, timeout or
+combined stdout/stderr overflow prevents phase 2. Output/artifact/retention bounds
+must be positive integers (bool refused); the external owner bounds the resource
+even if worker cleanup fails. Process groups are not hostile-process containment.
+The portable helper never sends a terminating signal after leader reap or when
+ownership is ambiguous; residual groups require external-owner teardown.
+
+Financial fields require finite `Decimal`: `0 < total_ceiling_usd <= 25`,
+`prior_usage_usd >= 0`, `remaining_worst_case_usd >= 0`, and the exact inequality
+`prior_usage_usd + remaining_worst_case_usd <= total_ceiling_usd`.
+The helper compares decimal digits without caller-context arithmetic/rounding or
+context mutation, including very small exponents. This nominal bound is NOT a
+provider all-charge guarantee. External approval/enforcement must cover TOTAL
+usage, including credits, build/preparation, CPU/GPU/RAM, storage, transfer,
+export, retention and teardown, not compute-only estimates.
+
+Qualification uses four DISTINCT SQLite tasks (17/29/41/53), not duplicated rows
+or a changed two-task constructor contract. Original G4/batch8/accumulation2
+resolves generation batch16: the actual sampler must yield exactly 32 indices,
+four IDs eight times each, and the prepared loader two 16-row batches.
+The bounded disposable probe restores touched RNG; training owns its loader.
+No model-family/revision/configuration substitutes: registered
+`unsloth/Qwen3-0.6B`, revision `db4e90b8359f816f09bf5c944797ce116f26da3c`,
+horizon2, LoRA rank/alpha32, FP16, context8192/completion3072 and original native
+reward/environment/optimizer ownership remain required, not BF16/4-bit variants.
+Pinned source/model/database bytes are checked before staging and at worker roots.
+Closed bounded wire JSON carries relative asset keys, never host credentials,
+host absolute paths or arbitrary argv. Fixed worker source/model/data roots are
+`/opt/qualification/{source,model,data}`; request/output live under
+`/var/tmp/qualification/`. Image/interpreter/runtime and read-only isolation need
+external operational admission, not inference from a digest or installed metadata.
+
+Phase 1 uses original native training, saves checkpoint 1 and stops at update 1
+without changing horizon2. Phase 2 constructs the original trainer in a fresh
+process and calls `trainer.train(resume_from_checkpoint=str(checkpoint_1))`
+for update 2. No adapter-only reload, alternate optimizer or manual state writer
+qualifies. Required observations include finite gradients with a nonzero
+trainable gradient, finite same-parameter displacement, native optimizer-state
+advance, scheduler progression and no AMP-skipped update, not hook counts alone.
+Full native checkpoint state includes model/adapter, optimizer, scheduler, scaler,
+RNG and enabled adaptive-entropy state. Both exported checkpoints require active
+FP16 `scaler.pt`; restore comparisons precede resumed generation, with RNG checked
+immediately after actual native restore. `on_train_begin` is not RNG proof.
+Native readers use `weights_only=True`, the restricted native NumPy RNG allowlist
+and safetensors; `training_args.bin` stays opaque, never unrestricted pickle.
+The profiler distinguishes a normal `None` return from exceptional unwind by
+the executing return opcode, preserves the primary exception and restores hooks.
+Approved-source-derived code/closure identities and parameter ownership bind the
+actual optimizer graph: scheduler owns outer Accelerate optimizer A, not another
+wrapper B around the same base. Matching names/current-code hashes are insufficient.
+Compiled kernels, CPython and OS remain trusted boundaries, not recursively
+attested dependencies. Native sampler-local/vLLM engine state is not automatically
+fully restored; no token-identical or uninterrupted-trajectory equivalence claim.
+
+Evidence limits: parent `../native-budget-fix-v16-report.md` records 68/68
+model-free PASS in 3.280s, plus a separate 1,200-vector/36-context budget matrix:
+87,552 helper checks and 1,152 bounds calls, zero mismatches. These counts are NOT
+native GPU proof; Tiny/ZIP fixtures are not actual Torch checkpoint-loader proof.
+Later parent `../pinned-model-independent-audit-v20-external-receipt.json` records
+10 files/1,208,024,185 bytes independently byte-verified in 1.398s. This later
+byte-identity receipt does not rewrite the historical acquisition account above
+or establish model loading, runtime compatibility, custody or native execution.
+Contracts: `../native-qualification-v6-test-contract.md` and
+`../native-qualification-v11-repair-test-contract.md` (relative to worktree root).
+Parent receipt/report paths here are external review references, not shipped APIs.
+
+Controller/image/dependency/kernel/API/isolation/all-charge operational gates
+remain unresolved; no cloud launch occurs here. Five UNRESOLVED production gates,
+six false report fields and the public constructor/runtime/production CLI refusal
+remain unchanged. No native/scientific qualification, BIRD baseline, savings or
+new approval is established. BIRD baseline stays missing, not zero; stages 4/5
+remain PARTIAL and stage 6 BLOCKED. Documentation readback only; runtime UNRUN.

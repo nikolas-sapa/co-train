@@ -164,6 +164,60 @@ def _validate_native_view(
             )
 
 
+def _construct_sql_trainer(
+    prepared: sql_bridge.SQLTrainingInputs,
+    source: native_model.VerifiedLocalModel,
+    config: Mapping[str, Any],
+    *,
+    output: pathlib.Path,
+    max_seq_length: int,
+) -> Any:
+    runtime = _load_runtime()
+    dataset = runtime.Dataset.from_list(prepared.dataset_rows)
+    per_device, accumulation = dead_group_probe.batch_for(dead_group_probe.NUM_GENERATIONS)
+    config = dict(config)
+    config.update(
+        output_dir=str(output),
+        remove_unused_columns=False,
+        per_device_train_batch_size=per_device,
+        gradient_accumulation_steps=accumulation,
+        max_tool_calling_iterations=prepared.max_tool_calling_iterations,
+        save_strategy="steps",
+        save_steps=config["max_steps"],
+        save_only_model=False,
+        push_to_hub=False,
+    )
+    model, tokenizer = runtime.FastLanguageModel.from_pretrained(
+        model_name=source.path,
+        use_exact_model_name=True,
+        local_files_only=True,
+        dtype=runtime.torch.float16,
+        max_seq_length=max_seq_length,
+        load_in_4bit=False,
+        fast_inference=True,
+        max_lora_rank=dead_group_probe.LORA_RANK,
+        gpu_memory_utilization=dead_group_probe.GPU_MEMORY_UTILIZATION,
+    )
+    model = runtime.FastLanguageModel.get_peft_model(
+        model, r=dead_group_probe.LORA_RANK, lora_alpha=dead_group_probe.LORA_RANK,
+    )
+    trainer = runtime.GRPOTrainer(
+        model=model,
+        processing_class=tokenizer,
+        reward_funcs=[prepared.reward],
+        args=runtime.GRPOConfig(**config),
+        train_dataset=dataset,
+        environment_factory=prepared.environment_factory,
+    )
+    _validate_native_view(
+        trainer, prepared.dataset_rows, runtime,
+        max_seq_length=max_seq_length,
+        completion_cap=config["max_completion_length"],
+        chat_template_kwargs=config["chat_template_kwargs"],
+    )
+    return trainer
+
+
 def build_sql_trainer(
     tasks: Iterable[SqlTask],
     db_root: str | pathlib.Path,
@@ -214,46 +268,6 @@ def build_sql_trainer(
         prepared = sql_bridge.prepare_sql_training(
             tasks, db_root, root=root, reporting=reporting, **capture_options,
         )
-    runtime = _load_runtime()
-    dataset = runtime.Dataset.from_list(prepared.dataset_rows)
-    per_device, accumulation = dead_group_probe.batch_for(dead_group_probe.NUM_GENERATIONS)
-    config.update(
-        output_dir=str(output),
-        remove_unused_columns=False,
-        per_device_train_batch_size=per_device,
-        gradient_accumulation_steps=accumulation,
-        max_tool_calling_iterations=prepared.max_tool_calling_iterations,
-        save_strategy="steps",
-        save_steps=steps,
-        save_only_model=False,
-        push_to_hub=False,
+    return _construct_sql_trainer(
+        prepared, source, config, output=output, max_seq_length=max_seq_length,
     )
-    model, tokenizer = runtime.FastLanguageModel.from_pretrained(
-        model_name=source.path,
-        use_exact_model_name=True,
-        local_files_only=True,
-        dtype=runtime.torch.float16,
-        max_seq_length=max_seq_length,
-        load_in_4bit=False,
-        fast_inference=True,
-        max_lora_rank=dead_group_probe.LORA_RANK,
-        gpu_memory_utilization=dead_group_probe.GPU_MEMORY_UTILIZATION,
-    )
-    model = runtime.FastLanguageModel.get_peft_model(
-        model, r=dead_group_probe.LORA_RANK, lora_alpha=dead_group_probe.LORA_RANK,
-    )
-    trainer = runtime.GRPOTrainer(
-        model=model,
-        processing_class=tokenizer,
-        reward_funcs=[prepared.reward],
-        args=runtime.GRPOConfig(**config),
-        train_dataset=dataset,
-        environment_factory=prepared.environment_factory,
-    )
-    _validate_native_view(
-        trainer, prepared.dataset_rows, runtime,
-        max_seq_length=max_seq_length,
-        completion_cap=config["max_completion_length"],
-        chat_template_kwargs=config["chat_template_kwargs"],
-    )
-    return trainer
