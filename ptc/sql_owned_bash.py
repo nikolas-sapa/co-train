@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import os
 from pathlib import Path
 
@@ -61,6 +62,7 @@ class BashSqlBinding:
         self, *, task: Task, sql_task: SqlTask, instrument: InstrumentSettings,
         harness: BashHarness, broker_config: TaskSqlBrokerConfig,
         db_sha256: str, db_size_bytes: int, schema: str,
+        host_authority=None,
     ):
         try:
             if (not isinstance(task, Task) or type(task.data) is not TaskData
@@ -118,6 +120,21 @@ class BashSqlBinding:
         self._close_task: asyncio.Task | None = None
         self._cleanup_error: BaseException | None = None
         self._cleanup_cancellation: asyncio.CancelledError | None = None
+        if host_authority is not None and (
+                not callable(host_authority) or inspect.iscoroutinefunction(host_authority)
+                or inspect.iscoroutinefunction(getattr(host_authority, "__call__", None))):
+            raise BashSqlError("synchronous host authority required")
+        self.host_authority = self._host_authority = host_authority
+
+    def _check_host(self):
+        if self.host_authority is not self._host_authority:
+            self._fail()
+        if self._host_authority is not None:
+            result = self._host_authority()
+            if result is not None:
+                if inspect.iscoroutine(result):
+                    result.close()
+                self._fail()
 
     @property
     def cleanup_error(self) -> BaseException | None:
@@ -136,6 +153,7 @@ class BashSqlBinding:
 
     def _check_binding(self, *, allow_closed: bool) -> None:
         try:
+            self._check_host()
             if (self._invalid or (self._closed and not allow_closed)
                     or self._task is not self._task_owner
                     or self._task.data is not self._data
@@ -165,6 +183,7 @@ class BashSqlBinding:
                 raise ValueError("binding changed")
             _validate_instrument(self._instrument)
             self._executor_validator._check_identity()
+            self._check_host()
         except Exception:
             self._fail()
 
@@ -180,6 +199,7 @@ class BashSqlBinding:
             self._fail()
         self._ids.add(call_id)
         self._active = call_id
+        self._check_host()
 
     def after_action(self, call_id: str) -> None:
         self.check_binding()
@@ -190,6 +210,7 @@ class BashSqlBinding:
         except Exception:
             self._fail()
         self._active = None
+        self._check_host()
 
     async def execute_sql(self, *, query: str) -> QueryWorkerResult:
         try:
@@ -199,7 +220,9 @@ class BashSqlBinding:
             encode_query_request(query, limits=self._broker_config.controller.worker.limits)
             self._queries += 1
             try:
+                self._check_host()
                 result = await self._broker.query(query)
+                self._check_host()
             finally:
                 self._queries -= 1
             self.check_binding()
@@ -225,6 +248,7 @@ class BashSqlBinding:
         self._check_binding(allow_closed=True)
         if self._active is not None or self._queries:
             self._fail()
+        self._check_host()
         try:
             self._close_task.result()
             if not self._owner.closed:

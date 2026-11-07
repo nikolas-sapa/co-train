@@ -417,8 +417,9 @@ class BashActionController:
     def fail(self, error: BaseException):
         self.binding._invalid = True
         if not self.fatal.done():
-            self.fatal.set_result(BashBridgeError(
-                f"Bash bridge invalid: {type(error).__name__}"))
+            self.fatal.set_result(
+                error if isinstance(error, asyncio.CancelledError) else BashBridgeError(
+                    f"Bash bridge invalid: {type(error).__name__}"))
 
     def check(self):
         if self.closed or self.fatal.done():
@@ -649,7 +650,12 @@ class BashActionController:
         except BaseException as error:
             errors.append(error)
         if errors or self.runtime.owned_containers or self.owned_cleanup:
-            raise BashBridgeError("owned cleanup remains unresolved")
+            if errors and isinstance(errors[0], asyncio.CancelledError):
+                for secondary in errors[1:]:
+                    errors[0].add_note(f"secondary cleanup: {type(secondary).__name__}")
+                raise errors[0]
+            raise BashBridgeError("owned cleanup remains unresolved") from (
+                errors[0] if errors else None)
 
     async def aclose(self):
         if self._close_task is None:
@@ -856,8 +862,13 @@ class BashOwnedDockerRuntime(DockerRuntime):
             self.engine_tasks = {task for task in self.engine_tasks if not task.done()}
             if reaped:
                 self.engine_processes.discard(proc)
-            if failure is not None and self.controller is not None:
-                self.controller.fail(failure)
+            if failure is not None:
+                try:
+                    controller = self.controller
+                    if controller is not None:
+                        controller.fail(failure)
+                except BaseException as secondary:
+                    self.cleanup_errors.append(secondary)
         if failure is not None:
             raise failure
         return result
@@ -1121,17 +1132,18 @@ class BashOwnedDockerRuntime(DockerRuntime):
                for key in values):
             raise BashBridgeError("policy interpreter/shell injection environment refused")
         values["PATH"] = "/bridge-bin:/usr/local/bin:/usr/bin:/bin"
+        controller = self.controller
         token = _DEADLINE.set(self._begin_policy_operation())
         try:
-            result = await self.controller.race_policy(self.run(argv, values))
-            await join_owned(asyncio.create_task(self.controller.control.close()))
-            self.controller.check()
+            result = await controller.race_policy(self.run(argv, values))
+            await join_owned(asyncio.create_task(controller.control.close()))
+            controller.check()
             return result
         except BaseException:
             try:
-                await join_owned(asyncio.create_task(self.controller.aclose()))
+                await join_owned(asyncio.create_task(controller.aclose()))
             except BaseException as secondary:
-                self.controller.cleanup_errors.append(secondary)
+                controller.cleanup_errors.append(secondary)
             raise
         finally:
             _DEADLINE.reset(token)
@@ -1158,11 +1170,13 @@ class BashOwnedDockerRuntime(DockerRuntime):
                 self.engine_processes.discard(proc)
             except BaseException as error:
                 errors.append(error)
-        if self.controller is not None:
-            try:
-                await self.controller.aclose()
-            except BaseException as error:
-                errors.append(error)
+        controller = None
+        try:
+            controller = self.controller
+            if controller is not None:
+                await controller.aclose()
+        except BaseException as error:
+            errors.append(error)
         for name in tuple(self.owned_containers):
             if name in self.retirement_attempts:
                 continue
@@ -1182,8 +1196,8 @@ class BashOwnedDockerRuntime(DockerRuntime):
                 errors.append(error)
         if errors or self.owned_containers or self.engine_tasks or self.engine_processes:
             raise BashBridgeError("owned cleanup unresolved") from (errors[0] if errors else None)
-        if self.controller is not None:
-            for capability in (self.controller.control, self.controller.sql):
+        if controller is not None:
+            for capability in (controller.control, controller.sql):
                 if capability is not None and capability.custody is not None:
                     capability.custody.close()
                     capability.custody = None
@@ -1192,7 +1206,6 @@ class BashOwnedDockerRuntime(DockerRuntime):
         self.custodies.clear()
 
     async def teardown(self) -> None:
-        self.stopped = True
         if self._teardown_task is None:
             self._teardown_deadline = asyncio.get_running_loop().time() + self.limits.retirement_s
             self._teardown_task = asyncio.create_task(

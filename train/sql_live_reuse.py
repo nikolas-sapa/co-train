@@ -1,8 +1,10 @@
 """Explicit private PTC evaluation custody, not policy/native qualification."""
 from __future__ import annotations
 
+import asyncio
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from verifiers.v1.agent import Agent, _EpisodeAgent
 from verifiers.v1.cli.eval.runner import run_eval
@@ -12,6 +14,7 @@ from verifiers.v1.configs.cli.eval import EvalConfig
 from verifiers.v1.configs.task import TaskConfig
 from verifiers.v1.configs.taskset import TasksetConfig
 from verifiers.v1.episode import Episode
+from verifiers.v1.harnesses.bash.harness import BashHarness, BashHarnessConfig
 from verifiers.v1.task import Task, TaskData
 from verifiers.v1.trace import Trace
 from verifiers.v1.utils.generic import deep_merge
@@ -20,13 +23,17 @@ from bench.bird_sdk_driver import SqlScoreReceipt
 from bench.score import ExResult
 from bench.task import SqlTask
 from ptc import sql_isolation as core
-from ptc.harness import PTCHarness, PTCHarnessConfig
+from ptc.bash_owned_runtime import join_owned
+from ptc.harness import PTCHarness, PTCHarnessConfig, _close_program_runner
 from ptc.sql_owned_program import _ProgramRetention, _json_digest
 from ptc.sql_owned_score import OwnedSqlScorer, build_owned_sql_scorer
 from train import sql_capture
 from train.sql_episodes import InstrumentSettings, _validate_instrument
 from train.sql_skill_eval import SkillCase
 from train.sql_skill_pilot import ApprovedSkill
+
+if TYPE_CHECKING:
+    from bench.bird_bash_live import BashTaskResources
 
 _PLUGIN = "cotrain_bird_sql_live"
 _HARNESS = "cotrain_bird_sql_harness"
@@ -115,7 +122,7 @@ def _scope():
 
 class _Scope:
     def __init__(self, plan, config, executor, instrument, expected_policy, approved_skill,
-                 capture=None):
+                 capture=None, bash_resources=None):
         from bench.bird_sdk_live import BirdSqlEnvConfig
 
         _require(type(plan) is SqlLivePlan and type(plan.inputs) is tuple
@@ -135,6 +142,22 @@ class _Scope:
                   "original host approval required")
         _require(capture is None or type(capture) is SqlLiveCapture,
                  "explicit original capture settings required")
+        self.bash_resources = self._bash_resources = bash_resources
+        self._bash_states = ()
+        if bash_resources is not None:
+            from bench.bird_bash_live import BashTaskResources
+
+            _require(type(bash_resources) is tuple
+                     and len(bash_resources) == len(plan.inputs)
+                     and capture is None and approved_skill is None,
+                     "Bash capture and approval unsupported")
+            for row, resources in zip(plan.inputs, bash_resources):
+                _require(type(resources) is BashTaskResources and resources.input is row
+                         and row.reuse_case is None, "ordered Bash input binding differs")
+                resources.check()
+            _require(len({str(item.scratch) for item in bash_resources}) == len(bash_resources),
+                     "unique Bash physical custody required")
+            self._bash_states = tuple(self._bash_state(item) for item in bash_resources)
         if capture is not None:
             _require((instrument.source_paths, instrument.source_sha256)
                      == sql_capture._owned_sources(), "actual capture source binding differs")
@@ -176,6 +199,13 @@ class _Scope:
 
     def check(self):
         config = self.config
+        _require(self.bash_resources is self._bash_resources,
+                 "Bash resource tuple changed")
+        if self.bash_resources is not None:
+            for row, item, state in zip(self._inputs, self.bash_resources, self._bash_states):
+                _require(item.input is row and self._bash_state(item) == state,
+                         "Bash resource custody changed")
+                item.check()
         if self.capture is not None:
             _require((self.instrument.source_paths, self.instrument.source_sha256)
                      == sql_capture._owned_sources(), "actual capture source binding differs")
@@ -192,7 +222,8 @@ class _Scope:
                  and all(self.private[name] is row and row.task is self._sql_tasks[name]
                          for name, row in self._private.items())
                  and _json_digest(config) == self._config_state
-                 and (self.capture is None or all(actual is original for actual, original in zip(
+                 and ((self.capture is None and self.bash_resources is None)
+                      or all(actual is original for actual, original in zip(
                      (self.expected_policy.agent, self.expected_policy.context,
                       self.expected_policy.agent.client, self.expected_policy.context.client,
                       self.expected_policy.context.sampling), self._policy_objects)))
@@ -221,7 +252,7 @@ class _Scope:
             "model": spec.model if spec.model is not None else config.model,
             "client": spec.client if spec.client is not None else config.client,
             "sampling": sampling})
-        if self.capture is not None:
+        if self.capture is not None or self.bash_resources is not None:
             client = resolved.client
             _require({"base_url", "api_key_var"} <= client.model_fields_set
                      and type(client.base_url) is str and bool(client.base_url.strip())
@@ -234,30 +265,57 @@ class _Scope:
                  == self._expected_context,
                  "independent policy settings differ")
         harness = resolved.harness
-        _require(type(harness) is PTCHarnessConfig and harness.id == _HARNESS
-                 and not harness.skills and harness.program_timeout == 5
-                 and harness.max_turns == self.instrument.action_cap
-                 and self.instrument.program_timeout_s == 5,
-                 "private SQL harness policy differs")
+        if self.bash_resources is None:
+            _require(type(harness) is PTCHarnessConfig and harness.id == _HARNESS
+                     and not harness.skills and harness.program_timeout == 5
+                     and harness.max_turns == self.instrument.action_cap
+                     and self.instrument.program_timeout_s == 5,
+                     "private SQL harness policy differs")
+        else:
+            _require(type(harness) is BashHarnessConfig and harness.id == "bash"
+                     and {"id", "edit", "search"} <= harness.model_fields_set
+                     and harness.edit is False and harness.search is False
+                     and not harness.skills and spec.harness is harness,
+                     "explicit skill-free Bash profile required")
+            _require(all(_json_digest(item.runtime_config) == _json_digest(resolved.runtime)
+                         for item in self.bash_resources),
+                     "explicit Bash runtime configuration differs")
+
+    @staticmethod
+    def _bash_state(item):
+        return (
+            id(item), id(item.input), id(item.runtime_config), _json_digest(item.runtime_config),
+            id(item.broker_config), core.canonical_json_bytes(item.broker_config),
+            item.db_size_bytes, item.interpreter, str(item.scratch), item.engine_binary,
+            id(item.limits), core.canonical_json_bytes(item.limits), item.source_pins)
 
     def register(self, task):
+        from bench.bird_sdk_live import BirdBashTask, BirdSqlTask
+
         self.check()
+        task_cls = BirdSqlTask if self.bash_resources is None else BirdBashTask
+        _require(type(task) is task_cls, "original SQL task identity differs")
         name = task.data.name
         _require(name in self.private and name not in self.tasks,
                  "original SQL task already registered or unknown")
         self.tasks[name] = task
         self.data_states[name] = (
             task.data, _json_digest(task.data), task.config,
-            task.execution_accuracy.__func__)
+            task.execution_accuracy.__func__,
+            tuple(getattr(task, method).__func__ for method in (
+                ("setup", "finalize") if self.bash_resources is None else (
+                    "setup", "finalize", "_bash_association",
+                    "check_bash_request", "register_bash_response"))))
 
     def check_task(self, task):
-        from bench.bird_sdk_live import BirdSqlTask
+        from bench.bird_sdk_live import BirdBashTask, BirdSqlTask
 
         self.check()
         name = task.data.name
-        _require(type(task) is BirdSqlTask and self.tasks.get(name) is task,
+        task_cls = BirdSqlTask if self.bash_resources is None else BirdBashTask
+        _require(type(task) is task_cls and self.tasks.get(name) is task,
                  "original SQL task identity differs")
-        data, snapshot, config, reward_method = self.data_states[name]
+        data, snapshot, config, reward_method, lifecycle = self.data_states[name]
         _require(type(task.data) is TaskData and task.data is data
                  and _json_digest(data) == snapshot and not data.skills
                  and task.config is config and config == TaskConfig()
@@ -265,8 +323,17 @@ class _Scope:
                  and task.score.__self__ is task and task.score.__func__ is _TASK_SCORE
                  and task.execution_accuracy.__self__ is task
                  and task.execution_accuracy.__func__ is reward_method
-                 and reward_method is BirdSqlTask.execution_accuracy,
-                 "original SQL task behavior differs")
+                 and reward_method is task_cls.execution_accuracy,
+                  "original SQL task behavior differs")
+        methods = (("setup", "finalize") if self.bash_resources is None else (
+            "setup", "finalize", "_bash_association",
+            "check_bash_request", "register_bash_response"))
+        _require(len(lifecycle) == len(methods), "original SQL lifecycle binding differs")
+        for method, original in zip(methods, lifecycle):
+            bound = getattr(task, method)
+            _require(bound.__self__ is task and bound.__func__ is original
+                     and original is getattr(task_cls, method),
+                     "original SQL lifecycle method differs")
 
     def finish(self, episodes):
         self.check()
@@ -317,8 +384,11 @@ class _Association:
         self.scope, self.task, self.agent = scope, task, agent
         self.row = scope.private[task.data.name]
         self.config, self.ctx, self.harness = agent.config, agent.ctx, agent.harness
-        _require(type(self.config) is AgentConfig and type(self.harness) is PTCHarness
-                 and type(self.harness.config) is PTCHarnessConfig
+        bash = scope.bash_resources is not None
+        _require(type(self.config) is AgentConfig
+                 and type(self.harness) is (BashHarness if bash else PTCHarness)
+                 and type(self.harness.config) is (
+                     BashHarnessConfig if bash else PTCHarnessConfig)
                  and self.harness.config is self.config.harness
                  and not self.harness.config.skills and not task.data.skills,
                  "original skill-free harness required")
@@ -330,6 +400,8 @@ class _Association:
             task=self.row.task, executor=scope.executor,
             db_sha256=self.row.db_sha256, instrument=scope.instrument)
         self.original_scorer = self.scorer
+        self._scorer_methods = tuple(getattr(self.scorer, name).__func__ for name in (
+            "admit", "score_sql", "aclose", "_check_binding"))
         self.executor, self.instrument = scope.executor, scope.instrument
         self.trace = self.receipt = self.result = None
         self.original_trace = None
@@ -337,8 +409,15 @@ class _Association:
             scope.instrument.action_cap))
         self._retention = self.retention
         self.capture = None
+        self.bash_resources = self._bash_bound = None
+        self._bash_objects = None
+        self.runtime_view = self._runtime_view = None
+        self.score_ready = False
+        self._controller = None
+        self._owner_config = self._owner_info = None
         self.live = True
         self.callback = self.check
+        self.host_authority = self._host_authority = self._check_host
         self.check()
 
     def check(self, *, retired=False):
@@ -368,11 +447,159 @@ class _Association:
                  and self.scorer._instrument is self.instrument,
                  "actual SQL episode association differs")
         self.scorer._check_binding()
+        _require(all(getattr(self.scorer, name).__self__ is self.scorer
+                     and getattr(self.scorer, name).__func__ is original
+                     and getattr(OwnedSqlScorer, name) is original
+                     for name, original in zip(
+                         ("admit", "score_sql", "aclose", "_check_binding"),
+                         self._scorer_methods)),
+                 "original SQL scorer methods differ")
         if self.trace is not None:
             self.check_trace(self.trace)
-        if self.harness._owned_bound:
+        if type(self.harness) is PTCHarness and self.harness._owned_bound:
             _require(self.harness.host_authority is self.callback,
                      "actual SQL host callback differs")
+        if self.bash_resources is not None:
+            bound = self.bash_resources
+            _require(bound is self._bash_bound
+                     and all(actual is original for actual, original in zip(
+                         (bound.spec, bound.task, bound.agent, bound.harness,
+                          bound.binding, bound.owner), self._bash_objects))
+                     and bound.spec is scope.bash_resources[tuple(scope.private).index(
+                         self.task.data.name)]
+                     and bound.task is self.task and bound.agent is self.agent
+                     and bound.harness is self.harness
+                     and bound.owner.harness is self.harness
+                     and bound.owner.binding is bound.binding
+                     and bound.owner.config is self._owner_config
+                     and bound.owner.info is self._owner_info
+                     and _json_digest(bound.owner.config) == _json_digest(
+                         bound.spec.runtime_config)
+                     and bound.owner.interpreter == bound.spec.interpreter
+                     and bound.owner.engine_binary == bound.spec.engine_binary
+                     and bound.owner.scratch == bound.spec.scratch
+                     and bound.owner.limits is bound.spec.limits
+                     and bound.binding._task is self.task
+                     and bound.binding._harness is self.harness
+                     and bound.binding.host_authority is self.host_authority
+                     and self.host_authority is self._host_authority
+                     and (self._controller is None
+                          or bound.owner.controller is self._controller),
+                     "actual Bash resource association differs")
+            if self.runtime_view is not None:
+                self._check_runtime_view(self.runtime_view)
+
+    def _check_host(self):
+        _require(_ACTIVE_SCOPE.get() is self.scope
+                 and _ACTIVE_ASSOCIATION.get() in (None, self)
+                 and self.scope.associations.get(self.task.data.name) is self,
+                 "actual Bash host context differs")
+        # Deliberately excludes binding/runtime validation: both call back here.
+        self.check(retired=not self.live)
+
+    async def prepare_execution(self):
+        self.check()
+        if self.scope.bash_resources is None:
+            return
+        from bench.bird_bash_live import _bind_resources, require_production_bash_runtime
+
+        _require(self.bash_resources is None, "Bash owner already allocated")
+        require_production_bash_runtime(None)
+        spec = self.scope.bash_resources[tuple(self.scope.private).index(self.task.data.name)]
+        self.bash_resources = self._bash_bound = _bind_resources(self, spec)
+        self._bash_objects = (
+            spec, self.task, self.agent, self.harness,
+            self.bash_resources.binding, self.bash_resources.owner)
+        owner = self.bash_resources.owner
+        self._owner_config, self._owner_info = owner.config, owner.info
+        require_production_bash_runtime(owner)
+        self.check()
+        await owner.start()
+        self._controller = owner.controller
+        _require(self._controller is not None and self._controller.runtime is owner,
+                 "original Bash controller owner required")
+        self.check()
+
+    def _check_runtime_view(self, view):
+        owner = self.bash_resources.owner
+        _require(view is self.runtime_view is self._runtime_view
+                 and view is not owner and type(view) is type(owner)
+                 and view.__dict__ is owner.__dict__
+                 and view.env is not owner.env
+                 and view.config is owner.config and view.info is owner.info
+                 and view.binding is self.bash_resources.binding
+                 and view.harness is self.harness
+                 and view.controller is self._controller
+                 and self._controller.runtime is owner,
+                 "actual borrowed Bash view differs")
+
+    def attach_runtime_view(self, view):
+        if self.scope.bash_resources is None:
+            return
+        _require(self.bash_resources is not None and self.runtime_view is None,
+                 "one original borrowed Bash view required")
+        self.runtime_view = self._runtime_view = view
+        self._check_runtime_view(view)
+
+    def check_request(self, trace):
+        self.host_authority()
+        self.check_trace(trace)
+        if self.bash_resources is not None:
+            self._check_runtime_view(self.runtime_view)
+            self.bash_resources.binding.check_binding()
+            self.bash_resources.owner.controller.check()
+
+    def register_response(self, response, trace):
+        self.check_request(trace)
+        if self.bash_resources is not None:
+            self.bash_resources.owner.controller.register_response(response)
+            self.check_request(trace)
+
+    async def finalize_execution(self, trace, view):
+        self.check()
+        self.check_trace(trace)
+        if self.bash_resources is None:
+            return
+        self._check_runtime_view(view)
+        await self.bash_resources.owner.controller.aclose()
+        self.host_authority()
+        await view.teardown()
+        self.host_authority()
+        view.require_valid()
+        self.bash_resources.owner.require_valid()
+        self.score_ready = True
+
+    def require_score_ready(self):
+        self.check()
+        if self.scope.bash_resources is not None:
+            _require(self.score_ready is True, "Bash retirement must precede scoring")
+            self._check_runtime_view(self.runtime_view)
+            self.runtime_view.require_valid()
+            self.bash_resources.owner.require_valid()
+
+    async def aclose(self):
+        errors = []
+        if self._bash_objects is not None:
+            binding, owner = self._bash_objects[-2:]
+            for target, name in ((self._controller, "aclose"),
+                                 (binding, "aclose"), (owner, "stop")):
+                if target is None:
+                    continue
+                try:
+                    operation = getattr(target, name)
+                    await join_owned(asyncio.create_task(operation()))
+                except BaseException as error:
+                    errors.append(error)
+        try:
+            await _close_program_runner(self.original_scorer)
+        except BaseException as error:
+            errors.append(error)
+        if errors:
+            if self._bash_objects is not None:
+                errors[0]._sql_live_association = self
+            for secondary in errors[1:]:
+                errors[0].add_note(f"secondary cleanup: {type(secondary).__name__}")
+            raise errors[0]
 
     def check_trace(self, trace):
         _require(type(trace) is Trace and trace is self.trace is self.original_trace
@@ -381,7 +608,7 @@ class _Association:
                  and trace.task.key == self.task.key and trace.task.hash == self.task.hash
                  and trace.agent.config is self.config
                  and _json_digest(trace.agent.config) == self.scope._expected_agent,
-                 "actual SQL trace identity differs")
+                  "actual SQL trace identity differs")
 
 
 async def run_sql_live(
@@ -390,11 +617,18 @@ async def run_sql_live(
     approved_skill: ApprovedSkill | None = None,
     allow_execution: bool = False, allow_model_requests: bool = False,
     capture: SqlLiveCapture | None = None,
+    bash_resources: tuple[BashTaskResources, ...] | None = None,
 ) -> SqlLiveResult:
     _require(allow_execution is True and allow_model_requests is True,
              "explicit execution and model-request opt-ins required")
     _require(_ACTIVE_SCOPE.get() is None, "nested private SQL scope refused")
-    scope = _Scope(plan, config, executor, instrument, expected_policy, approved_skill, capture)
+    if bash_resources is not None:
+        from bench.bird_bash_live import require_production_bash_runtime
+
+        require_production_bash_runtime(None)
+    scope = _Scope(
+        plan, config, executor, instrument, expected_policy, approved_skill,
+        capture, bash_resources)
     token = _ACTIVE_SCOPE.set(scope)
     try:
         episodes = await run_eval(config)

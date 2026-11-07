@@ -10,12 +10,15 @@ from verifiers.v1.env import Env
 from verifiers.v1.envs.single_agent import SingleAgentEnvConfig
 from verifiers.v1.task import Task, TaskData
 from verifiers.v1.taskset import Taskset
-from verifiers.v1.utils.decorators import reward
+from verifiers.v1.trace import Trace
+from verifiers.v1.types import Request, Response
+from verifiers.v1.utils.decorators import intercept, reward
 
+from bench.bird_bash_live import public_bash_prompt
 from bench.bird_sdk_driver import SqlScoreReceipt
 from bench.score import extract_sql
 from ptc import sql_owned_program
-from ptc.harness import PTCHarness, PTCHarnessConfig, _close_program_runner
+from ptc.harness import PTCHarness, PTCHarnessConfig
 from ptc.sql_arms import TaskView, prompt_for
 from train import sql_capture
 from train.sql_episodes import EpisodeIds
@@ -35,6 +38,13 @@ class BirdSqlTask(Task[TaskData]):
         association.trace = trace
         association.original_trace = trace
         association.check_trace(trace)
+        association.attach_runtime_view(runtime)
+
+    async def finalize(self, trace, runtime):
+        association = _ACTIVE_ASSOCIATION.get()
+        _require(type(association) is _Association and association.task is self,
+                 "original SQL finalize association required")
+        await association.finalize_execution(trace, runtime)
 
     @reward
     async def execution_accuracy(self, trace):
@@ -45,14 +55,41 @@ class BirdSqlTask(Task[TaskData]):
         association.check_trace(trace)
         _require(association.receipt is None and association.result is None,
                  "original SQL scoring already consumed")
+        association.require_score_ready()
         association.scorer.admit()
         result = await association.scorer.score_sql(extract_sql(trace.last_reply or ""))
+        association.require_score_ready()
         association.check()
         association.check_trace(trace)
         _valid_result(result)
         association.result = result
         association.receipt = SqlScoreReceipt(trace, result)
         return result.score
+
+
+class BirdBashTask(BirdSqlTask):
+    def _bash_association(self, trace):
+        scope = _scope()
+        scope.check_task(self)
+        _require(scope.bash_resources is not None, "original Bash scope required")
+        association = scope.associations.get(self.data.name)
+        active = _ACTIVE_ASSOCIATION.get()
+        _require(type(association) is _Association and association.task is self
+                 and association.scope is scope
+                 and (active is None or active is association),
+                 "original Bash interception association required")
+        association.check_trace(trace)
+        return association
+
+    @intercept
+    async def check_bash_request(self, request: Request, trace: Trace) -> None:
+        self._bash_association(trace).check_request(trace)
+        return None
+
+    @intercept
+    async def register_bash_response(self, response: Response, trace: Trace) -> None:
+        self._bash_association(trace).register_response(response, trace)
+        return None
 
 
 class BirdSqlTaskset(Taskset[BirdSqlTask, TasksetConfig]):
@@ -86,10 +123,13 @@ class BirdSqlTaskset(Taskset[BirdSqlTask, TasksetConfig]):
                     name=row.task.name, question=row.task.question,
                     db_path="", gold_sql="", evidence="")
                 data = TaskData(
-                    name=view.name, prompt=prompt_for(
+                    name=view.name, prompt=(public_bash_prompt(
+                        row.task.question, row.schema)
+                        if scope.bash_resources is not None else prompt_for(
                         view, "ptc", schema=row.schema,
-                        max_rows=scope.instrument.action_max_rows))
-                task = BirdSqlTask(data, self.config.task)
+                        max_rows=scope.instrument.action_max_rows)))
+                task_cls = BirdSqlTask if scope.bash_resources is None else BirdBashTask
+                task = task_cls(data, self.config.task)
                 scope.register(task)
                 tasks.append(task)
             self._tasks = tuple(tasks)
@@ -122,17 +162,22 @@ class BirdSqlEnv(Env[BirdSqlEnvConfig]):
         token = _ACTIVE_ASSOCIATION.set(association)
         body_error = None
         try:
-            sql_owned_program.build_owned_sql_program_harness(
-                association.harness.config, data=task.data, task=association.row.task,
-                executor=scope.executor, db_sha256=association.row.db_sha256,
-                max_rows=scope.instrument.action_max_rows,
-                approved_skill=scope.approved_skill, reuse_case=association.row.reuse_case,
-                original_scorer_instrument=(
-                    scope.instrument if scope.approved_skill is not None else None),
-                existing_harness=association.harness, host_authority=association.callback,
-                retention=association.retention)
+            await association.prepare_execution()
+            if scope.bash_resources is None:
+                sql_owned_program.build_owned_sql_program_harness(
+                    association.harness.config, data=task.data, task=association.row.task,
+                    executor=scope.executor, db_sha256=association.row.db_sha256,
+                    max_rows=scope.instrument.action_max_rows,
+                    approved_skill=scope.approved_skill, reuse_case=association.row.reuse_case,
+                    original_scorer_instrument=(
+                        scope.instrument if scope.approved_skill is not None else None),
+                    existing_harness=association.harness, host_authority=association.callback,
+                    retention=association.retention)
             association.check()
-            trace = await agents.agent.run(task)
+            if scope.bash_resources is None:
+                trace = await agents.agent.run(task)
+            else:
+                trace = await agents.agent.run(task, runtime=association.bash_resources.owner)
             association.check()
             association.check_trace(trace)
             _require(trace.ok and association.receipt is not None
@@ -149,11 +194,16 @@ class BirdSqlEnv(Env[BirdSqlEnvConfig]):
                         if scope.capture is not None:
                             scope.check_task(task)
                     finally:
-                        await _close_program_runner(association.scorer)
+                        await association.aclose()
                     if scope.capture is not None:
                         scope.check_task(task)
                 except BaseException as secondary:
                     if body_error is not None:
+                        if scope.bash_resources is not None:
+                            body_error._sql_live_association = association
+                            body_error.add_note(
+                                f"secondary Bash cleanup: {type(secondary).__name__}")
+                            raise body_error
                         raise body_error from secondary
                     raise
             finally:

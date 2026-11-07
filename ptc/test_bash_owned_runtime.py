@@ -89,6 +89,65 @@ class Binding:
         self.events.append(("binding-close",))
 
 
+@pytest.mark.parametrize("controller_fault", ["object", "resolution"])
+def test_controller_lookup_failure_keeps_independent_teardown(
+        tmp_path, monkeypatch, controller_fault):
+    async def scenario():
+        runtime = bare_runtime(tmp_path)
+        custody = _Directory(tmp_path)
+        runtime.custodies.append(custody)
+        runtime.controller = object()
+        events = []
+        resolution_error = LookupError("controller property unavailable")
+
+        if controller_fault == "resolution":
+            def controller(owner):
+                raise resolution_error
+            monkeypatch.setattr(BashOwnedDockerRuntime, "controller",
+                                property(controller), raising=False)
+
+        async def engine(*argv, **kwargs):
+            events.append(argv)
+            issued = kwargs.get("_on_issued")
+            if issued is not None:
+                issued()
+            return b"", b"", 0
+
+        async def pending_engine():
+            events.append(("engine-joined",))
+
+        runtime.engine_call = engine
+        pending = asyncio.create_task(pending_engine())
+        runtime.engine_tasks.add(pending)
+        try:
+            with pytest.raises(BashBridgeError) as caught:
+                await runtime.teardown()
+            if controller_fault == "resolution":
+                assert caught.value.__cause__ is resolution_error
+            else:
+                assert isinstance(caught.value.__cause__, AttributeError)
+            assert pending.done() and not runtime.engine_tasks
+            assert events.count(("engine-joined",)) == 1
+            assert events.count(("container", "rm", "--force", "owned-policy")) == 1
+            assert events.count(("volume", "rm", "owned-workspace")) == 1
+            assert runtime.retirement_attempts == {"owned-policy"}
+            assert not runtime.owned_containers and runtime.workspace is None
+            assert runtime.custodies == [custody]
+            custody.check()
+            teardown = runtime._teardown_task
+            before = tuple(events)
+            with pytest.raises(BashBridgeError) as repeated:
+                await runtime.teardown()
+            assert repeated.value is caught.value
+            assert runtime._teardown_task is teardown and tuple(events) == before
+            with pytest.raises((BashBridgeError, AttributeError, LookupError)):
+                runtime.require_valid()
+        finally:
+            custody.close()
+            await asyncio.gather(pending, return_exceptions=True)
+    asyncio.run(scenario())
+
+
 class Engine:
     def __init__(self, events, retirement_fault=False):
         self.events, self.retirement_fault = events, retirement_fault
@@ -227,6 +286,46 @@ def test_production_guard_still_refuses(rig, tmp_path):
     with pytest.raises(BashSqlError):
         require_production_bash_runtime(runtime)
     asyncio.run(binding.aclose())
+
+
+def test_view_teardown_then_owner_stop_once(rig, tmp_path, monkeypatch):
+    async def scenario():
+        harness = BashHarness(BashHarnessConfig(id="bash", edit=False, search=False))
+        binding = BashSqlBinding(**inputs(rig, harness=harness))
+        owner = BashOwnedDockerRuntime(
+            DockerConfig(image="offline-parent-owned"), harness=harness,
+            binding=binding, interpreter="/usr/local/bin/python3", scratch=tmp_path)
+        owner.controller = BashActionController(
+            binding=binding, runtime=owner, root=tmp_path, limits=owner.limits)
+        owner.owned_containers.add("owned-policy")
+        owner.workspace = "owned-volume"
+        events = []
+
+        async def engine_call(self, *argv, **kwargs):
+            issued = kwargs.get("_on_issued")
+            if issued is not None:
+                issued()
+            events.append(argv)
+            await asyncio.sleep(0)
+            return b"", b"", 0
+
+        monkeypatch.setattr(BashOwnedDockerRuntime, "engine_call", engine_call)
+        view = owner.with_env({"TASK": "private"})
+        await asyncio.gather(view.teardown(), owner.teardown(), view.teardown())
+        joined = owner._teardown_task
+        assert view._teardown_task is joined and joined.done()
+        assert owner.stopped is view.stopped is False
+        owner.require_valid()
+        view.require_valid()
+        await view.teardown()
+        await owner.stop()
+        await owner.stop()
+        assert owner.stopped is view.stopped is True
+        assert owner._teardown_task is joined
+        assert events.count(("container", "rm", "--force", "owned-policy")) == 1
+        assert events.count(("volume", "rm", "owned-volume")) == 1
+        assert owner.owned_containers == set() and owner.workspace is None
+    asyncio.run(scenario())
 
 
 def test_with_env_policy_path_pinned_after_merge(rig, tmp_path):
@@ -389,6 +488,199 @@ def test_engine_primary_survives_cleanup(tmp_path, monkeypatch, fault):
         assert len(runtime.cleanup_errors) == 2
         assert all(isinstance(error, asyncio.CancelledError) for error in runtime.cleanup_errors)
         assert runtime.engine_tasks == set() and runtime.engine_processes == set()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("controller_fault", ["object", "resolution", "fail"])
+@pytest.mark.parametrize("primary_kind", ["cancel", "error"])
+def test_original_engine_primary_survives_notification_drift(
+        tmp_path, monkeypatch, controller_fault, primary_kind):
+    async def scenario():
+        runtime = bare_runtime(tmp_path)
+        started, release = asyncio.Event(), asyncio.Event()
+        primary = ValueError("engine primary")
+        cause = LookupError("existing primary cause")
+        notes = ["existing primary note"]
+        secondary = RuntimeError("private notification failure")
+        primaries, caught, readers, joins, notifications = [], [], [], [], []
+        counts = {"spawn": 0, "kill": 0, "wait": 0, "stdout": 0, "stderr": 0}
+
+        async def read(count):
+            readers.append(asyncio.current_task())
+            return b""
+
+        def close(name):
+            counts[name] += 1
+
+        class Process:
+            returncode = None
+            stdin = None
+            stdout = SimpleNamespace(read=read, _transport=SimpleNamespace(
+                close=lambda: close("stdout")))
+            stderr = SimpleNamespace(read=read, _transport=SimpleNamespace(
+                close=lambda: close("stderr")))
+
+            def kill(self):
+                counts["kill"] += 1
+
+            async def wait(self):
+                counts["wait"] += 1
+                if counts["wait"] == 1:
+                    started.set()
+                    try:
+                        await release.wait()
+                    except asyncio.CancelledError as error:
+                        error.__cause__ = cause
+                        error.add_note(notes[0])
+                        primaries.append(error)
+                        raise
+                    primary.__cause__ = cause
+                    primary.add_note(notes[0])
+                    primaries.append(primary)
+                    raise primary
+                self.returncode = -9
+                return -9
+
+        process = Process()
+
+        async def spawn(*args, **kwargs):
+            counts["spawn"] += 1
+            return process
+
+        async def join(task, deadline=None):
+            joins.append(task)
+            return await join_owned(task, deadline)
+
+        def fail(error):
+            notifications.append(error)
+            raise secondary
+
+        async def invoke():
+            try:
+                await runtime.engine_call("exec", "synthetic")
+            except BaseException as error:
+                caught.append(error)
+            else:
+                pytest.fail("engine primary was swallowed")
+
+        monkeypatch.setattr(owned.asyncio, "create_subprocess_exec", spawn)
+        monkeypatch.setattr(owned, "join_owned", join)
+        call = asyncio.create_task(invoke())
+        try:
+            await asyncio.wait_for(started.wait(), timeout=1)
+            drifted = object()
+            if controller_fault == "resolution":
+                def controller(owner):
+                    notifications.append("resolution")
+                    raise secondary
+                monkeypatch.setattr(BashOwnedDockerRuntime, "controller",
+                                    property(controller), raising=False)
+            elif controller_fault == "fail":
+                runtime.controller = SimpleNamespace(fail=fail)
+            else:
+                runtime.controller = drifted
+            if primary_kind == "cancel":
+                call.cancel("caller cancellation")
+            else:
+                release.set()
+            await call
+            assert len(primaries) == 1 and len(caught) == 1
+            actual_primary = primaries[0]
+            assert caught[0] is actual_primary
+            if primary_kind == "cancel":
+                assert isinstance(actual_primary, asyncio.CancelledError)
+            else:
+                assert actual_primary is primary
+            assert actual_primary.__cause__ is cause
+            assert actual_primary.__notes__ == notes
+            assert cause.__cause__ is None and cause.__context__ is None
+            assert counts == {
+                "spawn": 1, "kill": 1, "wait": 2, "stdout": 1, "stderr": 1}
+            assert len(readers) == 2 and len(set(readers)) == 2
+            assert all(task.done() and not task.cancelled() for task in readers)
+            assert len(joins) == 3 and all(task.done() for task in joins)
+            assert all(task.result() == [b""] for task in joins[:2])
+            assert joins[2].result() == [-9]
+            assert not runtime.engine_tasks and not runtime.engine_processes
+            assert len(runtime.cleanup_errors) == 1
+            retained = runtime.cleanup_errors[0]
+            assert retained is not actual_primary
+            if controller_fault == "object":
+                assert isinstance(retained, AttributeError)
+                assert retained.obj is drifted and retained.name == "fail"
+                assert notifications == []
+            else:
+                assert retained is secondary
+                assert notifications == (
+                    ["resolution"] if controller_fault == "resolution"
+                    else [actual_primary])
+            assert retained.__cause__ is None and retained.__context__ is None
+        finally:
+            release.set()
+            if not call.done():
+                call.cancel()
+            await asyncio.gather(call, return_exceptions=True)
+    asyncio.run(scenario())
+
+
+def test_original_engine_success_does_not_notify(tmp_path, monkeypatch):
+    async def scenario():
+        runtime = bare_runtime(tmp_path)
+        lookups, joins, readers = [], [], []
+        counts = {"spawn": 0, "kill": 0, "wait": 0, "stdout": 0, "stderr": 0}
+
+        def controller(owner):
+            lookups.append(owner)
+            raise AssertionError("success must not resolve controller")
+
+        def stream(name, data):
+            chunks = [data, b""]
+
+            async def read(count):
+                readers.append(asyncio.current_task())
+                return chunks.pop(0)
+
+            def close():
+                counts[name] += 1
+
+            return SimpleNamespace(
+                read=read, _transport=SimpleNamespace(close=close))
+
+        class Process:
+            returncode = None
+            stdin = None
+            stdout = stream("stdout", b"out")
+            stderr = stream("stderr", b"err")
+
+            def kill(self):
+                counts["kill"] += 1
+
+            async def wait(self):
+                counts["wait"] += 1
+                self.returncode = 0
+                return 0
+
+        async def spawn(*args, **kwargs):
+            counts["spawn"] += 1
+            return Process()
+
+        async def join(task, deadline=None):
+            joins.append(task)
+            return await join_owned(task, deadline)
+
+        monkeypatch.setattr(owned.asyncio, "create_subprocess_exec", spawn)
+        monkeypatch.setattr(owned, "join_owned", join)
+        monkeypatch.setattr(BashOwnedDockerRuntime, "controller",
+                            property(controller), raising=False)
+        assert await runtime.engine_call("exec", "synthetic") == (b"out", b"err", 0)
+        assert lookups == [] and runtime.cleanup_errors == []
+        assert counts == {
+            "spawn": 1, "kill": 0, "wait": 2, "stdout": 1, "stderr": 1}
+        assert len(set(readers)) == 2
+        assert all(task.done() and not task.cancelled() for task in readers)
+        assert len(joins) == 3 and all(task.done() for task in joins)
+        assert [task.result() for task in joins] == [[b"out"], [b"err"], [0]]
+        assert not runtime.engine_tasks and not runtime.engine_processes
     asyncio.run(scenario())
 
 
