@@ -45,6 +45,35 @@ class ProgramInfrastructureError(RuntimeError):
     """An owned execution failure, not model-visible program feedback."""
 
 
+def _validate_host_authority(callback: Callable[[], None] | None) -> None:
+    if callback is None:
+        return
+    methods = (callback, getattr(callback, "__call__", None))
+    if (not callable(callback)
+            or any(inspect.iscoroutinefunction(method)
+                   or inspect.isasyncgenfunction(method)
+                   or inspect.isgeneratorfunction(method) for method in methods)):
+        raise TypeError("host_authority must be a synchronous non-generator callable")
+
+
+def _check_host_authority(harness, callback) -> None:
+    try:
+        if harness.host_authority is not callback:
+            raise ValueError("host authority replaced")
+        if callback is not None:
+            result = callback()
+            if result is not None:
+                if inspect.iscoroutine(result) or inspect.isgenerator(result):
+                    result.close()
+                raise TypeError("host_authority must return None")
+        if harness.host_authority is not callback:
+            raise ValueError("host authority replaced")
+    except ProgramInfrastructureError:
+        raise
+    except Exception as exc:
+        raise ProgramInfrastructureError("host authority failed") from exc
+
+
 class OwnedProgramRunner(Protocol):
     async def run_program(self, code: str, *, timeout: float) -> str: ...
 
@@ -462,12 +491,18 @@ class PTCHarness(Harness[PTCHarnessConfig]):
         *,
         qa_factory: Callable[[TaskData], Any] | None = None,
         program_runner_factory: ProgramRunnerFactory | None = None,
+        host_authority: Callable[[], None] | None = None,
     ) -> None:
+        _validate_host_authority(host_authority)
         super().__init__(config)
         # Per-instance: a class-level `Catalog()` default would be one dict shared
         # by every arm in a run, so two tasks with different catalogs would see
         # each other's tools.
         self.catalog = catalog or Catalog()
+        self._original_catalog = self.catalog
+        self._launch_started = False
+        self._owned_bound = False
+        self.host_authority = host_authority
         # Test seam. `None` is httpx's own default, so production is unchanged;
         # `test_harness.py` passes an `httpx.MockTransport` and needs no server.
         self.transport = transport
@@ -519,6 +554,16 @@ class PTCHarness(Harness[PTCHarnessConfig]):
         mcp_urls: dict[str, str],
         data: TaskData,
     ) -> ProgramResult:
+        previously_launched = self._launch_started
+        self._launch_started = True
+        if self._owned_bound and previously_launched:
+            raise ProgramInfrastructureError("owned harness already launched")
+        host_authority = self.host_authority
+
+        def check_host():
+            _check_host_authority(self, host_authority)
+
+        check_host()
         program_timeout: float | None = None
         if self.program_runner_factory is not None:
             if self.qa_factory is not None or mcp_urls:
@@ -635,7 +680,9 @@ class PTCHarness(Harness[PTCHarnessConfig]):
             )
 
             if self.program_runner_factory is None:
-                await self._loop(ctx, endpoint, secret, messages, catalog, printed, log)
+                await self._loop(
+                    ctx, endpoint, secret, messages, catalog, printed, log,
+                    host_check=check_host)
             else:
                 runner = self.program_runner_factory(data, catalog)
                 if inspect.isawaitable(runner):
@@ -658,6 +705,7 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                         ctx, endpoint, secret, messages, catalog, printed, log,
                         program_runner=runner, program_timeout=program_timeout,
                         references_enabled=reference is not None,
+                        host_check=check_host,
                     )
                 except asyncio.CancelledError as exc:
                     body_cancel = exc
@@ -685,7 +733,14 @@ class PTCHarness(Harness[PTCHarnessConfig]):
         program_runner: OwnedProgramRunner | None = None,
         program_timeout: float | None = None,
         references_enabled: bool = False,
+        host_check: Callable[[], None] | None = None,
     ) -> None:
+        if host_check is None:
+            callback = self.host_authority
+
+            def host_check():
+                _check_host_authority(self, callback)
+
         # The interception endpoint already ends in `/v1` in a real run, so appending
         # `/v1/chat/completions` produced `/v1/v1/chat/completions` and a 404 that no
         # mock could have caught -- MockTransport answers any path. Found by running
@@ -702,6 +757,7 @@ class PTCHarness(Harness[PTCHarnessConfig]):
             for _ in range(self.config.max_turns):
                 if references_enabled:
                     _validate_launch_authority(program_runner)
+                host_check()
                 message = await _stream_message(http, chat_path, {
                     "model": ctx.model, "messages": messages,
                     "tools": policy_tools, "tool_choice": "auto", "stream": True,
@@ -714,12 +770,14 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                 })
                 if references_enabled:
                     _validate_launch_authority(program_runner)
+                host_check()
                 messages.append(message)
                 calls = message.get("tool_calls") or []
                 if not calls:
                     log.append("no tool call; loop ends")
                     break
                 for call in calls:
+                    host_check()
                     args = call.get("function", {}).get("arguments") or "{}"
                     # A rejection is DATA, not an error: the model sees why and may retry.
                     # That is what makes the restriction part of the interface rather

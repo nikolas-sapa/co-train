@@ -12,14 +12,16 @@ import json
 import math
 import os
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Callable
 
 from verifiers.v1.task import TaskData
 
 from bench.task import SqlTask
 from ptc import sql_arms
 from ptc import sql_isolation as core
-from ptc.harness import PTCHarness, PTCHarnessConfig, ProgramInfrastructureError
+from ptc.harness import (
+    PTCHarness, PTCHarnessConfig, ProgramInfrastructureError, _validate_host_authority,
+)
 from ptc.runtime import Catalog, ProgramRejected
 
 
@@ -75,6 +77,7 @@ class _Binding:
         self.catalog = catalog
         self.callbacks = dict(catalog.tools)
         self.harness: PTCHarness | None = None
+        self.host_authority: Callable[[], None] | None = None
 
     def check(self, data, compiled, print_callback):
         try:
@@ -88,6 +91,7 @@ class _Binding:
                     or self.executor.state_dir != self.state_dir
                     or self.harness is None
                     or self.harness.config is not self.config
+                    or self.harness.host_authority is not self.host_authority
                     or self.harness.catalog is not self.catalog
                     or set(self.catalog.tools) != set(self.callbacks)
                     or set(compiled.tools) != set(self.callbacks) | {"print"}
@@ -332,8 +336,25 @@ def build_owned_sql_program_harness(
     config: PTCHarnessConfig, *, data: TaskData, task: SqlTask,
     executor: core.PilotExecutor, db_sha256: str, max_rows: int,
     approved_skill=None, reuse_case=None, original_scorer_instrument=None,
+    existing_harness: PTCHarness | None = None,
+    host_authority: Callable[[], None] | None = None,
 ) -> PTCHarness:
     """Bind one caller-associated public task, without file or native IO."""
+    _validate_host_authority(host_authority)
+    if existing_harness is not None:
+        if (type(existing_harness) is not PTCHarness
+                or type(config) is not PTCHarnessConfig
+                or existing_harness.config is not config
+                or existing_harness._launch_started
+                or existing_harness._owned_bound
+                or type(existing_harness.catalog) is not Catalog
+                or existing_harness.catalog is not existing_harness._original_catalog
+                or existing_harness.catalog.tools
+                or existing_harness.program_runner_factory is not None
+                or existing_harness.qa_factory is not None
+                or existing_harness.host_authority is not None
+                or existing_harness.transport is not None):
+            raise ValueError("existing owned SQL harness must be original and unused")
     host_inputs = (approved_skill, reuse_case, original_scorer_instrument)
     if any(value is not None for value in host_inputs) and not all(
             value is not None for value in host_inputs):
@@ -360,6 +381,7 @@ def build_owned_sql_program_harness(
         raise ValueError("invalid canonical SQL catalog")
     binding = _Binding(
         config, data, executor, task.db_path, db_sha256, max_rows, catalog)
+    binding.host_authority = host_authority
     binding.reuse = None
     if approved_skill is not None:
         from train import sql_episodes as evidence
@@ -381,6 +403,16 @@ def build_owned_sql_program_harness(
         binding.check(actual_data, compiled, print_callback)
         return _Runner(binding, actual_data, compiled)
 
-    harness = PTCHarness(config, catalog=catalog, program_runner_factory=factory)
+    if existing_harness is None:
+        harness = PTCHarness(
+            config, catalog=catalog, program_runner_factory=factory,
+            host_authority=host_authority)
+    else:
+        harness = existing_harness
     binding.harness = harness
+    if existing_harness is not None:
+        harness.catalog = catalog
+        harness.program_runner_factory = factory
+        harness.host_authority = host_authority
+    harness._owned_bound = True
     return harness
