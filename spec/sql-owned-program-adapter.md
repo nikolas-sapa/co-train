@@ -39,8 +39,14 @@ New `ptc/sql_owned_program.py`:
 def build_owned_sql_program_harness(
     config: PTCHarnessConfig, *, data: TaskData, task: SqlTask,
     executor: PilotExecutor, db_sha256: str, max_rows: int,
+    approved_skill=None, reuse_case=None, original_scorer_instrument=None,
 ) -> PTCHarness: ...
 ```
+
+The three reuse arguments must be all present or all absent. Production leaves
+them unannotated and requires exact concrete `train.sql_skill_pilot.ApprovedSkill`,
+`train.sql_skill_eval.SkillCase` and `train.sql_episodes.InstrumentSettings`
+types, respectively, when present.
 
 Return an ordinary PTCHarness using the existing public constructor. A private
 launch-local owner implements `validate_program_timeout`, `run_program`,
@@ -67,8 +73,21 @@ ordinary PTCHarnessConfig. This is NOT independent draw or semantic task
 provenance verification. Do not claim the host object graph is gold-free.
 
 Keep live data/config/base and compiled catalog references in a private guard,
-plus sealed scalar execution inputs and fingerprints. Do not retain SqlTask
-or copy its gold into the runner, PROGRAM wire, descriptions or errors.
+plus sealed scalar execution inputs and fingerprints. The default/no-reuse
+binding retains no SqlTask. Opt-in reuse additionally retains the original
+private SqlTask, ApprovedSkill, SkillCase and original scorer InstrumentSettings
+in the host-private binding for identity/fingerprint checks. Recheck original
+case-task identity and task fingerprint, approval, instrument compatibility and
+current promotion/DB/source binding. Never advertise or serialize private
+task/gold, candidate program, host paths or approval material into the policy
+prompt, public reference descriptor, descriptions or errors. Private task/gold,
+host paths and approval material must not enter the PROGRAM wire.
+Only the admitted candidate program is passed as code to the original PROGRAM
+execution path after reference validation; private task/gold stay host-private.
+The public descriptor exposes only skill ID, promotion digest, scope and fixed
+instruction. Typed-equal instrument settings do not establish association with
+the actual original SDK Task/scorer; that remains explicit host responsibility.
+These checks do not prove generic custody.
 Canonical base catalog is built once; capture actual callback references
 including SQL primitives, not names/signatures or introspected closures.
 Compiled catalog must equal that set plus exactly one callable harness print.

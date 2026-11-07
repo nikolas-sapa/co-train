@@ -95,7 +95,11 @@ Records:
 - `SourceRef(capture_sha256, ids, task_id, task_fingerprint, db_sha256, instrument)`.
 - `SkillCandidate(schema_version, skill_id, program, scope, source)`.
 - `SkillBinding(instrument, source_paths, source_sha256)`: current capture
-  instrument plus exactly `train/sql_skills.py`, `train/sql_skill_eval.py`.
+  instrument plus exactly these `SOURCE_PATHS` in order:
+  `train/sql_skills.py`, `train/sql_skill_eval.py`, `ptc/sql_owned_program.py`,
+  `train/sql_skill_pilot.py`, `train/sql_pilot_api.py`, `train/sql_pilot_assets.py`.
+  The four-path append intentionally invalidates old promotion bindings; never
+  auto-repin. Pins bind selected bytes, not authentication or approval.
 - `QualificationRef(role, ids, task_id, task_fingerprint, db_sha256,
   capture_sha256, result)`, with complete existing frozen `ExResult`.
 - `SkillPromotion(schema_version, candidate_sha256, scope, source, ids, binding,

@@ -53,6 +53,84 @@ class OwnedProgramRunner(Protocol):
 
 ProgramRunnerFactory = Callable[[TaskData, Catalog], OwnedProgramRunner]
 
+_REFERENCE_INSTRUCTION = "Select this approved skill by ID and promotion digest."
+
+
+def _reference_protocol(runner: OwnedProgramRunner) -> str | None:
+    members = ("reference_descriptor", "validate_launch", "run_reference")
+    methods = [getattr(runner, name, None) for name in members]
+    if not any(hasattr(runner, name) for name in members):
+        return None
+    for name, method in zip(members, methods):
+        if (not callable(method) or inspect.isasyncgenfunction(method)
+                or inspect.iscoroutinefunction(method) != (name == "run_reference")):
+            raise TypeError("live reference protocol must be complete and correctly typed")
+    public = methods[0]()
+    if inspect.iscoroutine(public):
+        public.close()
+        raise TypeError("reference_descriptor must return a dict")
+    if (type(public) is not dict
+            or set(public) != {"skill_id", "promotion_sha256", "scope", "instruction"}
+            or any(type(value) is not str for value in public.values())):
+        raise ValueError("invalid public reference descriptor")
+    pin = public["promotion_sha256"]
+    if (not public["skill_id"]
+            or len(public["skill_id"].encode("utf-8", "strict")) > 256
+            or len(public["scope"].encode("utf-8", "strict")) > 1024
+            or len(pin) != 64 or any(c not in "0123456789abcdef" for c in pin)
+            or public["instruction"] != _REFERENCE_INSTRUCTION
+            or len(public["instruction"].encode("utf-8", "strict")) > 256):
+        raise ValueError("public reference descriptor exceeds bounds")
+    serialized = json.dumps(
+        public, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+    if len(serialized.encode("utf-8", "strict")) > 2048:
+        raise ValueError("serialized public reference descriptor exceeds bound")
+    return serialized
+
+
+def _validate_launch_authority(runner: OwnedProgramRunner) -> None:
+    try:
+        result = runner.validate_launch()
+        if result is not None:
+            if inspect.iscoroutine(result):
+                result.close()
+            raise TypeError("validate_launch must return None")
+    except ProgramInfrastructureError:
+        raise
+    except Exception as exc:
+        raise ProgramInfrastructureError("owned launch authority failed") from exc
+
+
+def _closed_arguments(pairs):
+    arguments = {}
+    for key, value in pairs:
+        if key in arguments:
+            raise ProgramRejected("duplicate tool argument")
+        arguments[key] = value
+    return arguments
+
+
+def _reference_tools() -> list[dict]:
+    return [{
+        "type": "function",
+        "function": {
+            "name": "run_program",
+            "description": "Execute a Python program or select the approved skill reference.",
+            "parameters": {
+                "type": "object",
+                "oneOf": [
+                    {"type": "object", "properties": {"code": {"type": "string"}},
+                     "required": ["code"], "additionalProperties": False},
+                    {"type": "object", "properties": {
+                        "skill_id": {"type": "string"},
+                        "promotion_sha256": {"type": "string"}},
+                     "required": ["skill_id", "promotion_sha256"],
+                     "additionalProperties": False},
+                ],
+            },
+        },
+    }]
+
 
 def _validate_program_runner_timeout(
     runner: OwnedProgramRunner, timeout: float,
@@ -82,6 +160,19 @@ async def _execute_owned_program(
         raise ProgramInfrastructureError("owned program execution failed") from exc
     if not isinstance(observation, str):
         raise ProgramInfrastructureError("owned program observation must be a string")
+    return observation
+
+
+async def _execute_owned_reference(runner, skill_id, promotion_sha256, timeout):
+    try:
+        observation = await runner.run_reference(
+            skill_id, promotion_sha256, timeout=timeout)
+    except (asyncio.CancelledError, ProgramRejected, ProgramInfrastructureError):
+        raise
+    except Exception as exc:
+        raise ProgramInfrastructureError("owned reference execution failed") from exc
+    if not isinstance(observation, str):
+        raise ProgramInfrastructureError("owned reference observation must be a string")
     return observation
 
 
@@ -558,10 +649,15 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                     raise TypeError("owned program runner requires async run_program and aclose")
                 body_cancel: asyncio.CancelledError | None = None
                 try:
+                    reference = _reference_protocol(runner)
                     _validate_program_runner_timeout(runner, program_timeout)
+                    if reference is not None:
+                        _validate_launch_authority(runner)
+                        messages[0]["content"] += "\n\nApproved skill reference: " + reference
                     await self._loop(
                         ctx, endpoint, secret, messages, catalog, printed, log,
                         program_runner=runner, program_timeout=program_timeout,
+                        references_enabled=reference is not None,
                     )
                 except asyncio.CancelledError as exc:
                     body_cancel = exc
@@ -588,6 +684,7 @@ class PTCHarness(Harness[PTCHarnessConfig]):
         *,
         program_runner: OwnedProgramRunner | None = None,
         program_timeout: float | None = None,
+        references_enabled: bool = False,
     ) -> None:
         # The interception endpoint already ends in `/v1` in a real run, so appending
         # `/v1/chat/completions` produced `/v1/v1/chat/completions` and a 404 that no
@@ -595,6 +692,7 @@ class PTCHarness(Harness[PTCHarnessConfig]):
         # the arm through `compare.py`.
         base = endpoint.rstrip("/")
         chat_path = "/chat/completions" if base.endswith("/v1") else "/v1/chat/completions"
+        policy_tools = _reference_tools() if references_enabled else TOOLS
         async with httpx.AsyncClient(
             transport=self.transport,
             base_url=base,
@@ -604,7 +702,7 @@ class PTCHarness(Harness[PTCHarnessConfig]):
             for _ in range(self.config.max_turns):
                 message = await _stream_message(http, chat_path, {
                     "model": ctx.model, "messages": messages,
-                    "tools": TOOLS, "tool_choice": "auto", "stream": True,
+                    "tools": policy_tools, "tool_choice": "auto", "stream": True,
                     # Without this the stream carries no usage chunk, the
                     # interception server records no billed tokens, and cost per
                     # solved task -- a pre-registered co-primary -- prints as
@@ -612,6 +710,8 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                     # (`harnesses/utils/core.py:269`).
                     "stream_options": {"include_usage": True},
                 })
+                if references_enabled:
+                    _validate_launch_authority(program_runner)
                 messages.append(message)
                 calls = message.get("tool_calls") or []
                 if not calls:
@@ -625,11 +725,38 @@ class PTCHarness(Harness[PTCHarnessConfig]):
                     printed.clear()
                     try:
                         try:
-                            arguments = json.loads(args)
+                            arguments = json.loads(
+                                args, object_pairs_hook=_closed_arguments,
+                            ) if references_enabled else json.loads(args)
                         except json.JSONDecodeError:
+                            if references_enabled:
+                                raise ProgramRejected("invalid tool JSON") from None
                             arguments = {}
                         if not isinstance(arguments, dict):
                             raise ProgramRejected("tool arguments must be a JSON object")
+                        if references_enabled:
+                            if call.get("function", {}).get("name") != "run_program":
+                                raise ProgramRejected("unknown tool")
+                            if set(arguments) == {"skill_id", "promotion_sha256"}:
+                                skill_id = arguments["skill_id"]
+                                pin = arguments["promotion_sha256"]
+                                if (type(skill_id) is not str or not skill_id
+                                        or len(skill_id.encode("utf-8", "strict")) > 256
+                                        or type(pin) is not str or len(pin) != 64
+                                        or any(c not in "0123456789abcdef" for c in pin)):
+                                    raise ProgramRejected("invalid skill reference")
+                                content = await _execute_owned_reference(
+                                    program_runner, skill_id, pin, program_timeout)
+                                log.append(content)
+                                messages.append({
+                                    "role": "tool", "tool_call_id": call.get("id", "0"),
+                                    "name": "run_program", "content": content,
+                                })
+                                continue
+                            if set(arguments) != {"code"}:
+                                raise ProgramRejected("expected code or a complete skill reference")
+                        elif "skill_id" in arguments or "promotion_sha256" in arguments:
+                            raise ProgramRejected("skill references are disabled")
                         code = arguments.get("code", "")
                         if not isinstance(code, str):
                             raise ProgramRejected("code must be a string")

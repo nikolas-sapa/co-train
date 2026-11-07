@@ -27,7 +27,11 @@ __all__ = [
 SCHEMA_VERSION = 1
 MAX_BYTES = evidence.MAX_BYTES
 MAX_PROGRAM_BYTES = 65536
-SOURCE_PATHS = ("train/sql_skills.py", "train/sql_skill_eval.py")
+SOURCE_PATHS = (
+    "train/sql_skills.py", "train/sql_skill_eval.py",
+    "ptc/sql_owned_program.py", "train/sql_skill_pilot.py",
+    "train/sql_pilot_api.py", "train/sql_pilot_assets.py",
+)
 CANDIDATE_FORMAT = "sql_skill_candidate"
 PROMOTION_FORMAT = "sql_skill_promotion"
 

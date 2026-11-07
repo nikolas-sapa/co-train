@@ -1,7 +1,8 @@
 """Explicit, inert host binding for the owned SQL PROGRAM execution path.
 
 This adapter does not establish task provenance or activate a native profile.
-Only public TaskData and sealed execution scalars survive construction.
+The default binding retains only public TaskData and sealed execution scalars.
+Opt-in reuse additionally retains host-only approval, case and scorer settings.
 """
 from __future__ import annotations
 
@@ -10,7 +11,7 @@ import hashlib
 import json
 import math
 import os
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from verifiers.v1.task import TaskData
@@ -19,7 +20,7 @@ from bench.task import SqlTask
 from ptc import sql_arms
 from ptc import sql_isolation as core
 from ptc.harness import PTCHarness, PTCHarnessConfig, ProgramInfrastructureError
-from ptc.runtime import Catalog
+from ptc.runtime import Catalog, ProgramRejected
 
 
 def _finite_numbers(value: Any) -> None:
@@ -118,6 +119,10 @@ class _Runner:
         self._database: core.ProgramDatabaseIdentity | None = None
         self._jobs: list[_Job] = []
         self._closed = False
+        if binding.reuse is not None:
+            self.reference_descriptor = self._reference_descriptor
+            self.validate_launch = self._validate_launch
+            self.run_reference = self._run_reference
 
     def _check(self):
         self._binding.check(self._data, self._catalog, self._print)
@@ -146,6 +151,62 @@ class _Runner:
         if self._closed:
             raise ProgramInfrastructureError("owned SQL runner is closed")
         self._database = self._admit()
+
+    def _reference_descriptor(self):
+        approved, _, _ = self._binding.reuse
+        return {
+            "skill_id": approved.candidate.skill_id,
+            "promotion_sha256": approved.promotion_sha256,
+            "scope": json.dumps(
+                asdict(approved.candidate.scope), sort_keys=True,
+                ensure_ascii=False, allow_nan=False, separators=(",", ":")),
+            "instruction": "Select this approved skill by ID and promotion digest.",
+        }
+
+    def _validate_launch(self):
+        from train import sql_episodes as evidence
+        from train import sql_skill_eval as evaluator
+        from train.sql_skill_pilot import validate_approval
+
+        self._check()
+        if self._closed:
+            raise ProgramInfrastructureError("owned SQL runner is closed")
+        binding = self._binding
+        approved, case, instrument = binding.reuse
+        try:
+            evidence._validate_instrument(instrument)
+            if (case.task is not binding.task
+                    or evidence._fingerprint(evidence._task_payload(case.task))
+                    != binding.task_digest
+                    or case.task.db_path != binding.db_path
+                    or case.task.name != binding.name
+                    or binding.config.max_turns != instrument.action_cap
+                    or binding.max_rows != instrument.action_max_rows
+                    or binding.config.program_timeout != 5
+                    or instrument.program_timeout_s != 5
+                    or instrument != approved.promotion.binding.instrument):
+                raise ValueError("live reuse task/instrument differs")
+            validate_approval(approved)
+            digest = evaluator.admit_promoted_reuse(
+                approved.candidate, approved.promotion, case,
+                expected_promotion_sha256=approved.promotion_sha256,
+                ids=approved.promotion.ids, allow_execution=True,
+                executor=binding.executor,
+            )
+            if digest != binding.db_sha256:
+                raise ValueError("live reuse database differs")
+        except Exception as exc:
+            raise ProgramInfrastructureError("owned SQL reuse authority failed") from exc
+
+    async def _run_reference(self, skill_id, promotion_sha256, *, timeout):
+        self._timeout(timeout)
+        self._validate_launch()
+        approved, _, _ = self._binding.reuse
+        if (type(skill_id) is not str or type(promotion_sha256) is not str
+                or skill_id != approved.candidate.skill_id
+                or promotion_sha256 != approved.promotion_sha256):
+            raise ProgramRejected("unknown approved skill reference")
+        return await self.run_program(approved.candidate.program, timeout=timeout)
 
     def _check_ack(self, job, ack):
         owner = job.invocation
@@ -270,8 +331,13 @@ class _Runner:
 def build_owned_sql_program_harness(
     config: PTCHarnessConfig, *, data: TaskData, task: SqlTask,
     executor: core.PilotExecutor, db_sha256: str, max_rows: int,
+    approved_skill=None, reuse_case=None, original_scorer_instrument=None,
 ) -> PTCHarness:
     """Bind one caller-associated public task, without file or native IO."""
+    host_inputs = (approved_skill, reuse_case, original_scorer_instrument)
+    if any(value is not None for value in host_inputs) and not all(
+            value is not None for value in host_inputs):
+        raise ValueError("live reuse host inputs must be all present or all absent")
     if (type(config) is not PTCHarnessConfig or type(task) is not SqlTask
             or type(executor) is not core.PilotExecutor
             or not isinstance(data, TaskData)
@@ -294,6 +360,18 @@ def build_owned_sql_program_harness(
         raise ValueError("invalid canonical SQL catalog")
     binding = _Binding(
         config, data, executor, task.db_path, db_sha256, max_rows, catalog)
+    binding.reuse = None
+    if approved_skill is not None:
+        from train import sql_episodes as evidence
+        from train.sql_skill_eval import SkillCase
+        from train.sql_skill_pilot import ApprovedSkill
+
+        if (type(approved_skill) is not ApprovedSkill or type(reuse_case) is not SkillCase
+                or type(original_scorer_instrument) is not evidence.InstrumentSettings):
+            raise TypeError("concrete host approval, reuse case and original instrument required")
+        binding.reuse = host_inputs
+        binding.task = task
+        binding.task_digest = evidence._fingerprint(evidence._task_payload(task))
 
     def factory(actual_data, compiled):
         try:

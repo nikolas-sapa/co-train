@@ -78,9 +78,33 @@ The factory must not mutate supplied data, catalog or harness configuration.
 The admitted program timeout is captured once for the injected launch.
 
 Create the runner after assembling the launch catalog but before `_loop` and
-its first policy request. Keep the same system prompt, schemas, interception
-path, tool messages, original Task and SDK lifecycle/writer. Preserve the
-existing `_loop` call shape when injection is absent.
+its first policy request. When the reference protocol is absent, keep the same
+system prompt and schemas. A complete opt-in reference protocol consists of
+synchronous `reference_descriptor` and `validate_launch` plus asynchronous
+`run_reference`; partial or incorrectly typed protocols fail closed.
+It adds only a bounded canonical public descriptor with exactly `skill_id`,
+`promotion_sha256`, `scope` and the fixed instruction
+`Select this approved skill by ID and promotion digest.` All values are strings:
+nonempty skill ID at most 256 UTF-8 bytes, scope at most 1024 bytes, a 64-character
+lowercase hexadecimal promotion digest, instruction at most 256 bytes, and
+canonical serialized descriptor at most 2048 bytes. No private task/gold,
+candidate program, host paths or approval material is advertised.
+
+Opt-in keeps the single original `run_program` tool and SDK loop, with a closed
+union of exactly `{"code": str}` or
+`{"skill_id": str, "promotion_sha256": str}`. Reject duplicate/extra keys,
+incomplete or mixed forms and unknown tool names. Validate launch authority
+before the first policy request and after every response, before tool-argument
+parsing, direct-code/reference dispatch or final/no-tool handling. The SQL
+reference path freshly validates approval and admits current promotion/task/
+instrument/DB/source binding before dispatching the admitted candidate program
+through the original `run_program` path.
+
+Keep interception, tool-message forwarding, original Task/scorer and SDK
+lifecycle/writer unchanged, including existing ACK and retained cleanup handling.
+Preserve the existing `_loop` call shape when injection is absent. Host
+association with the actual SDK Task/scorer is not inferred from typed-equal
+settings, and the generic protocol does not prove custody.
 
 Injected execution returns final observation text, including any native
 rejection formatting, without a second renderer or serialization scheme.

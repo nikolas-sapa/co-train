@@ -667,3 +667,21 @@ def test_first_actual_cancellation_identity_survives_three_launch_cancels(
                 await asyncio.gather(runner.close_task, return_exceptions=True)
 
     _run(case())
+
+
+@pytest.mark.parametrize("present", (
+    ("approved_skill",), ("reuse_case",), ("original_scorer_instrument",),
+    ("approved_skill", "reuse_case"),
+    ("approved_skill", "original_scorer_instrument"),
+    ("reuse_case", "original_scorer_instrument"),
+))
+def test_live_reuse_builder_host_inputs_are_all_or_none(tmp_path, present):
+    from ptc.test_sql_skill_reuse_integration import require_builder
+
+    builder = require_builder()
+    fixture = _fixture(tmp_path)
+    kwargs = dict(data=fixture.data, task=fixture.task, executor=fixture.executor,
+                  db_sha256=fixture.digest, max_rows=fixture.max_rows)
+    kwargs.update({name: object() for name in present})
+    with pytest.raises((TypeError, ValueError)):
+        builder(fixture.config, **kwargs)

@@ -395,3 +395,316 @@ def test_repeated_cancellation_joins_owned_close():
 
 def test_new_cancellation_during_normal_close_propagates_after_join():
     _run(_cancel_case(ordinary_close=True))
+
+
+class ReferenceRunner(Runner):
+    """Protocol-only unit double; never supplies a concrete invocation ACK."""
+    def __init__(self, *outcomes, public=None):
+        super().__init__(*outcomes)
+        from ptc.test_sql_skill_reuse_integration import descriptor
+        self.public = descriptor() if public is None else public
+        self.selections, self.guards = [], 0
+
+    def reference_descriptor(self):
+        return self.public
+
+    def validate_launch(self):
+        self.guards += 1
+
+    async def run_reference(self, skill_id, promotion_sha256, *, timeout):
+        from ptc.runtime import ProgramRejected
+        if (skill_id != self.public["skill_id"]
+                or promotion_sha256 != self.public["promotion_sha256"]):
+            raise ProgramRejected("unknown reference")
+        self.selections.append((skill_id, promotion_sha256, timeout))
+        outcome = self.outcomes.pop(0) if self.outcomes else "reference observation"
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+
+def _reference_turn(**updates):
+    import json
+    values = dict(skill_id="fixture-count", promotion_sha256="a" * 64)
+    values.update(updates)
+    return _assistant(None, raw_args=json.dumps(values))
+
+
+def _reference_harness(policy, owner, *, cap=8):
+    return PTCHarness(
+        PTCHarnessConfig(program_timeout=5, max_turns=cap),
+        transport=policy.transport(), program_runner_factory=lambda data, catalog: owner)
+
+
+@pytest.mark.parametrize("kind", (
+    "empty", "unknown", "malformed", "wrong", "missing", "id-type", "pin-type",
+    "code-plus-reference", "incomplete", "extra", "duplicate", "tool-name",
+))
+def test_live_reference_invalid_shapes_never_dispatch(kind):
+    import json
+    values = dict(skill_id="fixture-count", promotion_sha256="a" * 64)
+    if kind == "empty":
+        values["skill_id"] = ""
+    elif kind == "unknown":
+        values["skill_id"] = "not-advertised"
+    elif kind in ("malformed", "wrong"):
+        values["promotion_sha256"] = "bad" if kind == "malformed" else "b" * 64
+    elif kind == "missing":
+        values.pop("promotion_sha256")
+    elif kind == "id-type":
+        values["skill_id"] = 1
+    elif kind == "pin-type":
+        values["promotion_sha256"] = None
+    elif kind == "code-plus-reference":
+        values["code"] = "print(0)"
+    elif kind == "incomplete":
+        values.pop("skill_id")
+    elif kind == "extra":
+        values["extra"] = True
+    raw = json.dumps(values)
+    if kind == "duplicate":
+        raw = '{"skill_id":"fixture-count","skill_id":"fixture-count","promotion_sha256":"' + "a"*64 + '"}'
+    turn = _assistant(None, raw_args=raw)
+    if kind == "tool-name":
+        turn["choices"][0]["message"]["tool_calls"][0]["function"]["name"] = "other_tool"
+
+    async def case():
+        owner = ReferenceRunner()
+        policy = Policy(turn, _assistant(None))
+        await _launch(_reference_harness(policy, owner))
+        assert owner.calls == owner.selections == [], "invalid reference dispatched"
+        assert len(policy.requests) == 2 and owner.closed == 1
+        assert policy.bodies[1]["messages"][-1]["content"].startswith("rejected:")
+    _run(case())
+
+
+@pytest.mark.parametrize("enabled", (False, True))
+@pytest.mark.parametrize("code", ("", " \t\n", "print('caf\u00e9')"))
+def test_live_reference_preserves_legacy_direct_bytes(enabled, code):
+    async def case():
+        owner = ReferenceRunner("exact observation") if enabled else Runner("exact observation")
+        policy = Policy(_assistant(code), _assistant(None))
+        await _launch(_reference_harness(policy, owner))
+        assert owner.calls == [(code, 5)]
+        assert getattr(owner, "selections", []) == []
+        assert policy.bodies[1]["messages"][-1]["content"] == "exact observation"
+        assert owner.closed == 1
+    _run(case())
+
+
+@pytest.mark.parametrize("enabled", (False, True))
+def test_live_candidate_identical_direct_is_not_reference(enabled):
+    from train.test_sql_skills import PROGRAM
+
+    async def case():
+        owner = ReferenceRunner() if enabled else Runner()
+        policy = Policy(_assistant(PROGRAM), _assistant(None))
+        await _launch(_reference_harness(policy, owner))
+        assert owner.calls == [(PROGRAM, 5)]
+        assert getattr(owner, "selections", []) == []
+        if enabled:
+            assert owner.guards == 3, "initial and both post-request guards required"
+    _run(case())
+
+
+def _bounded_descriptor(field, size, *, multibyte=False):
+    from ptc.test_sql_skill_reuse_integration import descriptor, canonical
+    if field != "total":
+        unit = "\u00e9" if multibyte else "x"
+        value = unit * (size // len(unit.encode("utf-8"))) + "x" * (size % len(unit.encode("utf-8")))
+        return descriptor(**{field: value})
+    # JSON escaping increases serialized bytes without violating field bounds.
+    for escaped in range(1025):
+        for plain in range(7):
+            public = descriptor(scope="\x01" * escaped + "x" * plain)
+            if len(public["scope"].encode("utf-8")) <= 1024 and len(canonical(public)) == size:
+                return public
+    raise AssertionError("exact descriptor boundary fixture not representable")
+
+
+@pytest.mark.parametrize("field,size,multibyte,accepted", (
+    ("skill_id", 256, False, True), ("skill_id", 257, False, False),
+    ("skill_id", 256, True, True), ("skill_id", 257, True, False),
+    ("scope", 1024, False, True), ("scope", 1025, False, False),
+    ("scope", 1024, True, True), ("scope", 1025, True, False),
+    ("total", 2048, False, True), ("total", 2049, False, False),
+))
+def test_live_reference_descriptor_utf8_boundaries(field, size, multibyte, accepted):
+    public = _bounded_descriptor(field, size, multibyte=multibyte)
+
+    async def case():
+        owner = ReferenceRunner(public=public)
+        policy = Policy(_assistant(None))
+        error = None
+        try:
+            await _launch(_reference_harness(policy, owner))
+        except (ValueError, TypeError, ProgramInfrastructureError) as exc:
+            error = exc
+        assert len(policy.requests) == int(accepted), "descriptor admitted before byte bounds"
+        assert (error is None) is accepted
+        assert owner.calls == owner.selections == [] and owner.closed == 1
+    _run(case())
+
+
+@pytest.mark.parametrize("pin", ("A"*64, "a"*63, "g"*64, "a"*65))
+def test_live_reference_descriptor_digest_rejected_before_request(pin):
+    from ptc.test_sql_skill_reuse_integration import descriptor
+
+    async def case():
+        owner = ReferenceRunner(public=descriptor(promotion_sha256=pin))
+        policy = Policy(_assistant(None))
+        with pytest.raises((ValueError, TypeError, ProgramInfrastructureError)):
+            await _launch(_reference_harness(policy, owner))
+        assert policy.requests == [] and owner.closed == 1
+        assert owner.calls == owner.selections == []
+    _run(case())
+
+
+def test_live_reference_public_projection_is_private_and_local():
+    import copy
+    import json
+    from ptc import harness as module
+    from ptc.test_sql_skill_reuse_integration import INSTRUCTION
+
+    async def case():
+        baseline = copy.deepcopy(module.TOOLS)
+        owner = ReferenceRunner()
+        policy = Policy(_reference_turn(), _assistant(None))
+        await _launch(_reference_harness(policy, owner))
+        assert owner.calls == [] and len(owner.selections) == 1
+        assert owner.public["instruction"] == INSTRUCTION
+        assert len(INSTRUCTION.encode("utf-8")) <= 256
+        assert set(owner.public) == {"skill_id", "promotion_sha256", "scope", "instruction"}
+        wire = json.dumps(policy.bodies)
+        assert INSTRUCTION in wire and "fixture-count" in wire
+        assert "program" not in owner.public and "approval_path" not in wire
+        assert module.TOOLS == baseline
+        for body in policy.bodies:
+            assert [item["function"]["name"] for item in body["tools"]] == ["run_program"]
+            assert body["stream_options"]["include_usage"] is True
+        assert owner.guards == 3 and owner.closed == 1
+    _run(case())
+
+
+@pytest.mark.parametrize("member", ("reference_descriptor", "validate_launch", "run_reference"))
+@pytest.mark.parametrize("fault", ("missing", "noncallable", "wrong-async"))
+def test_live_reference_optional_protocol_cleanup(member, fault):
+    async def case():
+        owner = ReferenceRunner()
+        if fault == "missing":
+            # Shadow the class member with an absent attribute on this instance.
+            class Missing(ReferenceRunner):
+                def __getattribute__(self, name):
+                    if name == member:
+                        raise AttributeError(name)
+                    return super().__getattribute__(name)
+            owner = Missing()
+        elif fault == "noncallable":
+            setattr(owner, member, 7)
+        elif member == "run_reference":
+            setattr(owner, member, lambda *args, **kwargs: "not async")
+        else:
+            async def wrong():
+                return None
+            setattr(owner, member, wrong)
+        policy = Policy(_assistant(None))
+        with pytest.raises((ValueError, TypeError, ProgramInfrastructureError)):
+            await _launch(_reference_harness(policy, owner))
+        assert owner.closed == 1 and policy.requests == []
+    _run(case())
+
+
+def test_live_reference_disabled_import_io_and_schema_are_inert(monkeypatch):
+    import builtins
+    import copy
+    from pathlib import Path
+    from ptc import harness as module
+
+    attempts = []
+    original_import, original_read = builtins.__import__, Path.read_bytes
+
+    def guarded_import(name, *args, **kwargs):
+        if name.startswith(("train.sql_skill", "train.sql_pilot")):
+            attempts.append(("import", name))
+            raise AssertionError("disabled harness imported skill authority")
+        return original_import(name, *args, **kwargs)
+
+    def guarded_read(path):
+        attempts.append(("read", str(path)))
+        raise AssertionError("disabled harness read skill files")
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    monkeypatch.setattr(Path, "read_bytes", guarded_read)
+
+    async def case():
+        schema, system = copy.deepcopy(module.TOOLS), module.SYSTEM
+        owners, policies = [], []
+        for turn in (_assistant("direct"), _reference_turn()):
+            owner = Runner("direct observation")
+            policy = Policy(turn, _assistant(None))
+            await _launch(_reference_harness(policy, owner))
+            owners.append(owner)
+            policies.append(policy)
+            assert policy.bodies[0]["tools"] == schema
+            assert owner.closed == 1
+        assert owners[0].calls == [("direct", 5)]
+        assert owners[1].calls == [], "disabled reference became blank direct code"
+        assert policies[1].bodies[1]["messages"][-1]["content"].startswith("rejected:")
+        assert policies[0].bodies[0]["messages"][0] == policies[1].bodies[0]["messages"][0]
+        assert module.TOOLS == schema and module.SYSTEM == system
+        assert attempts == []
+    _run(case())
+
+
+@pytest.mark.parametrize("kind", ("rejected", "infrastructure", "unexpected", "cancel"))
+def test_live_reference_original_exception_and_cancel_identity(kind):
+    async def case():
+        from ptc.runtime import ProgramRejected
+        errors = {
+            "rejected": ProgramRejected("original rejection"),
+            "infrastructure": ProgramInfrastructureError("original infrastructure"),
+            "unexpected": RuntimeError("original unexpected"),
+            "cancel": asyncio.CancelledError("original cancel"),
+        }
+        error = errors[kind]
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        class Held(ReferenceRunner):
+            async def aclose(self):
+                self.closed += 1
+                entered.set()
+                await release.wait()
+
+        owner = Held(error)
+        policy = Policy(_reference_turn(), _assistant(None))
+        call = asyncio.create_task(_launch(_reference_harness(policy, owner)))
+        try:
+            if kind == "cancel":
+                await asyncio.wait_for(entered.wait(), 1)
+                for _ in range(3):
+                    call.cancel()
+                    await asyncio.sleep(0)
+                assert not call.done(), "cancel escaped before joined close"
+            else:
+                release.set()
+            if kind == "rejected":
+                await call
+                assert len(policy.requests) == 2
+                assert policy.bodies[1]["messages"][-1]["content"] == "rejected: original rejection"
+            else:
+                release.set()
+                with pytest.raises(BaseException) as caught:
+                    await call
+                if kind == "cancel":
+                    assert caught.value is error
+                elif kind == "infrastructure":
+                    assert caught.value is error
+                else:
+                    assert isinstance(caught.value, ProgramInfrastructureError)
+                    assert caught.value.__cause__ is error
+                assert len(policy.requests) == 1
+            assert owner.closed == 1 and len(owner.selections) == 1
+        finally:
+            release.set()
+            await asyncio.gather(call, return_exceptions=True)
+    _run(case())

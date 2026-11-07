@@ -20,6 +20,7 @@ from train import sql_skills as skills
 
 __all__ = [
     "SkillCase", "evaluate_candidate", "promote_candidate", "reuse_promoted",
+    "admit_promoted_reuse",
 ]
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -256,12 +257,12 @@ def promote_candidate(
     return promotion, tuple(captures)
 
 
-def reuse_promoted(
+def admit_promoted_reuse(
     candidate: skills.SkillCandidate, promotion: skills.SkillPromotion,
     case: SkillCase, *, expected_promotion_sha256: str, ids: evidence.EpisodeIds,
     allow_execution=False, executor: PilotExecutor | None = None,
-) -> capture.SqlCapture:
-    """Trust an externally approved receipt, never reopen old evidence databases."""
+) -> str:
+    """Validate current reuse authority without executing or scoring a program."""
     _opt_in(allow_execution)
     candidate_bytes = skills.encode_candidate(candidate)
     promotion_bytes = skills.encode_promotion(promotion)
@@ -286,4 +287,18 @@ def reuse_promoted(
         evidence._check_database(case.task, digest)
     if _current_binding(case.task, executor) != promotion.binding:
         raise ValueError("current capture/workflow runtime binding differs")
+    return digest
+
+
+def reuse_promoted(
+    candidate: skills.SkillCandidate, promotion: skills.SkillPromotion,
+    case: SkillCase, *, expected_promotion_sha256: str, ids: evidence.EpisodeIds,
+    allow_execution=False, executor: PilotExecutor | None = None,
+) -> capture.SqlCapture:
+    """Trust an externally approved receipt, never reopen old evidence databases."""
+    digest = admit_promoted_reuse(
+        candidate, promotion, case,
+        expected_promotion_sha256=expected_promotion_sha256, ids=ids,
+        allow_execution=allow_execution, executor=executor,
+    )
     return _execute(candidate, case, expected_db_sha256=digest, executor=executor)

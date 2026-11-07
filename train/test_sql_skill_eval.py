@@ -1065,3 +1065,142 @@ def test_binding_failure_keeps_obtained_captures_without_authorizing_promotion(
     assert all(c.result.valid is True and c.result.score == 1 for c in obtained)
     assert raised.value.qualification_captures == tuple(obtained)
     assert tuple(c.ids for c in obtained) == tuple(c.ids for c in state.cases[:completed])
+
+
+def test_live_reuse_existing_file_sqlite_qualification_control(tmp_path):
+    from train.sql_pilot_assets import envelope_bytes, open_envelope
+
+    module, evaluator = api(), api("sql_skill_eval")
+    state = world(tmp_path, module, evaluator)
+    assert state.capture.result.valid is True and state.capture.result.score == 0
+    receipt, captures = promote(module, evaluator, state)
+    assert receipt is not None and len(captures) == 4
+    assert all(item.result.valid is True and item.result.score == 1 for item in captures)
+    candidate_path, promotion_path, approval_path = (
+        tmp_path / name for name in ("candidate.json", "promotion.json", "approval.json"))
+    candidate_path.write_bytes(module.encode_candidate(state.candidate))
+    promotion_path.write_bytes(module.encode_promotion(receipt))
+    approval = dict(candidate_sha256=pin(candidate_path.read_bytes()),
+                    promotion_sha256=pin(promotion_path.read_bytes()),
+                    ids=dataclasses.asdict(receipt.ids))
+    approval_path.write_bytes(envelope_bytes("sql_pilot_host_approval", approval))
+    loaded = open_envelope(approval_path.read_bytes(), "sql_pilot_host_approval")
+    assert loaded == approval
+    candidate = module.decode_candidate(candidate_path.read_bytes())
+    promotion = module.decode_promotion(promotion_path.read_bytes())
+    case = reuse_case(evaluator, tmp_path, "file_fresh", 17)
+    capture = evaluator.reuse_promoted(
+        candidate, promotion, case, expected_promotion_sha256=loaded["promotion_sha256"],
+        ids=promotion.ids, allow_execution=True)
+    assert len(capture.steps) == 1 and capture.steps[0].action == candidate.program
+    assert capture.result.valid is True and capture.result.score == 1
+    assert capture.ids == case.ids
+
+
+def test_live_reuse_admission_shared_without_execution(tmp_path, monkeypatch):
+    from ptc.test_sql_skill_reuse_integration import capability
+
+    module, evaluator = api(), api("sql_skill_eval")
+    admit = capability(evaluator, "admit_promoted_reuse")
+    state = world(tmp_path, module, evaluator)
+    receipt, _ = promote(module, evaluator, state)
+    case = reuse_case(evaluator, tmp_path, "admit_fresh", 19)
+    kwargs = dict(expected_promotion_sha256=pin(module.encode_promotion(receipt)),
+                  ids=receipt.ids, allow_execution=True)
+    counts = sentries(monkeypatch)
+    admitted = admit(state.candidate, receipt, case, **kwargs)
+    assert admitted == pin(Path(case.task.db_path).read_bytes())
+    assert counts["dispatch"] == counts["score"] == 0
+    calls, executed = [], []
+    original_execute = evaluator._execute
+
+    def observed_admit(*args, **options):
+        calls.append((args, options))
+        return admit(*args, **options)
+
+    def observed_execute(*args, **options):
+        actual = original_execute(*args, **options)
+        executed.append(actual)
+        return actual
+
+    monkeypatch.setattr(evaluator, "admit_promoted_reuse", observed_admit)
+    monkeypatch.setattr(evaluator, "_execute", observed_execute)
+    actual = evaluator.reuse_promoted(state.candidate, receipt, case, **kwargs)
+    assert len(calls) == len(executed) == 1 and actual is executed[0]
+    assert counts["dispatch"] == counts["score"] == 1
+    assert actual.result.valid is True and actual.result.score == 1
+
+
+def test_live_reuse_source_closure_appends_without_repin(tmp_path):
+    from ptc.test_sql_skill_reuse_integration import OLD_SKILL_SOURCES, ADDED_SKILL_SOURCES
+
+    module, evaluator = api(), api("sql_skill_eval")
+    assert module.SOURCE_PATHS == OLD_SKILL_SOURCES + ADDED_SKILL_SOURCES
+    state = world(tmp_path, module, evaluator)
+    receipt, _ = promote(module, evaluator, state)
+    old = dataclasses.replace(
+        receipt.binding, source_sha256="0"*64)
+    stale = dataclasses.replace(receipt, binding=old)
+    case = reuse_case(evaluator, tmp_path, "stale_pin", 23)
+    before = module.encode_promotion(stale)
+    with pytest.raises(ValueError):
+        evaluator.reuse_promoted(
+            state.candidate, stale, case, expected_promotion_sha256=pin(before),
+            ids=stale.ids, allow_execution=True)
+    assert module.encode_promotion(stale) == before, "stale source receipt silently repinned"
+
+
+def test_live_reuse_fresh_interpreter_source_copy_drift(tmp_path):
+    from ptc.test_sql_skill_reuse_integration import capability
+
+    module, evaluator = api(), api("sql_skill_eval")
+    capability(evaluator, "admit_promoted_reuse")
+    state = world(tmp_path, module, evaluator)
+    receipt, _ = promote(module, evaluator, state)
+    case = reuse_case(evaluator, tmp_path, "fresh_process", 29)
+    candidate_path, promotion_path = tmp_path / "candidate.json", tmp_path / "promotion.json"
+    candidate_path.write_bytes(module.encode_candidate(state.candidate))
+    promotion_path.write_bytes(module.encode_promotion(receipt))
+    selected = tmp_path / "selected-source-copy"
+    for name in module.SOURCE_PATHS:
+        target = selected / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((evaluator._ROOT / name).read_bytes())
+    payload = dict(candidate=str(candidate_path), promotion=str(promotion_path),
+                   selected=str(selected), task=dataclasses.asdict(case.task),
+                   ids=dataclasses.asdict(case.ids))
+    source = '''
+import json, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from bench.task import SqlTask
+from train import sql_skills as skills, sql_skill_eval as evaluator
+from train.sql_episodes import EpisodeIds
+p = json.loads(sys.argv[2])
+candidate = skills.decode_candidate(Path(p["candidate"]).read_bytes())
+promotion = skills.decode_promotion(Path(p["promotion"]).read_bytes())
+case = evaluator.SkillCase("reuse", SqlTask(**p["task"]), EpisodeIds(**p["ids"]))
+evaluator._ROOT = Path(p["selected"])
+calls = []
+def forbidden(*args, **kwargs):
+    calls.append(1)
+    raise AssertionError("pure admission dispatched")
+evaluator._execute = forbidden
+kwargs = dict(expected_promotion_sha256=skills._sha(skills.encode_promotion(promotion)),
+              ids=promotion.ids, allow_execution=True)
+digest = evaluator.admit_promoted_reuse(candidate, promotion, case, **kwargs)
+path = evaluator._ROOT / skills.SOURCE_PATHS[-1]
+path.write_bytes(path.read_bytes() + b"\\n# owned fixture source drift\\n")
+refused = False
+try:
+    evaluator.admit_promoted_reuse(candidate, promotion, case, **kwargs)
+except ValueError:
+    refused = True
+assert refused and calls == []
+print(json.dumps(dict(digest=digest, refused=refused, dispatches=len(calls))))
+'''
+    result = subprocess.run(
+        [sys.executable, "-I", "-B", "-c", source, str(evaluator._ROOT), json.dumps(payload)],
+        env={"PATH": os.defpath}, capture_output=True, text=True, timeout=10, check=True)
+    assert json.loads(result.stdout) == dict(
+        digest=pin(Path(case.task.db_path).read_bytes()), refused=True, dispatches=0)
