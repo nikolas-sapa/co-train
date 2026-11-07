@@ -5,6 +5,9 @@ SqlEpisode lacks explicit Budget.max_turns/max_retries/retry_on/rollout_timeout
 bindings. Matching its recorded subset cannot establish full swap comparability,
 measurement, runtime behavior, checkpoint identity or scientific acceptance.
 An ID-only plan cannot detect a shared substituted fingerprint on both sides.
+Pairwise matches may span different declared cohorts, policies and instruments.
+SqlEpisode has no checkpoint or generation-seed binding. Neither matching
+declarations nor their coverage establish learning improvement or cost savings.
 """
 
 from __future__ import annotations
@@ -74,7 +77,7 @@ class HarnessSwapProjection:
 
     @property
     def recorded_declarations_compatible(self) -> bool:
-        """Only the expressible declaration subset, never full comparability."""
+        """Pairwise declaration subset, not cohort homogeneity or full comparability."""
         return (
             self.coverage_complete
             and self.invariant_mismatch_count == 0

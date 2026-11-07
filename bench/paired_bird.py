@@ -264,7 +264,8 @@ def _arm_scores(plan, arm, rows):
         scores[row.task_id] = _score(row)
     if len(expected) != len(plan.draw.eligible):
         diagnostics.append("admitted_duplicate_task")
-    if set(scores) != expected or len(rows) != len(expected):
+    if (tuple(scores) != tuple(t.name for t in plan.draw.eligible)
+            or len(rows) != len(expected)):
         diagnostics.append(f"{arm}:eligible_coverage_mismatch")
     return scores, diagnostics
 

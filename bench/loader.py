@@ -123,6 +123,8 @@ def _build(records: list[dict], root: Path, db_dir: str, sql_key: str,
         # Either way the id is stable under filtering, which an enumeration over an
         # already-filtered list is not -- and `ptc/paired.py` pairs the arms on it.
         qid = r.get("question_id", i)
+        if isinstance(qid, bool):
+            raise ValueError("question_id must not be a boolean")
         tasks.append(SqlTask(
             name=f"{prefix}-{int(qid):04d}",
             question=r["question"],

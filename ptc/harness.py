@@ -700,6 +700,8 @@ class PTCHarness(Harness[PTCHarnessConfig]):
             timeout=300.0,
         ) as http:
             for _ in range(self.config.max_turns):
+                if references_enabled:
+                    _validate_launch_authority(program_runner)
                 message = await _stream_message(http, chat_path, {
                     "model": ctx.model, "messages": messages,
                     "tools": policy_tools, "tool_choice": "auto", "stream": True,
