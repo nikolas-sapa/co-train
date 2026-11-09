@@ -1,0 +1,132 @@
+"""UNRUN proposal: synthetic W7 baseline, no native or production authority."""
+import sys
+import types
+import weakref
+
+
+def _directory(info, private):
+    require(stat.S_ISDIR(info.st_mode)
+            and info.st_uid in (0, os.getuid()), "owned directory")
+    # Ancestors may include a system sticky temporary directory. Final private
+    # roots and every export directory must be owner-only, never sticky-shared.
+    require(not info.st_mode & 0o022
+            or info.st_uid == 0 and bool(info.st_mode & stat.S_ISVTX),
+            "unsafe writable directory")
+    if private:
+        require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700,
+                "private owner700 directory")
+    return info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid
+
+
+def check(self):
+    for parent, name, record, pin, private in self.pins:
+        require(record.handle is not None and (
+            record.kind == "borrowed" or not record.attempted),
+            "ancestor close/identity unknown")
+        require(_directory(os.fstat(record.handle), private) == pin, "open ancestor identity")
+        if parent is not None:
+            require(_directory(os.stat(name, dir_fd=parent.handle,
+                                       follow_symlinks=False), private) == pin,
+                    "named ancestor identity")
+    require(self._root.kind == "borrowed" or not self._root.attempted,
+            "anchor closed")
+
+
+TAGS = ("parent", "name", "record", "pin", "private")
+
+
+def call_under_test(function, target):
+    try:
+        function(target)
+    except BaseException as error:
+        error.__traceback__ = None
+        raise
+
+
+def _capture_case():
+    events = []
+    registry = {}
+    fault = ValueError("anchor closed")
+
+    class Tagged:
+        def __init__(self, tag, **fields):
+            self.tag = tag
+            self.__dict__.update(fields)
+
+        def __bool__(self):
+            return True
+
+        def __eq__(self, other):
+            return True
+
+        def __del__(self):
+            events.append(self.tag)
+
+    def make(tag, **fields):
+        value = Tagged(tag, **fields)
+        registry[tag] = weakref.ref(value)
+        return value
+
+    def row():
+        return (make("parent", handle=1), make("name"),
+                make("record", handle=1, kind="borrowed", attempted=False),
+                make("pin"), make("private"))
+
+    class OneShot:
+        def __init__(self):
+            self.used = False
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            if self.used:
+                raise StopIteration
+            self.used = True
+            return row()
+
+    def fake_require(ok, label):
+        if not ok:
+            if label != "anchor closed":
+                raise AssertionError("unexpected synthetic policy failure")
+            raise fault
+
+    info = types.SimpleNamespace(st_dev=1, st_ino=2, st_mode=0o40700,
+                                 st_uid=503, st_gid=20)
+    fake_os = types.SimpleNamespace(
+        getuid=lambda: 503,
+        fstat=lambda handle: info,
+        stat=lambda name, *, dir_fd, follow_symlinks: info,
+    )
+    fake_stat = types.SimpleNamespace(
+        S_ISDIR=lambda mode: (mode & 0o170000) == 0o040000,
+        S_IMODE=lambda mode: mode & 0o7777,
+        S_ISVTX=0o1000,
+    )
+    scope = {"__builtins__": _directory.__builtins__, "require": fake_require,
+             "os": fake_os, "stat": fake_stat}
+    scope["_directory"] = types.FunctionType(_directory.__code__, scope)
+    function = types.FunctionType(check.__code__, scope)
+    target = types.SimpleNamespace(
+        pins=OneShot(), _root=types.SimpleNamespace(kind="owned", attempted=True),
+    )
+    try:
+        call_under_test(function, target)
+    except BaseException as error:
+        if error is not fault:
+            raise
+    else:
+        raise AssertionError("synthetic final-root refusal missing")
+    return fault, registry, events
+
+
+def capture(handled):
+    if not handled:
+        return _capture_case()
+    try:
+        raise RuntimeError("outer handled sentinel")
+    except RuntimeError as outer:
+        result = _capture_case()
+        if sys.exception() is not outer:
+            raise AssertionError("outer handled exception was not restored")
+        return result

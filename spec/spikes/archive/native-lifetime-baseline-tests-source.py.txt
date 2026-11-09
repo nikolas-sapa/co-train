@@ -1,0 +1,20 @@
+"""UNRUN proposal: two new synthetic traceback-lifetime cases."""
+import gc
+
+import pytest
+
+from train import _qualification_native_lifetime_baseline_v348 as baseline
+
+
+@pytest.mark.parametrize("handled", [False, True])
+def test_traceback_retains_five_locals(handled):
+    fault, registry, events = baseline.capture(handled)
+    try:
+        assert set(registry) == set(baseline.TAGS)
+        assert not events, "premature finalizer while original traceback is held"
+        assert all(reference() is not None for reference in registry.values())
+    finally:
+        fault.__traceback__ = None
+    gc.collect()
+    assert all(reference() is None for reference in registry.values())
+    assert sorted(events) == sorted(baseline.TAGS)

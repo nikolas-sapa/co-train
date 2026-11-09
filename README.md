@@ -34,6 +34,10 @@ from real bills. No users.
   a bounded two-header read completed; 15 new fake-file cases passed. No helper
   implementation/build, API declaration resolution or ABI compatibility is claimed.
   [Header review and limits](docs/engineering-header-review-2026-11-09.md).
+- Two new Python-only lifetime cases passed; the broken control failed both.
+  Frame metadata alone is now explicitly excluded from native equivalence.
+  Exception-held object lifetimes and all custody checks remain required.
+  [Lifetime baseline and scope](docs/engineering-native-lifetime-baseline-2026-11-09.md).
 - Full-volume reliability is still open. The latest exact 8GiB validation timed
   out at the 30-second external limit after at least 7.75GiB read. Final hashing,
   publication and release were not confirmed. No new native GPU result exists.

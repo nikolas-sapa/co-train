@@ -1,0 +1,79 @@
+{
+  "schema": "native-lifetime-publication-1",
+  "files": [
+    {
+      "path": "spec/spikes/archive/native-lifetime-baseline-green-source.py.txt",
+      "bytes": 4200,
+      "published_sha256": "422fc8296e879717cd9e544633f50fc058d68b96ea2173ce5ec1382c6052e882",
+      "first_party_source_sha256": "422fc8296e879717cd9e544633f50fc058d68b96ea2173ce5ec1382c6052e882",
+      "transformation": "VERBATIM_FIRST_PARTY_ARCHIVE",
+      "private_source_role": "green"
+    },
+    {
+      "path": "spec/spikes/archive/native-lifetime-baseline-red-source.py.txt",
+      "bytes": 4297,
+      "published_sha256": "96757a3e8e4a217b9f350bb83855b00768696acf3c9878980f8b512710659d83",
+      "first_party_source_sha256": "96757a3e8e4a217b9f350bb83855b00768696acf3c9878980f8b512710659d83",
+      "transformation": "VERBATIM_FIRST_PARTY_ARCHIVE",
+      "private_source_role": "red"
+    },
+    {
+      "path": "spec/spikes/archive/native-lifetime-baseline-tests-source.py.txt",
+      "bytes": 733,
+      "published_sha256": "9fd2e29270e55a922370c59fd0d3e856310bf315d26faf2a66865c821d7dc79e",
+      "first_party_source_sha256": "9fd2e29270e55a922370c59fd0d3e856310bf315d26faf2a66865c821d7dc79e",
+      "transformation": "VERBATIM_FIRST_PARTY_ARCHIVE",
+      "private_source_role": "tests"
+    },
+    {
+      "path": "docs/engineering-native-lifetime-baseline-2026-11-09.md",
+      "bytes": 4132,
+      "published_sha256": "b7f756f7b508d4c1ddd66f2471cc4746b009a96f87dc00dbe7e47b76151ca042",
+      "transformation": "FIRST_PARTY_DOCUMENT"
+    },
+    {
+      "path": "docs/engineering-compiler-kernel-denial-2026-11-09.md",
+      "bytes": 3077,
+      "published_sha256": "97d1127aa0e7cb0b05f67e5d7ad82e4fb5d22f12e2f081f5fbe621d7d36395ed",
+      "transformation": "FIRST_PARTY_DOCUMENT"
+    },
+    {
+      "path": "README.md",
+      "bytes": 10106,
+      "published_sha256": "6a6468e120f9cff885d5baecbaeccbb46e334ddaed38365a6a6ce084ac866634",
+      "transformation": "FIRST_PARTY_DOCUMENT"
+    },
+    {
+      "path": "docs/engineering-header-review-manifest.json",
+      "bytes": 2189,
+      "published_sha256": "882b138fdf0d0783e5ec48958eea88927b853aa85fcad9cb5be44a32aadd6a15",
+      "transformation": "FIRST_PARTY_DOCUMENT"
+    }
+  ],
+  "frame_metadata_excluded": true,
+  "object_lifetimes_still_required": true,
+  "green": {
+    "cases": 2,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "external_exit": 0
+  },
+  "red": {
+    "status": "NONPASS",
+    "cases": 2,
+    "intended_failures": 2,
+    "errors": 0,
+    "skips": 0,
+    "external_exit": 1
+  },
+  "pins_per_run": 3,
+  "origins_per_run": 3,
+  "execution_permission": "CONSUMED_NO_RETRY",
+  "active_modules_added": false,
+  "native_equivalence_proved": false,
+  "compiler_containment_proved": false,
+  "native_build_or_gpu_executed": false,
+  "installed_header_text_included": false,
+  "scope": "Dated synthetic Python baseline only, not clone/native/runtime acceptance"
+}
