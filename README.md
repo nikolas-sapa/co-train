@@ -30,9 +30,10 @@ from real bills. No users.
 - Preserved negative controls and rejected performance experiments. Both recent
   Python micro-optimizations failed their fixed speed gates; correctness passes
   did not promote them.
-- Native ancestry-helper design is reviewed, and one metadata-only preflight
-  completed. No helper implementation/build, header/API inspection or ABI
-  compatibility is claimed.
+- Native ancestry-helper design is reviewed. One metadata-only preflight and
+  a bounded two-header read completed; 15 new fake-file cases passed. No helper
+  implementation/build, API declaration resolution or ABI compatibility is claimed.
+  [Header review and limits](docs/engineering-header-review-2026-11-09.md).
 - Full-volume reliability is still open. The latest exact 8GiB validation timed
   out at the 30-second external limit after at least 7.75GiB read. Final hashing,
   publication and release were not confirmed. No new native GPU result exists.

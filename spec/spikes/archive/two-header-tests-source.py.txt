@@ -1,0 +1,180 @@
+"""NEW fake-file tests only. Never invokes the real two-header CLI."""
+import os
+from pathlib import Path
+import time
+
+import pytest
+from train import _qualification_header_review_v343 as reader
+
+
+def files(tmp_path, data=b"test\n"):
+    paths = tuple(str(tmp_path / name) for name in ("Python.h", "pyconfig.h"))
+    for path in paths:
+        Path(path).write_bytes(data)
+        os.chmod(path, 0o600)
+    return paths
+
+
+def test_exact_maximum_and_output_ceiling(tmp_path):
+    paths = files(tmp_path, b"\x00" * 131072)
+    result = reader.collect(paths, time.monotonic() + 4)
+    assert result["total_bytes"] == 262144
+    assert [row["bytes"] for row in result["files"]] == [131072, 131072]
+    assert 1572864 < len(reader.encode(result)) <= 2097152
+
+
+def test_oversize_before_second_open(tmp_path, monkeypatch):
+    paths = files(tmp_path)
+    Path(paths[0]).write_bytes(b"x" * 131073)
+    actual = os.open
+    calls = []
+    def observed(path, flags):
+        calls.append(path)
+        return actual(path, flags)
+    monkeypatch.setattr(reader.os, "open", observed)
+    with pytest.raises(reader.Refused):
+        reader.collect(paths, time.monotonic() + 4)
+    assert calls == [paths[0]]
+
+
+@pytest.mark.parametrize("kind", ["symlink", "fifo"])
+def test_nonregular_refused(tmp_path, kind):
+    paths = files(tmp_path)
+    Path(paths[0]).unlink()
+    if kind == "symlink":
+        Path(paths[0]).symlink_to(paths[1])
+    else:
+        os.mkfifo(paths[0], 0o600)
+    with pytest.raises((OSError, reader.Refused)):
+        reader.collect(paths, time.monotonic() + 4)
+
+
+def test_expired_before_any_open(tmp_path, monkeypatch):
+    paths = files(tmp_path)
+    actual = os.open
+    calls = []
+    def observed(path, flags):
+        calls.append(path)
+        return actual(path, flags)
+    monkeypatch.setattr(reader.os, "open", observed)
+    with pytest.raises(TimeoutError):
+        reader.collect(paths, -1)
+    assert calls == []
+
+
+def test_midread_mutation_refused_once_close(tmp_path, monkeypatch):
+    paths = files(tmp_path)
+    actual_read, actual_close = os.read, os.close
+    closes = []
+    changed = False
+    def mutate(fd, maximum):
+        nonlocal changed
+        data = actual_read(fd, maximum)
+        if not changed:
+            changed = True
+            info = os.stat(paths[0])
+            os.utime(paths[0], ns=(info.st_atime_ns, info.st_mtime_ns + 1000000))
+        return data
+    def close(fd):
+        closes.append(fd)
+        return actual_close(fd)
+    monkeypatch.setattr(reader.os, "read", mutate)
+    monkeypatch.setattr(reader.os, "close", close)
+    with pytest.raises(reader.Refused):
+        reader.collect(paths, time.monotonic() + 4)
+    assert len(closes) == 1
+
+
+def test_invalid_utf8_refused(tmp_path):
+    paths = files(tmp_path, b"\xff")
+    with pytest.raises(reader.Refused) as result:
+        reader.collect(paths, time.monotonic() + 4)
+    assert isinstance(result.value.primary, UnicodeDecodeError)
+
+
+def test_cardinality_and_remaining_budget(tmp_path):
+    paths = files(tmp_path)
+    with pytest.raises(ValueError):
+        reader.collect(paths + (paths[0],), time.monotonic() + 4)
+    with pytest.raises(reader.Refused):
+        reader.read_one(paths[0], 4, time.monotonic() + 4)
+
+
+def test_close_error_refuses_without_retry(tmp_path, monkeypatch):
+    paths = files(tmp_path)
+    actual = os.close
+    calls = []
+    def close(fd):
+        calls.append(fd)
+        actual(fd)
+        raise OSError("injected close error after actual close")
+    monkeypatch.setattr(reader.os, "close", close)
+    with pytest.raises(reader.Refused) as result:
+        reader.collect(paths, time.monotonic() + 4)
+    assert len(calls) == 1 and result.value.primary is None
+    assert len(result.value.secondary) == 1
+
+
+def test_unknown_cli_refused_before_any_open(monkeypatch):
+    calls = []
+    monkeypatch.setattr(reader.os, "open", lambda *a: calls.append(a))
+    with pytest.raises(ValueError):
+        reader.validate_cli(["--extra"])
+    assert calls == []
+
+def test_growth_never_acquires_over_budget(tmp_path, monkeypatch):
+    paths = files(tmp_path, b"x" * 131072)
+    target = os.stat(paths[1]).st_ino
+    actual = os.read
+    acquired = {}
+    grown = False
+    def growing(fd, maximum):
+        nonlocal grown
+        inode = os.fstat(fd).st_ino
+        data = actual(fd, maximum)
+        acquired[inode] = acquired.get(inode, 0) + len(data)
+        if inode == target and not grown:
+            grown = True
+            with Path(paths[1]).open("ab") as output:
+                output.write(b"!")
+        return data
+    monkeypatch.setattr(reader.os, "read", growing)
+    with pytest.raises(reader.Refused):
+        reader.collect(paths, time.monotonic() + 4)
+    assert grown and len(acquired) == 2
+    assert max(acquired.values()) <= 131072
+    assert sum(acquired.values()) <= 262144
+
+@pytest.mark.parametrize("kind", ["regular", "live-symlink", "dangling-symlink"])
+def test_private_output_never_reuses_destination(tmp_path, kind):
+    from train import _qualification_header_output_v345 as capture
+    destination = tmp_path / "capture.json"
+    target = tmp_path / "target"
+    if kind == "regular":
+        destination.write_bytes(b"unchanged")
+    elif kind == "live-symlink":
+        target.write_bytes(b"unchanged")
+        destination.symlink_to(target)
+    else:
+        destination.symlink_to(target)
+    with pytest.raises(FileExistsError):
+        capture.open_private(str(destination))
+    if kind == "regular":
+        assert destination.read_bytes() == b"unchanged"
+    elif kind == "live-symlink":
+        assert target.read_bytes() == b"unchanged"
+    else:
+        assert not target.exists() and destination.is_symlink()
+
+
+def test_private_output_created_mode600(tmp_path):
+    from train import _qualification_header_output_v345 as capture
+    import stat
+    destination = tmp_path / "capture.json"
+    fd = capture.open_private(str(destination))
+    try:
+        info = os.fstat(fd)
+        assert stat.S_ISREG(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o600
+        assert info.st_nlink == 1 and info.st_uid == os.getuid()
+    finally:
+        os.close(fd)

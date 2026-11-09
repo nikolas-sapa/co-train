@@ -1,0 +1,52 @@
+{
+  "schema": "header-review-publication-1",
+  "files": [
+    {
+      "path": "spec/spikes/archive/two-header-reader-source.py.txt",
+      "bytes": 4716,
+      "published_sha256": "aaa3b4d7e950907d0b3fb5bdf2056d27083dfb1e44a565b4bf11e267d56a670d",
+      "private_first_party_origin": "train/_qualification_header_review_v343.py",
+      "first_party_source_sha256": "c74b3204a566c76c2e24b38aa9ba25533536930280de67347248ac640c44f1ce",
+      "transformation": "PATH_REDACTED_TRANSFORMED_UNRUN"
+    },
+    {
+      "path": "spec/spikes/archive/two-header-output-source.py.txt",
+      "bytes": 586,
+      "published_sha256": "fb92405f3daee4800642b8066480462ffc507f0957a464ed116c584f4118cd2f",
+      "private_first_party_origin": "train/_qualification_header_output_v345.py",
+      "first_party_source_sha256": "fb92405f3daee4800642b8066480462ffc507f0957a464ed116c584f4118cd2f",
+      "transformation": "VERBATIM_FIRST_PARTY_ARCHIVE"
+    },
+    {
+      "path": "spec/spikes/archive/two-header-tests-source.py.txt",
+      "bytes": 6138,
+      "published_sha256": "2ea9bfffdae4fffac007f0c262b9ce1654b9bee75545c5ca092d0e9c51dfe59c",
+      "private_first_party_origin": "train/test_qualification_header_review_v343.py",
+      "first_party_source_sha256": "2ea9bfffdae4fffac007f0c262b9ce1654b9bee75545c5ca092d0e9c51dfe59c",
+      "transformation": "VERBATIM_FIRST_PARTY_ARCHIVE"
+    },
+    {
+      "path": "README.md",
+      "bytes": 9790,
+      "published_sha256": "0d0ca6e86d4be4af08f22b1767941f95647e85305c107bb3db4d349cc8616dbd",
+      "transformation": "FIRST_PARTY_DOCUMENT"
+    },
+    {
+      "path": "docs/engineering-header-review-2026-11-09.md",
+      "bytes": 3040,
+      "published_sha256": "c6afbc7cc33bb581c7799cfc112eea2e5cad47023b8c3fbed7ef044833cd325a",
+      "transformation": "FIRST_PARTY_DOCUMENT"
+    }
+  ],
+  "installed_header_text_included": false,
+  "active_modules_added": false,
+  "private_fake_cases": 15,
+  "private_green_failures": 0,
+  "growth_red_failures": 1,
+  "deadline_red_failures": 1,
+  "actual_header_bytes": 58968,
+  "actual_external_exit": 0,
+  "actual_hashes": 0,
+  "gpu_operations": 0,
+  "scope": "Dated private evidence, not clone/runtime/ABI acceptance"
+}

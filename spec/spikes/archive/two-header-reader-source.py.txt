@@ -1,0 +1,144 @@
+"""One separately approved two-header read. No build/ABI/execution authority."""
+import time
+BEGIN = time.monotonic()
+import json
+import os
+import stat
+import sys
+
+BASE = "/REQUIRES_EXPLICIT_REVIEW_AND_AUTHORIZATION/include/python3.12"
+PATHS = (BASE + "/Python.h", BASE + "/pyconfig.h")
+PER_FILE = 131072
+TOTAL = 262144
+OUTPUT = 2097152
+
+
+class Refused(Exception):
+    def __init__(self, primary, secondary=()):
+        self.primary = primary
+        self.secondary = secondary
+        super().__init__("header read refused")
+
+
+def check(deadline):
+    if time.monotonic() >= deadline:
+        raise TimeoutError("cooperative header deadline")
+
+
+def identity(info):
+    return tuple(getattr(info, name) for name in (
+        "st_dev", "st_ino", "st_mode", "st_nlink", "st_uid", "st_gid",
+        "st_size", "st_mtime_ns", "st_ctime_ns"))
+
+
+def read_one(path, remaining, deadline):
+    check(deadline)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    failure = None
+    secondary = []
+    result = None
+    try:
+        before = os.fstat(fd)
+        if not (stat.S_ISREG(before.st_mode) and before.st_nlink == 1
+                and before.st_uid in (0, os.getuid())
+                and not stat.S_IMODE(before.st_mode) & 0o022
+                and 0 < before.st_size <= PER_FILE
+                and before.st_size <= remaining):
+            raise ValueError("header metadata/size")
+        parts = []
+        count = 0
+        while count < before.st_size:
+            check(deadline)
+            maximum = min(8192, before.st_size - count, remaining - count, PER_FILE - count)
+            if maximum <= 0:
+                raise ValueError("header acquisition budget exhausted")
+            chunk = os.read(fd, maximum)
+            if not chunk:
+                break
+            count += len(chunk)
+            if count > PER_FILE or count > remaining:
+                raise ValueError("header byte ceiling")
+            parts.append(chunk)
+        after = os.fstat(fd)
+        named = os.stat(path, follow_symlinks=False)
+        if identity(before) != identity(after) or identity(after) != identity(named):
+            raise ValueError("header identity changed")
+        raw = b"".join(parts)
+        if len(raw) != before.st_size:
+            raise ValueError("header length changed")
+        check(deadline)
+        result = {
+            "name": os.path.basename(path),
+            "bytes": len(raw),
+            "identity": [str(value) for value in identity(after)],
+            "text": raw.decode("utf-8", errors="strict"),
+        }
+    except Exception as exc:
+        failure = exc
+    finally:
+        try:
+            os.close(fd)
+        except Exception as exc:
+            secondary.append(exc)
+    if failure is not None or secondary:
+        raise Refused(failure, tuple(secondary))
+    return result
+
+
+def collect(paths, deadline):
+    if type(paths) is not tuple or len(paths) != 2:
+        raise ValueError("exactly two nominated paths")
+    rows = []
+    total = 0
+    for path in paths:
+        check(deadline)
+        row = read_one(path, TOTAL - total, deadline)
+        total += row["bytes"]
+        if total > TOTAL:
+            raise ValueError("aggregate header ceiling")
+        rows.append(row)
+    check(deadline)
+    return {"schema": "v343-two-header-review-1", "status": "READ_ONLY",
+            "files": rows, "total_bytes": total, "hashes": 0,
+            "include_following": False, "compiler_executed": False,
+            "build_authorized": False, "abi_compatibility_proved": False}
+
+
+def encode(payload):
+    raw = (json.dumps(payload, ensure_ascii=True, separators=(",", ":")) + "\n").encode()
+    if len(raw) > OUTPUT:
+        raise ValueError("header output ceiling")
+    return raw
+
+
+def validate_cli(arguments):
+    if arguments:
+        raise ValueError("no CLI arguments")
+
+
+def main():
+    status = 0
+    try:
+        validate_cli(sys.argv[1:])
+        payload = collect(PATHS, BEGIN + 4)
+        raw = encode(payload)
+        check(BEGIN + 4)
+    except Exception as exc:
+        status = 1
+        payload = {"schema": "v343-two-header-review-1", "status": "REFUSED",
+                   "error_type": type(exc).__name__}
+        if isinstance(exc, Refused):
+            payload["primary_type"] = type(exc.primary).__name__ if exc.primary else None
+            payload["secondary_types"] = [type(item).__name__ for item in exc.secondary]
+        raw = encode(payload)
+    offset = 0
+    while offset < len(raw):
+        written = os.write(1, raw[offset:])
+        if written <= 0:
+            raise OSError("header output incomplete")
+        offset += written
+    raise SystemExit(status)
+
+
+if __name__ == "__main__":
+    main()
