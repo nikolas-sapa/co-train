@@ -1,0 +1,123 @@
+# Sanitized public reference, UNRUN derivative. No execution authority.
+"""PROPOSED V340 metadata query. DESIGN ARTIFACT ONLY, UNRUN.
+
+No compiler invocation, header/config/binary contents or interpreter hashing.
+Run only after separate explicit approval of this exact source/command.
+"""
+import sys
+import time
+
+BEGIN = time.monotonic()
+INVOCATION = "/qualification-reference/scratch/cotrain-system-build-2026-11-03/test-env/bin/python"
+BASE = "/qualification-reference/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none"
+
+
+def audit(event, args):
+    if (event.startswith(("subprocess.", "socket.", "ctypes."))
+            or event in ("os.system", "os.posix_spawn", "os.fork", "os.forkpty",
+                         "os.exec", "os.spawn", "os.kill", "os.killpg")):
+        raise RuntimeError("metadata route refused")
+
+
+sys.addaudithook(audit)
+
+# Ordinary trusted stdlib only, with -I -S -B and cleared environment.
+import _imp
+import json
+import os
+import stat
+
+
+class Refused(Exception):
+    pass
+
+
+def require(ok, label):
+    if not ok:
+        raise Refused(label)
+
+
+def deadline():
+    require(time.monotonic() - BEGIN < 4.0, "internal_deadline")
+
+
+def path_metadata(label, path, scope, directory):
+    deadline()
+    require(type(path) is str and len(path) <= 4096, "path_shape")
+    try:
+        canonical = os.path.realpath(path, strict=True)
+        require(os.path.commonpath((scope, canonical)) == scope, "canonical_scope")
+        before = os.lstat(canonical)
+        after = os.lstat(canonical)
+    except OSError:
+        raise Refused("path_unavailable:" + label) from None
+    fields = ("st_dev", "st_ino", "st_mode", "st_nlink", "st_uid", "st_gid",
+              "st_size", "st_mtime_ns", "st_ctime_ns")
+    require(tuple(getattr(before, k) for k in fields)
+            == tuple(getattr(after, k) for k in fields), "metadata_changed")
+    require((stat.S_ISDIR(before.st_mode) if directory
+             else stat.S_ISREG(before.st_mode)), "path_type")
+    require(before.st_uid in (0, os.getuid()) and not before.st_mode & 0o022,
+            "path_owner_mode")
+    deadline()
+    return {"label": label, "requested": path, "canonical": canonical,
+            "identity": {k: str(getattr(before, k)) for k in fields}}
+
+
+def collect():
+    deadline()
+    require(sys.flags.isolated and sys.flags.safe_path and sys.flags.no_site
+            and sys.dont_write_bytecode, "startup_flags")
+    require(sys.executable == INVOCATION and sys.base_prefix == BASE,
+            "runtime_path_metadata")
+    require(type(sys.prefix) is str and 0 < len(sys.prefix) <= 4096,
+            "prefix_metadata")
+    require(sys.implementation.name == "cpython"
+            and tuple(sys.version_info[:3]) == (3, 12, 13)
+            and sys.implementation.cache_tag == "cpython-312"
+            and sys.abiflags == "" and sys.platform == "darwin"
+            and sys.maxsize == 9_223_372_036_854_775_807, "runtime_abi_metadata")
+    suffixes = _imp.extension_suffixes()
+    require(type(suffixes) is list and 1 <= len(suffixes) <= 8
+            and all(type(s) is str and 0 < len(s) <= 128 for s in suffixes),
+            "suffix_metadata")
+    machine = os.uname().machine
+    require(machine == "arm64", "machine_metadata")
+    include = BASE + "/include/python3.12"
+    paths = [
+        path_metadata("clang", "/Library/Developer/CommandLineTools/usr/bin/clang",
+                      "/Library/Developer/CommandLineTools/usr/bin", False),
+        path_metadata("sdk", "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+                      "/Library/Developer/CommandLineTools/SDKs", True),
+        path_metadata("include", include, BASE + "/include", True),
+        path_metadata("Python.h", include + "/Python.h", include, False),
+        path_metadata("pyconfig.h", include + "/pyconfig.h", include, False),
+    ]
+    deadline()
+    return {"schema": "v340-native-metadata-only-1", "status": "METADATA_ONLY",
+            "runtime": {"invocation": INVOCATION, "base_prefix": BASE,
+                        "prefix": sys.prefix,
+                        "implementation": "cpython", "version": [3, 12, 13],
+                        "cache_tag": "cpython-312", "abiflags": "",
+                        "platform": "darwin", "maxsize": str(sys.maxsize),
+                        "machine": machine, "extension_suffixes": suffixes},
+            "paths": paths, "abi_compatibility_proved": False,
+            "compiler_executed": False, "build_authorized": False}
+
+
+if __name__ == "__main__":
+    try:
+        payload, code = collect(), 0
+    except Refused as error:
+        payload, code = {"schema": "v340-native-metadata-only-1",
+                         "status": "REFUSED", "reason": error.args[0]}, 1
+    except BaseException:
+        payload, code = {"schema": "v340-native-metadata-only-1",
+                         "status": "REFUSED", "reason": "query_exception"}, 1
+    raw = (json.dumps(payload, sort_keys=True, ensure_ascii=True,
+                      allow_nan=False, separators=(",", ":")) + "\n").encode()
+    if len(raw) > 8192:
+        raw = b'{"schema":"v340-native-metadata-only-1","status":"REFUSED","reason":"output_limit"}\n'
+        code = 1
+    sys.stdout.buffer.write(raw)
+    raise SystemExit(code)

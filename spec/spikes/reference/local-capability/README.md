@@ -1,0 +1,11 @@
+# Local capability reference, not production authority
+
+PROVES: parent ran seven real-child cases in 1.048738s (gate <8s), all individual budgets passed. All29 new children reaped; all19 private fixture roots removed; no physical cleanup errors or lease exits. Cases cover copied-wire/session refusal, live sentinel before create, exact8192/8193 metadata boundary, seq/deadline checks, one-use permission and actual partial-send/lost-ACK/disconnect behavior.
+
+Seven guard-loss controls turned their named negatives red. Four distinct restored profiles passed. All62 control children reaped, no physical cleanup errors/retained roots. Session/deadline/sentinel losses produced actual post-reap operation witnesses; expiry loss produced one forbidden attempt. Three latch losses recorded actual false pre-dispatch flags as named semantic errors, not leaked resources. Worst control case used30.54% of its time gate. C2/C3/C6 control profiles explicitly vary observation choreography to finish/reap before red assertions; C6 includes complete metadata. C7 profiles retain the original choreography. Loss inverse edits match their shared restored profiles.
+
+This source is byte-exact SHA256 1292d4c3bcd290a079662ab22cf0ab56e1d5d119a4ba03e9244ae33ddddde925. Original author's UNRUN header is preserved for identity; parent evidence above supersedes author-only status. Tested bytes copied here without an unchanged rerun. Receipts: parent-v197-capability-execution.json, parent-v200-capability-controls-execution.json, parent-v201-capability-reference-acceptance.json in the continuation scratch root. Rejected/failed/prepared-unrun versions retained.
+
+SHORTCUT: trusted same-user toy code, inherited FD/argv binding, synthetic journal/marker operation, controlled faults and shared8s toy leases. No hostile-same-user sandbox or cryptographic remote attestation. Reference only, not a production supervisor foundation.
+
+MISSING: sealed real authorization/common latch, actual SDK exec/cleanup, delegated watchdog and direct-parent-owned command gate, provider termination/billing, assets/native/tensor/GPU/science proof. The newly proposed stop-gate exec topology needs its own mechanism probe before production API freeze. No paid admission.

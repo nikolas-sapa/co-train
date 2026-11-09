@@ -1,0 +1,79 @@
+{
+  "status": "GPU_NATIVE_SCIENCE_0_OF_7",
+  "scope": "Historical local originals; not fresh public-snapshot test acceptance",
+  "timer_v335": {
+    "red_cases": 22,
+    "red_failures": 1,
+    "green_passes": 22,
+    "claim": "PURE_ARITHMETIC_UNIT_ACCEPTANCE_ONLY",
+    "candidate_sha256": "60103df78c9cd7ed41598ce412e7addc3848b4b59eedeeff62dab49c5eea9893",
+    "test_sha256": "fedc1cbdf6ae9af054b6cb7b1ea4631f06b4e46b3d93966edb2cf41574f93ce0"
+  },
+  "mode_bit_v337": {
+    "red_cases": 8,
+    "red_failures": 2,
+    "green_passes": 8,
+    "decision": "REJECTED_EXPERIMENT_CANDIDATE",
+    "paired_ratios": [
+      1.0787992495309568,
+      0.9438236644726772,
+      0.6695610665333122,
+      1.004330021482277,
+      0.9891155095616062,
+      1.0347509849479746
+    ],
+    "median_ratio": 0.9967227655219416,
+    "worst_ratio": 1.0787992495309568,
+    "required_median_at_most": 0.9,
+    "required_worst_at_most": 1.05,
+    "retained_samples": 12,
+    "claim": "Repeated EOF only; not positive-read/full-hash throughput"
+  },
+  "directory_projection_v329": {
+    "decision": "REJECTED_EXPERIMENT_CANDIDATE",
+    "median_ratio": 1.027284023459271,
+    "worst_ratio": 1.0680102367242483
+  },
+  "full_volume_v323": {
+    "status": "NONPASS_EXTERNAL_TIMEOUT",
+    "exact_bytes": 8589934592,
+    "latest_journal_bulk_bytes": 8321499136,
+    "internal_limit_seconds": 29,
+    "external_limit_seconds": 30,
+    "completion": "UNKNOWN",
+    "publication": "UNKNOWN",
+    "release": "UNKNOWN",
+    "authority": "CONSUMED_NO_RETRY"
+  },
+  "metadata_v340": {
+    "status": "METADATA_ACCEPTED_DESCRIPTIVE_ONLY",
+    "attempts": 1,
+    "exit_code": 0,
+    "output_ascii_bytes": 2801,
+    "runtime": "CPython3.12.13 darwin arm64",
+    "sdk_metadata": "MacOSX27.0.sdk",
+    "nominated_paths": 5,
+    "header_contents_read": false,
+    "compiler_executions": 0,
+    "builds": 0,
+    "interpreter_hash_reads": 0,
+    "abi_compatibility_proved": false,
+    "authority": "CONSUMED_NO_RETRY"
+  },
+  "native_helper": {
+    "status": "DESIGN_ONLY",
+    "implemented": false,
+    "compiled": false,
+    "approved_scope": "Directory and ancestry checks only; no check removal"
+  },
+  "gpu": {
+    "attempts": 0,
+    "eta": "UNSCHEDULED",
+    "gross_budget_ceiling_usd": 30,
+    "plan_usd": 25,
+    "reserve_usd": 5,
+    "maximum_attempts": 1,
+    "maximum_attempt_seconds": 1800,
+    "retry_allowed": false
+  }
+}
