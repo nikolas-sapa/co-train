@@ -8,16 +8,41 @@ is the goal, not a measured result of reuse.
 
 ## Status
 
-As of 6 Nov 2026, offline draw preparation, reporting, sample capture and evidence
-save/reload are implemented and fixture-tested. Real BIRD measurements and
-native-training qualification remain open.
-[Current milestones and limits](#current-research-milestones-4-6).
+As of 9 Nov 2026, offline draw preparation, reporting, sample capture and evidence
+save/reload are implemented and fixture-tested. The engineering checkpoint now
+also includes isolated owner/consumer custody, bounded file RPC and validation
+sources. These sources do not qualify native/GPU execution.
+Real BIRD measurements, measured reuse savings and native-training qualification
+remain open. [Engineering status and blockers](docs/engineering-status-2026-11-09.md);
+[current research milestones](#current-research-milestones-4-6).
 
 On 29 Oct 2026, a checked, hand-written SQL skill was reused correctly in two
 fresh runs on two different databases.
 [Read the test and its limits](docs/2026-10-29-native-sql-skill-workflow.md).
 Not done yet: connecting reuse to a live agent end to end and measuring savings
 from real bills. No users.
+
+## Engineering checkpoint: 9 Nov 2026
+
+- Published bounded file RPC, isolated custody/reader validation, one-use
+  publication/refusal paths, local mechanism references and offline fixtures.
+  Fixture-backed lifecycle observations do not establish real SDK/process control.
+- Preserved negative controls and rejected performance experiments. Both recent
+  Python micro-optimizations failed their fixed speed gates; correctness passes
+  did not promote them.
+- Native ancestry-helper design is reviewed, and one metadata-only preflight
+  completed. No helper implementation/build, header/API inspection or ABI
+  compatibility is claimed.
+- Full-volume reliability is still open. The latest exact 8GiB validation timed
+  out at the 30-second external limit after at least 7.75GiB read. Final hashing,
+  publication and release were not confirmed. No new native GPU result exists.
+
+Next gates: native-helper API/ABI and compiler-containment review, a material
+check-preserving performance fix with fresh maximum-volume validation, then a
+compatible GPU runtime and an explicitly approved, budgeted engineering attempt.
+There is no defensible same-day GPU ETA.
+[Evidence and limits](docs/engineering-qualification-evidence.json);
+[qualification details](docs/engineering-qualification-readiness.md).
 
 ## Why I think it works
 
@@ -83,13 +108,19 @@ See the [evidence index](docs/evidence-index.md) and
 The original log is machine-local, not bundled with a clone. This is not a claim
 that all tests pass on the current branch.
 
-The latest focused regression on 6 Nov 2026 passed **510 tests across seven
+The focused regression on 6 Nov 2026 passed **510 tests across seven
 selected offline modules** at
 [`b9e946c`](https://github.com/nikolas-sapa/co-train/commit/b9e946cba373b131a9f41e0bbba27e78e78392f9).
 It covers frontier bindings, capture, transport, probing and preparation,
 including two guard-loss controls and a reproduced/fixed cleanup-cancellation
 regression. This is not a full-suite or native-runtime qualification. Its logs
 are also machine-local; overlapping historical counts must not be added.
+
+The 9 Nov source-publication checks parsed **72 Python sources**, matched
+**12 frozen source pins**, and caught both static negative controls (missing bulk
+collection exclusion and synthetic-fixture identity drift). Python and privacy
+reviews cleared that snapshot, and the normal commit secret scan found no leaks.
+These are source/integrity checks, not a new full-suite, SDK or GPU test run.
 
 ## CLI: reuse the existing SDK
 
@@ -124,7 +155,12 @@ No runnable end-to-end training command is claimed.
 
 The default offline test configuration covers `tests ptc ledger bench train`;
 it excludes tokenizer integration by default and does not collect `step2`.
-See [pytest.ini](pytest.ini). No tests were rerun for this documentation update.
+The root [collection guard](conftest.py) also excludes 19 parent-only qualification
+test modules and the reference/mutation-control trees before ordinary collection
+imports them. Explicit paths or disabling the guard do not grant execution
+permission. See [source boundaries](docs/engineering-qualification-source-status.md)
+and [pytest.ini](pytest.ini). No historical test bodies were rerun for this
+README update.
 
 The offline additions above are included in `main`. Their
 fixture tests do not qualify owned-SDK/native execution or production activation.
