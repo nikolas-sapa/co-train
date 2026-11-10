@@ -1,0 +1,81 @@
+{
+  "name": "Linux CPU qualification v365, changed single attempt",
+  "run-name": "V365 fresh counter-seeded original Python Linux qualification",
+  "on": {
+    "workflow_dispatch": {
+      "inputs": {
+        "expected_sha": {
+          "description": "Independently reviewed publication commit SHA",
+          "required": true,
+          "type": "string"
+        }
+      }
+    }
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "concurrency": {
+    "group": "linux-cpu-qualification-v365-single-attempt",
+    "cancel-in-progress": false
+  },
+  "jobs": {
+    "qualify": {
+      "if": "${{ github.event_name == 'workflow_dispatch' && github.repository == 'nikolas-sapa/co-train' && github.ref == 'refs/heads/main' && github.event.repository.visibility == 'public' && github.event.repository.private == false && github.run_number == '1' && github.run_attempt == '1' && inputs.expected_sha == github.sha }}",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 10,
+      "defaults": {
+        "run": {
+          "shell": "bash"
+        }
+      },
+      "steps": [
+        {
+          "name": "Check standard hosted Linux execution",
+          "env": {
+            "HOSTED_KIND": "${{ runner.environment }}",
+            "HOSTED_OS": "${{ runner.os }}",
+            "HOSTED_ARCH": "${{ runner.arch }}"
+          },
+          "run": "set -euo pipefail\ntest \"$HOSTED_KIND\" = github-hosted\ntest \"$HOSTED_OS\" = Linux\ntest \"$HOSTED_ARCH\" = X64\ntest \"$(id -u)\" -ne 0\ntest -x /usr/bin/timeout\ntest -x /usr/bin/time"
+        },
+        {
+          "name": "Checkout reviewed source only",
+          "uses": "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+          "with": {
+            "ref": "${{ inputs.expected_sha }}",
+            "fetch-depth": 1,
+            "persist-credentials": false,
+            "set-safe-directory": false,
+            "submodules": false,
+            "lfs": false,
+            "sparse-checkout-cone-mode": false,
+            "sparse-checkout": "/bench/__init__.py\n/bench/loader.py\n/bench/score.py\n/bench/shapes.py\n/bench/suite.py\n/bench/task.py\n/conftest.py\n/ptc/__init__.py\n/ptc/metrics.py\n/ptc/paired.py\n/ptc/runtime.py\n/ptc/sqlite_safety.py\n/tools/qualification_linux_v365.py\n/tools/report_linux_cpu_v365.py\n/tools/setup_linux_cpu_v364.py\n/train/__init__.py\n/train/_qualification_volume_preparer_fixture.py\n/train/dead_group_probe.py\n/train/engineering_budget.py\n/train/guards.py\n/train/modal_app_stop.py\n/train/modal_app_stop_launcher.py\n/train/native_model.py\n/train/native_qualification.py\n/train/qualification_engineering_host.py\n/train/qualification_engineering_run.py\n/train/qualification_file_rpc.py\n/train/qualification_image_plan.py\n/train/qualification_isolated_contract.py\n/train/qualification_isolated_deadline.py\n/train/qualification_isolated_owner.py\n/train/qualification_isolated_program.py\n/train/qualification_isolated_run.py\n/train/qualification_isolated_validation.py\n/train/qualification_isolated_worker.py\n/train/qualification_modal_host.py\n/train/qualification_modal_transport.py\n/train/qualification_owned_stop.py\n/train/qualification_remote_verification.py\n/train/qualification_watchdog.py\n/train/test_qualification_ac_volume.py\n/train/test_qualification_isolated_owner.py\n/train/verdict.py\n/tools/requirements-linux-cpu-v364.txt\n/tools/linux_cpu_v365_spec.json"
+          }
+        },
+        {
+          "name": "Set up immutable Python and hash-pinned pytest",
+          "timeout-minutes": 5,
+          "env": {
+            "SETUP_PARENT": "${{ runner.temp }}",
+            "WORKSPACE_DIR": "${{ github.workspace }}"
+          },
+          "run": "set -euo pipefail\numask 077\nset -C\nmkdir -m 700 \"$SETUP_PARENT/v365-bootstrap-home\" \"$SETUP_PARENT/v365-bootstrap-tmp\"\n/usr/bin/env -i HOME=\"$SETUP_PARENT/v365-bootstrap-home\" TMPDIR=\"$SETUP_PARENT/v365-bootstrap-tmp\" PATH=/usr/bin:/bin LANG=C.UTF-8 /usr/bin/python3 -I -B \"$WORKSPACE_DIR/tools/setup_linux_cpu_v364.py\" --parent \"$SETUP_PARENT\" --requirements \"$WORKSPACE_DIR/tools/requirements-linux-cpu-v364.txt\" > \"$SETUP_PARENT/v365-setup.json\"\n/usr/bin/env -i HOME=\"$SETUP_PARENT/v365-bootstrap-home\" TMPDIR=\"$SETUP_PARENT/v365-bootstrap-tmp\" PATH=/usr/bin:/bin LANG=C.UTF-8 /usr/bin/python3 -I -B - \"$WORKSPACE_DIR/tools/report_linux_cpu_v365.py\" \"$SETUP_PARENT\" <<'REPORT_GUARDS'\nimport json\nfrom pathlib import Path\nimport subprocess\nimport sys\nimport tempfile\nroot = Path(tempfile.mkdtemp(prefix=\"v365-report-guards-\", dir=sys.argv[2]))\nstdout, stderr, wall = (root / name for name in (\"stdout\", \"stderr\", \"wall\"))\nstderr.write_text(\"\")\nwall.write_text(\"1.0\")\nfor malformed in (\"[]\", \"null\", \"1\"):\n    stdout.write_text(malformed + \"\\n\")\n    result = subprocess.run(\n        [sys.executable, \"-I\", \"-B\", sys.argv[1], \"--stdout\", str(stdout),\n         \"--stderr\", str(stderr), \"--wall\", str(wall), \"--exit-code\", \"1\"],\n        env={\"HOME\": str(root), \"TMPDIR\": str(root), \"PATH\": \"/usr/bin:/bin\",\n             \"LANG\": \"C.UTF-8\"}, capture_output=True, timeout=3)\n    assert result.returncode == 1 and result.stderr == b\"\"\n    lines = result.stdout.decode(\"utf-8\").splitlines()\n    assert len(lines) == 1\n    document = json.loads(lines[0])\n    assert document[\"status\"] == \"NONPASS\" and document[\"cleanup\"] == \"unproven\"\n    assert document[\"terminal_exit\"] == 1\nprint(\"Reporter malformed-input guards: 3/3 rejected, no tracebacks.\")\nREPORT_GUARDS"
+        },
+        {
+          "name": "One fresh full-volume qualification, external KILL30",
+          "timeout-minutes": 1,
+          "env": {
+            "SETUP_PARENT": "${{ runner.temp }}",
+            "WORKSPACE_DIR": "${{ github.workspace }}",
+            "DRIVER_SHA256": "8a80f05962c52196dada499261cbf624909f7abf34e5d1f720c3228d6f5c700a",
+            "DRIVER_BYTES": "23515",
+            "SPEC_SHA256": "1be438f8b9cf67df9697ef7e4732eda498540153dc7a8f8ad391e388781e63cd",
+            "QUALIFICATION_LOADER": "import os; os.environ.pop(\"LD_LIBRARY_PATH\",None)\nimport hashlib,os,stat,sys\nfrom pathlib import Path\np=Path(sys.argv[1]);expected=sys.argv[2];size=int(sys.argv[3])\nassert p.is_absolute() and p.resolve(strict=True)==p\nfd=os.open(p,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)\ntry:\n a=os.fstat(fd);assert stat.S_ISREG(a.st_mode) and a.st_nlink==1 and a.st_uid==os.geteuid() and a.st_size==size and size<=131072\n with os.fdopen(fd,\"rb\",closefd=False) as f:raw=f.read(size+1)\n b=os.fstat(fd);c=p.lstat()\n identity=lambda x:(x.st_dev,x.st_ino,x.st_mode,x.st_nlink,x.st_uid,x.st_size,x.st_mtime_ns,x.st_ctime_ns)\n assert identity(a)==identity(b)==identity(c) and len(raw)==size and hashlib.sha256(raw).hexdigest()==expected\nfinally:os.close(fd)\nsys.argv=[str(p),*sys.argv[4:]]\nexec(compile(raw,str(p),\"exec\"),{\"__name__\":\"__main__\",\"__file__\":str(p)})\n"
+          },
+          "run": "set -euo pipefail\numask 077\nset -C\nsetup=\"$SETUP_PARENT/v365-setup.json\"\npython=$(/usr/bin/python3 -I -B -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"python\"])' \"$setup\")\nlibraries=$(/usr/bin/python3 -I -B -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"library_dir\"])' \"$setup\")\nroot=/var/tmp/qualification-v365\nmkdir -m 700 \"$root\"\nout=\"$SETUP_PARENT/v365-qualification.stdout\"\nerr=\"$SETUP_PARENT/v365-qualification.stderr\"\nwall=\"$SETUP_PARENT/v365-qualification.wall\"\ntest ! -e \"$wall\" && test ! -L \"$wall\"\nset +e\n/usr/bin/time -f '%e' -o \"$wall\" /usr/bin/timeout --signal=KILL 30s /usr/bin/env -i HOME=\"$root/home\" TMPDIR=\"$root/tmp\" PATH=/usr/bin:/bin LANG=C.UTF-8 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 LD_LIBRARY_PATH=\"$libraries\" \"$python\" -I -B -X \"pycache_prefix=$root/cache\" -c \"$QUALIFICATION_LOADER\" \"$WORKSPACE_DIR/tools/qualification_linux_v365.py\" \"$DRIVER_SHA256\" \"$DRIVER_BYTES\" --workspace \"$WORKSPACE_DIR\" --root \"$root\" --spec \"$WORKSPACE_DIR/tools/linux_cpu_v365_spec.json\" --spec-sha256 \"$SPEC_SHA256\" > \"$out\" 2> \"$err\"\nrc=$?\nset -e\n/usr/bin/env -i HOME=\"$SETUP_PARENT/v365-bootstrap-home\" TMPDIR=\"$SETUP_PARENT/v365-bootstrap-tmp\" PATH=/usr/bin:/bin LANG=C.UTF-8 /usr/bin/python3 -I -B \"$WORKSPACE_DIR/tools/report_linux_cpu_v365.py\" --stdout \"$out\" --wall \"$wall\" --exit-code \"$rc\" --stderr \"$err\""
+        }
+      ]
+    }
+  }
+}

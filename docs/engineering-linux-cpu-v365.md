@@ -1,0 +1,13 @@
+# Changed one-shot Linux experiment: fresh counter-seeded data
+
+V364 setup passed, but its full-volume step ended at30s with exit137 and cleanup unproven. Its payload phase was not observable. It did not qualify Linux or unlock GPU execution. No claim is made that random generation caused its failure.
+
+This separately authorized manual-only experiment changes synthetic generation, not reader validation. Each of four new private dense2GiB files gets an independent new8388600-byte random seed. Its256 full8MiB blocks contain an8-byte big-endian counter followed by that seed. All8GiB are actually written, hashed, fsynced, closed and revalidated through the original readers. Blocks and files are distinct; this is NOT8GiB of independent cryptographic randomness, pre-existing data reuse, a sparse-file shortcut or a cold-cache claim. The legacy preparer's default random mode remains unchanged.
+
+Eight tiny handwritten layout/rejection checks execute inside the single payload before generation. Bounded phase records expose only fixed phase names, elapsed time, generated-file close counts and written-byte counts. They cannot turn a failed run into a pass. The selected failure summary never publishes seeds, bulk bytes, paths, UIDs, environment values or raw tracebacks. Before the volume payload, remote setup also checks that the real reporter rejects three non-object JSON diagnostics with sanitized NONPASS output and no traceback. These are small reporting guards, not extra volume runs.
+
+The absolute29-second deadline still includes first admission/imports, generation and full hashing, durable closes, the exact existing pytest case, all teardown and final diagnostic close. Independent GNU KILL30 plus terminal exit0 and complete-process wall<30 remain mandatory. All original eight-reader,24-identity,two-inventory,publication/refusal/join/release checks and public custody refusal remain. No new threads, native helper or compiler.
+
+Only the public repository's standard hosted Ubuntu24.04 runner is allowed, first workflow run and first attempt, exact reviewed main SHA, ten-minute ceiling and $0 maximum charge. Reuse only the reviewed immutable private Python3.12.13 setup and hash-pinned pytest8.4.2 wheels, not a prior runtime or bulk dataset. No user secrets, retained assets, caches, data artifact uploads, provider or GPU; no retry. Workflow JSON is valid YAML and permits standard-library static validation.
+
+Performance remains unmeasured until this one changed run. PASS qualifies only this synthetic Python path. SDK child/channel/reap observations are mocks, not real SDK custody or reaping. Native callback ownership, compiler containment, target assets/ABI and strict GPU admission are not waived.

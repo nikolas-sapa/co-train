@@ -223,8 +223,20 @@ def exclusive_json(parent, name, value):
     os.fsync(parent)
 
 
-def prepare(root, *, deadline_ns=None):
+def _counter_block(seed, number):
+    require(type(seed) is bytes and type(number) is int and 0 <= number < 256,
+            "exact bytes seed and bounded block counter required")
+    return number.to_bytes(8, "big") + seed
+
+
+def prepare(root, *, deadline_ns=None, generation="urandom-v1", progress=None):
     start = time.monotonic_ns()
+    require(type(generation) is str and generation in ("urandom-v1", "counter-seeded-v1")
+            and (progress is None or callable(progress)), "closed generation inputs required")
+    seeded = generation == "counter-seeded-v1"
+    cache = ("fresh-generated-counter-seeded-not-evicted" if seeded
+             else "fresh-generated-not-evicted")
+    seed_hashes = set()
     if deadline_ns is not None:
         require(type(deadline_ns) is int and start < deadline_ns <= start + 29_000_000_000,
                 "shared absolute internal29s deadline required")
@@ -277,9 +289,18 @@ def prepare(root, *, deadline_ns=None):
                 require(initial.st_size == 0, "only new empty generation")
                 digest = hashlib.sha256()
                 size = 0
+                if seeded:
+                    require(FILE_BYTES == 256 * BUFFER_BYTES, "exact seeded block layout")
+                    seed = os.urandom(BUFFER_BYTES - 8)
+                    fingerprint = hashlib.sha256(seed).digest()
+                    require(fingerprint not in seed_hashes, "fresh distinct per-file seed")
+                    seed_hashes.add(fingerprint)
                 while size < FILE_BYTES:
                     checkpoint(root_fd)
-                    block = os.urandom(min(BUFFER_BYTES, FILE_BYTES - size))
+                    block = (_counter_block(seed, size // BUFFER_BYTES) if seeded
+                             else os.urandom(min(BUFFER_BYTES, FILE_BYTES - size)))
+                    if seeded:
+                        require(len(block) == BUFFER_BYTES, "full seeded block required")
                     write_all(fd, block, record_write)
                     digest.update(block)
                     size += len(block)
@@ -303,8 +324,14 @@ def prepare(root, *, deadline_ns=None):
             require(file_identity(os.stat(name, dir_fd=bulk, follow_symlinks=False))
                     == identity, "closed blob identity changed")
             active_file = None
+            if progress is not None:
+                progress(number, written)
         os.fsync(bulk)
         require(written == TOTAL_BYTES, "exact8GiB preparation required")
+        if seeded:
+            require(len(seed_hashes) == 4
+                    and len({row["sha256"] for row in files}) == 4,
+                    "four distinct fresh seeded file streams required")
         final_free = checkpoint(root_fd)
         manifest = dict(
             v=1, op="v290-owned-volume",
@@ -313,14 +340,18 @@ def prepare(root, *, deadline_ns=None):
             preparation=dict(
                 elapsed_ns=time.monotonic_ns() - start, written_bytes=written,
                 initial_free_bytes=initial_free, final_free_bytes=final_free,
-                buffer_bytes=BUFFER_BYTES, cache="fresh-generated-not-evicted"))
+                buffer_bytes=BUFFER_BYTES, cache=cache))
         exclusive_json(bulk, "manifest.json", manifest)
         checkpoint(root_fd)
         os.fsync(root_fd)
         deadline()
         summary = dict(v=1, status="COMPLETE", written_bytes=written,
                        initial_free_bytes=initial_free, final_free_bytes=free_space(root_fd),
-                       cache="fresh-generated-not-evicted")
+                       cache=cache)
+        if seeded:
+            summary.update(generation=generation, seed_count=len(seed_hashes),
+                           random_seed_bytes=4 * (BUFFER_BYTES - 8),
+                           full_blocks=TOTAL_BYTES // BUFFER_BYTES)
     except BaseException as primary:
         if bulk is not None:
             try:
