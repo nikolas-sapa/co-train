@@ -1,0 +1,17 @@
+{
+  "limits": {
+    "chunk_bytes": 8388608,
+    "deadline_ns": 29000000000,
+    "guard_fixture_bytes": 8192,
+    "max_bytes": 67108864,
+    "per_file_bytes": 33550336
+  },
+  "pins": {
+    "tools/diagnostic_linux_cpu_v366.py": "2f95f031f93fb4d2dbc2dd35a7ce3f7e9321727e622cbc0a2070ddd2a33f5640",
+    "tools/report_linux_cpu_v366.py": "64ba301397f656f3c42d865b321f1f22f6bcfb5a379217399cd30e824e1ac8bd",
+    "tools/setup_linux_cpu_v366.py": "a19ba968f8a81bd7a894714d46c2159de4bd31ad823d2d85e9757612019551fd",
+    "train/_qualification_volume_preparer_fixture.py": "553d1f4153ac60f79ea547c4f94e1dcf32a7bd296c5c1c2bffd47f6d767599a0"
+  },
+  "python_version": "3.12.13",
+  "version": "v366-storage-diagnostic-1"
+}
