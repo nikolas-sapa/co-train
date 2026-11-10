@@ -45,6 +45,26 @@ KEYS = (
     "checkpoint-2/trainer_state.json",
 )
 EVIDENCE_KEYS = ("attempt-latch.json", "attempt-observations.json", "verification.json")
+# Set only by the pinned in-process Linux driver, never inferred from cache state.
+_LINUX_V364_CONTEXT = None
+
+
+def _linux_v364_context():
+    context = _LINUX_V364_CONTEXT
+    if context is None:
+        return None
+    _require(type(context) is dict and set(context) == {
+        "version", "mode", "root", "start_ns", "deadline_ns", "completed"},
+        "closed Linux driver context required")
+    _require(context["version"] == "v364-linux-cpu-1"
+             and context["mode"] == "fresh-generated-not-evicted"
+             and context["root"] == str(Path(os.environ["HOME"]).parent)
+             and type(context["start_ns"]) is int
+             and type(context["deadline_ns"]) is int
+             and context["deadline_ns"] == context["start_ns"] + 29_000_000_000
+             and context["start_ns"] < time.monotonic_ns() < context["deadline_ns"]
+             and context["completed"] is False, "matching active Linux driver required")
+    return context
 
 
 def _require(ok, label):
@@ -343,10 +363,13 @@ def _read_manifest(root_fd, bulk_fd, anchors):
     prep = _closed(doc["preparation"], (
         "elapsed_ns", "written_bytes", "initial_free_bytes", "final_free_bytes",
         "buffer_bytes", "cache"))
-    _integer(prep["elapsed_ns"], 1, 50_000_000_000)
+    context = _linux_v364_context()
+    _integer(prep["elapsed_ns"], 1, 50_000_000_000 if context is None else 29_000_000_000)
     _require(_integer(prep["written_bytes"]) == TOTAL_BYTES
              and _integer(prep["buffer_bytes"], 1, 8 * 1024**2) == 8 * 1024**2
-             and prep["cache"] == "reused-generated-after-previous-full-read-not-evicted",
+             and prep["cache"] == (
+                 "reused-generated-after-previous-full-read-not-evicted"
+                 if context is None else context["mode"]),
              "exact preparation facts required")
     _integer(prep["initial_free_bytes"], TOTAL_BYTES + RESERVE + HEADROOM)
     _integer(prep["final_free_bytes"], RESERVE + HEADROOM)
@@ -983,7 +1006,10 @@ def _metrics(audit, owner, start, error, released, preparation):
         timing_scope="test body including metadata setup, excludes metrics write/fixture teardown",
         process_elapsed_ns=None, process_timing_owner="parent external fresh-process supervisor",
         bulk_expected_bytes=TOTAL_BYTES, file_expected_bytes=FILE_BYTES, reader_expected_count=8,
-        preparation=preparation, cache="reused-generated-after-previous-full-read-not-evicted-no-cold-cache-claim",
+        preparation=preparation, cache=(
+            "reused-generated-after-previous-full-read-not-evicted-no-cold-cache-claim"
+            if _LINUX_V364_CONTEXT is None
+            else "fresh-generated-not-evicted-no-cold-cache-claim"),
         peak_rss_raw=rss, peak_rss_unit=rss_unit, peak_rss_bytes=rss_bytes,
         c_elapsed_ns=None if audit is None else audit.c_elapsed_ns,
         c_calls=0 if audit is None else audit.validators,
@@ -1003,6 +1029,7 @@ def _metrics(audit, owner, start, error, released, preparation):
 
 def test_actual_ac_four_two_gib_files_full_validation(monkeypatch):
     start = time.monotonic_ns()
+    context = _linux_v364_context()
     anchors = _Anchors()
     diagnostics = None
     journal = None
@@ -1049,7 +1076,8 @@ def test_actual_ac_four_two_gib_files_full_validation(monkeypatch):
         assert all(record.closed or record.handle is None for record in o._registry.records)
         released = True
         anchors.check()
-        assert time.monotonic_ns() - start < 29_000_000_000
+        assert time.monotonic_ns() < (
+            start + 29_000_000_000 if context is None else context["deadline_ns"])
     except BaseException as error:
         primary = error
         _journal_operation_error(journal, "body", error)
@@ -1097,3 +1125,7 @@ def test_actual_ac_four_two_gib_files_full_validation(monkeypatch):
                                      + type(secondary).__name__ + ": " + str(secondary)[:512])
         elif cleanup_errors:
             raise cleanup_errors[0]
+    if context is not None:
+        _require(time.monotonic_ns() < context["deadline_ns"],
+                 "shared internal29s exceeded after diagnostic/ancestry close")
+        context["completed"] = True
