@@ -1,0 +1,81 @@
+{
+  "name": "Linux generation diagnostic v366, one attempt",
+  "run-name": "V366 bounded generation-stage diagnostic, not qualification",
+  "on": {
+    "workflow_dispatch": {
+      "inputs": {
+        "expected_sha": {
+          "description": "Independently reviewed publication commit SHA",
+          "required": true,
+          "type": "string"
+        }
+      }
+    }
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "concurrency": {
+    "group": "linux-cpu-diagnostic-v366-single-attempt",
+    "cancel-in-progress": false
+  },
+  "jobs": {
+    "qualify": {
+      "if": "${{ github.event_name == 'workflow_dispatch' && github.repository == 'nikolas-sapa/co-train' && github.ref == 'refs/heads/main' && github.event.repository.visibility == 'public' && github.event.repository.private == false && github.run_number == '1' && github.run_attempt == '1' && inputs.expected_sha == github.sha }}",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 10,
+      "defaults": {
+        "run": {
+          "shell": "bash"
+        }
+      },
+      "steps": [
+        {
+          "name": "Check standard hosted Linux execution",
+          "env": {
+            "HOSTED_KIND": "${{ runner.environment }}",
+            "HOSTED_OS": "${{ runner.os }}",
+            "HOSTED_ARCH": "${{ runner.arch }}"
+          },
+          "run": "set -euo pipefail\ntest \"$HOSTED_KIND\" = github-hosted\ntest \"$HOSTED_OS\" = Linux\ntest \"$HOSTED_ARCH\" = X64\ntest \"$(id -u)\" -ne 0\ntest -x /usr/bin/timeout\ntest -x /usr/bin/time"
+        },
+        {
+          "name": "Checkout reviewed source only",
+          "uses": "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+          "with": {
+            "ref": "${{ inputs.expected_sha }}",
+            "fetch-depth": 1,
+            "persist-credentials": false,
+            "set-safe-directory": false,
+            "submodules": false,
+            "lfs": false,
+            "sparse-checkout-cone-mode": false,
+            "sparse-checkout": "/tools/diagnostic_linux_cpu_v366.py\n/tools/report_linux_cpu_v366.py\n/tools/setup_linux_cpu_v366.py\n/train/_qualification_volume_preparer_fixture.py\n/tools/linux_cpu_v366_spec.json"
+          }
+        },
+        {
+          "name": "Set up immutable stdlib-only Python and reporting guards",
+          "timeout-minutes": 5,
+          "env": {
+            "SETUP_PARENT": "${{ runner.temp }}",
+            "WORKSPACE_DIR": "${{ github.workspace }}"
+          },
+          "run": "set -euo pipefail\numask 077\nset -C\nmkdir -m 700 \"$SETUP_PARENT/v366-bootstrap-home\" \"$SETUP_PARENT/v366-bootstrap-tmp\"\n/usr/bin/env -i HOME=\"$SETUP_PARENT/v366-bootstrap-home\" TMPDIR=\"$SETUP_PARENT/v366-bootstrap-tmp\" PATH=/usr/bin:/bin LANG=C.UTF-8 /usr/bin/python3 -I -B \"$WORKSPACE_DIR/tools/setup_linux_cpu_v366.py\" --parent \"$SETUP_PARENT\" > \"$SETUP_PARENT/v366-setup.json\"\n/usr/bin/env -i HOME=\"$SETUP_PARENT/v366-bootstrap-home\" TMPDIR=\"$SETUP_PARENT/v366-bootstrap-tmp\" PATH=/usr/bin:/bin LANG=C.UTF-8 /usr/bin/python3 -I -B - \"$WORKSPACE_DIR/tools/report_linux_cpu_v366.py\" \"$SETUP_PARENT\" <<'REPORT_GUARDS'\nimport json\nfrom pathlib import Path\nimport subprocess\nimport sys\nimport tempfile\nfixture_reserve = 8192\nassert 3 + sum(len(s) + 1 for s in (\"[]\", \"null\", \"1\")) <= fixture_reserve\nroot = Path(tempfile.mkdtemp(prefix=\"v366-report-guards-\", dir=sys.argv[2]))\nstdout, stderr, wall = (root / name for name in (\"stdout\", \"stderr\", \"wall\"))\nstderr.write_text(\"\")\nwall.write_text(\"1.0\")\nfor malformed in (\"[]\", \"null\", \"1\"):\n    stdout.write_text(malformed + \"\\n\")\n    result = subprocess.run(\n        [sys.executable, \"-I\", \"-B\", sys.argv[1], \"--stdout\", str(stdout),\n         \"--stderr\", str(stderr), \"--wall\", str(wall), \"--exit-code\", \"1\"],\n        env={\"HOME\": str(root), \"TMPDIR\": str(root), \"PATH\": \"/usr/bin:/bin\",\n             \"LANG\": \"C.UTF-8\"}, capture_output=True, timeout=3)\n    assert result.returncode == 1 and result.stderr == b\"\"\n    lines = result.stdout.decode(\"utf-8\").splitlines()\n    assert len(lines) == 1\n    document = json.loads(lines[0])\n    assert document[\"status\"] == \"NONPASS\" and document[\"cleanup\"] == \"UNKNOWN\"\nprint(\"Reporter malformed-input guards: 3/3 rejected, no tracebacks.\")\nREPORT_GUARDS"
+        },
+        {
+          "name": "Measure bounded generation stages, external KILL30",
+          "timeout-minutes": 1,
+          "env": {
+            "SETUP_PARENT": "${{ runner.temp }}",
+            "WORKSPACE_DIR": "${{ github.workspace }}",
+            "DRIVER_SHA256": "2f95f031f93fb4d2dbc2dd35a7ce3f7e9321727e622cbc0a2070ddd2a33f5640",
+            "DRIVER_BYTES": "15374",
+            "SPEC_SHA256": "61a538d46592905f9f3b918ec9428b28667e7e3844b6ba5f3d0cae19a039e99b",
+            "DIAGNOSTIC_LOADER": "import os; os.environ.pop(\"LD_LIBRARY_PATH\",None)\nimport hashlib,os,stat,sys\nfrom pathlib import Path\np=Path(sys.argv[1]);expected=sys.argv[2];size=int(sys.argv[3])\nassert p.is_absolute() and p.resolve(strict=True)==p\nfd=os.open(p,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)\ntry:\n a=os.fstat(fd);assert stat.S_ISREG(a.st_mode) and a.st_nlink==1 and a.st_uid==os.geteuid() and a.st_size==size and size<=131072\n with os.fdopen(fd,\"rb\",closefd=False) as f:raw=f.read(size+1)\n b=os.fstat(fd);c=p.lstat()\n identity=lambda x:(x.st_dev,x.st_ino,x.st_mode,x.st_nlink,x.st_uid,x.st_size,x.st_mtime_ns,x.st_ctime_ns)\n assert identity(a)==identity(b)==identity(c) and len(raw)==size and hashlib.sha256(raw).hexdigest()==expected\nfinally:os.close(fd)\nsys.argv=[str(p),*sys.argv[4:]]\nexec(compile(raw,str(p),\"exec\"),{\"__name__\":\"__main__\",\"__file__\":str(p)})\n"
+          },
+          "run": "set -euo pipefail\numask 077\nset -C\nsetup=\"$SETUP_PARENT/v366-setup.json\"\npython=$(/usr/bin/python3 -I -B -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"python\"])' \"$setup\")\nlibraries=$(/usr/bin/python3 -I -B -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"library_dir\"])' \"$setup\")\nroot=/var/tmp/diagnostic-v366-control\nmkdir -m 700 \"$root\"\nmkdir -m 700 \"$root/home\" \"$root/tmp\" \"$root/cache\"\nout=\"$SETUP_PARENT/v366-qualification.stdout\"\nerr=\"$SETUP_PARENT/v366-qualification.stderr\"\nwall=\"$SETUP_PARENT/v366-qualification.wall\"\ntest ! -e \"$wall\" && test ! -L \"$wall\"\nset +e\n/usr/bin/time -f '%e' -o \"$wall\" /usr/bin/timeout --signal=KILL 30s /usr/bin/env -i HOME=\"$root/home\" TMPDIR=\"$root/tmp\" PATH=/usr/bin:/bin LANG=C.UTF-8 LD_LIBRARY_PATH=\"$libraries\" \"$python\" -I -B -X \"pycache_prefix=$root/cache\" -c \"$DIAGNOSTIC_LOADER\" \"$WORKSPACE_DIR/tools/diagnostic_linux_cpu_v366.py\" \"$DRIVER_SHA256\" \"$DRIVER_BYTES\" --workspace \"$WORKSPACE_DIR\" --root \"$root\" --spec \"$WORKSPACE_DIR/tools/linux_cpu_v366_spec.json\" --spec-sha256 \"$SPEC_SHA256\" > \"$out\" 2> \"$err\"\nrc=$?\nset -e\n/usr/bin/env -i HOME=\"$SETUP_PARENT/v366-bootstrap-home\" TMPDIR=\"$SETUP_PARENT/v366-bootstrap-tmp\" PATH=/usr/bin:/bin LANG=C.UTF-8 /usr/bin/python3 -I -B \"$WORKSPACE_DIR/tools/report_linux_cpu_v366.py\" --stdout \"$out\" --stderr \"$err\" --wall \"$wall\" --exit-code \"$rc\""
+        }
+      ]
+    }
+  }
+}
