@@ -56,8 +56,9 @@ def _linux_v364_context():
     _require(type(context) is dict and set(context) == {
         "version", "mode", "root", "start_ns", "deadline_ns", "completed"},
         "closed Linux driver context required")
-    _require(context["version"] == "v364-linux-cpu-1"
-             and context["mode"] == "fresh-generated-not-evicted"
+    _require((context["version"], context["mode"]) in (
+                 ("v364-linux-cpu-1", "fresh-generated-not-evicted"),
+                 ("v365-linux-cpu-1", "fresh-generated-counter-seeded-not-evicted"))
              and context["root"] == str(Path(os.environ["HOME"]).parent)
              and type(context["start_ns"]) is int
              and type(context["deadline_ns"]) is int
@@ -1009,7 +1010,7 @@ def _metrics(audit, owner, start, error, released, preparation):
         preparation=preparation, cache=(
             "reused-generated-after-previous-full-read-not-evicted-no-cold-cache-claim"
             if _LINUX_V364_CONTEXT is None
-            else "fresh-generated-not-evicted-no-cold-cache-claim"),
+            else _LINUX_V364_CONTEXT["mode"] + "-no-cold-cache-claim"),
         peak_rss_raw=rss, peak_rss_unit=rss_unit, peak_rss_bytes=rss_bytes,
         c_elapsed_ns=None if audit is None else audit.c_elapsed_ns,
         c_calls=0 if audit is None else audit.validators,
