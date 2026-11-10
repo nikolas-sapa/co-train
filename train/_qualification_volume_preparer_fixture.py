@@ -223,8 +223,11 @@ def exclusive_json(parent, name, value):
     os.fsync(parent)
 
 
-def prepare(root):
+def prepare(root, *, deadline_ns=None):
     start = time.monotonic_ns()
+    if deadline_ns is not None:
+        require(type(deadline_ns) is int and start < deadline_ns <= start + 29_000_000_000,
+                "shared absolute internal29s deadline required")
     anchors = Anchors()
     bulk = None
     written = 0
@@ -237,8 +240,12 @@ def prepare(root):
         written += count
 
     def deadline():
-        require(time.monotonic_ns() - start < 50_000_000_000,
-                "preparation internal50s exceeded")
+        if deadline_ns is None:
+            require(time.monotonic_ns() - start < 50_000_000_000,
+                    "preparation internal50s exceeded")
+        else:
+            require(time.monotonic_ns() < deadline_ns,
+                    "shared internal29s deadline exceeded")
 
     def free_space(root_fd):
         facts = os.fstatvfs(root_fd)

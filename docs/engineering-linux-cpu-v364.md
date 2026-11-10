@@ -1,0 +1,11 @@
+# One-shot original-Python Linux volume qualification
+
+This manual-only workflow is limited to the public repository's standard GitHub-hosted Ubuntu24.04 runner, first workflow run and first attempt. It requires the reviewed default-branch commit SHA. Setup and qualification together have a ten-minute job ceiling. No rerun, paid/larger runner, cache, data artifact upload, user secrets, provider or GPU is authorized.
+
+Python3.12.13 comes from one immutable official release archive with an exact size/SHA256. The installer uses a fresh private prefix, never vendor setup.sh, sudo, cache deletion, global trust changes or unpinned upgrades. Pytest8.4.2 and its four dependencies use exact wheel hashes. The payload environment excludes setup credentials and removes its private library-path bootstrap variable before admission. Workflow JSON syntax is intentional: valid YAML with standard-library JSON static validation.
+
+The driver generates four fresh dense2GiB files, then executes the existing original-Python full-volume case. Generation through all teardown, durable diagnostic close, publication/join/release must finish within one absolute29-second deadline. A separate GNU KILL30 fence and complete-process wall measurement apply. Existing read, ownership, identity, hashing and lifecycle assertions remain; no native helper or check elision is used. The old recovered-data fixture's measurement excluded generation, so its timings do not qualify this path.
+
+Only final stdout PASS plus terminal exit0 and complete bounded evidence are acceptance. The on-disk AWAITING_TERMINAL_CLOSE record is not a pass. A missing report, failure, timeout, unknown cleanup, insufficient capacity or skipped case is NONPASS, not permission to retry. No retained Mac data or model/wheel assets are copied. Only the small selected terminal summary enters workflow logs; no bulk data artifact is uploaded.
+
+Lifecycle child/channel/reap observations in this fixture are synthetic. This cannot qualify real SDK child reaping, compiler containment, native callback ownership, asset ABI, Mac performance or strict GPU admission. The public custody/admission refusal remains unchanged. Workflow publication alone is not evidence of execution or a benchmark result.
