@@ -1,0 +1,90 @@
+{
+  "schema": "swe-directory-disposal-publication-1",
+  "files": [
+    {
+      "path": "spec/spikes/archive/directory-disposal-green-source.py.txt",
+      "bytes": 2612,
+      "published_sha256": "698d8aa0517725b0625667765e7851a41a9eeb9f073999c997d6632182bcf1a8",
+      "transformation": "VERBATIM_PARENT_ADAPTED_FIRST_PARTY_ARCHIVE",
+      "first_party_source_sha256": "698d8aa0517725b0625667765e7851a41a9eeb9f073999c997d6632182bcf1a8",
+      "private_source_role": "green"
+    },
+    {
+      "path": "spec/spikes/archive/directory-disposal-red-source.py.txt",
+      "bytes": 2622,
+      "published_sha256": "957359024e1bec751ae1e0a0f911ac8f42d3be0c9d22018c794ef366e5320545",
+      "transformation": "VERBATIM_PARENT_ADAPTED_FIRST_PARTY_ARCHIVE",
+      "first_party_source_sha256": "957359024e1bec751ae1e0a0f911ac8f42d3be0c9d22018c794ef366e5320545",
+      "private_source_role": "red"
+    },
+    {
+      "path": "spec/spikes/archive/directory-disposal-tests-source.py.txt",
+      "bytes": 784,
+      "published_sha256": "a6b8d5ffe52e8b70a36f896ccf24d4fa25ec4ab5f4d995d8dc8faf34c7ffd35d",
+      "transformation": "VERBATIM_PARENT_ADAPTED_FIRST_PARTY_ARCHIVE",
+      "first_party_source_sha256": "a6b8d5ffe52e8b70a36f896ccf24d4fa25ec4ab5f4d995d8dc8faf34c7ffd35d",
+      "private_source_role": "tests"
+    },
+    {
+      "path": "README.md",
+      "bytes": 10429,
+      "published_sha256": "cdbbaf85bcb789f45312f816c996fdbf208e18ad416dbeef064f038adc7746a5",
+      "transformation": "FIRST_PARTY_DOCUMENT"
+    },
+    {
+      "path": "docs/engineering-swe-native-disposal-2026-11-09.md",
+      "bytes": 5740,
+      "published_sha256": "015a5f44250c3b37a252c28b3f4bfd73c01d15034ad565b5078a98a75a2f5d12",
+      "transformation": "FIRST_PARTY_DOCUMENT"
+    },
+    {
+      "path": "docs/engineering-header-review-manifest.json",
+      "bytes": 2189,
+      "published_sha256": "044a6f3699e25425972c2b8bb6fda5e1e868b6f979254903b4c1b0887aff40ea",
+      "transformation": "FIRST_PARTY_DOCUMENT"
+    },
+    {
+      "path": "docs/engineering-native-lifetime-manifest.json",
+      "bytes": 2915,
+      "published_sha256": "9548e0fbcf3a0ab95067bf9d99a1b2e4b4add569b7cbf556a3912f2e1a2175a6",
+      "transformation": "FIRST_PARTY_DOCUMENT"
+    }
+  ],
+  "swe2": {
+    "sessions": 3,
+    "actual_agent_generations": 5,
+    "actual_model": "swe-2-high",
+    "observed_tool_calls": 0,
+    "commands_external_exit_zero": 5,
+    "deliverables": "text_only"
+  },
+  "sources_parent_adapted": true,
+  "green": {
+    "status": "PASS",
+    "cases": 2,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "external_exit": 0,
+    "elapsed_seconds": 0.4425860829942394
+  },
+  "red": {
+    "status": "NONPASS",
+    "cases": 2,
+    "intended_failures": 2,
+    "errors": 0,
+    "skips": 0,
+    "external_exit": 1,
+    "elapsed_seconds": 0.5913539579996723
+  },
+  "source_pins_per_run": 3,
+  "origins_per_run": 3,
+  "execution_permission": "CONSUMED_NO_RETRY",
+  "provisional_native_scope": "_directory only; original _Anchor.check untouched",
+  "active_modules_added": false,
+  "native_implementation_build_or_gpu_executed": false,
+  "native_equivalence_proved": false,
+  "compiler_containment_proved": false,
+  "installed_header_text_or_hashes_included": false,
+  "scope": "Dated synthetic Python observation, not clone/native/runtime acceptance"
+}

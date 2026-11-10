@@ -39,14 +39,14 @@
     },
     {
       "path": "README.md",
-      "bytes": 10106,
-      "published_sha256": "6a6468e120f9cff885d5baecbaeccbb46e334ddaed38365a6a6ce084ac866634",
+      "bytes": 10429,
+      "published_sha256": "cdbbaf85bcb789f45312f816c996fdbf208e18ad416dbeef064f038adc7746a5",
       "transformation": "FIRST_PARTY_DOCUMENT"
     },
     {
       "path": "docs/engineering-header-review-manifest.json",
       "bytes": 2189,
-      "published_sha256": "882b138fdf0d0783e5ec48958eea88927b853aa85fcad9cb5be44a32aadd6a15",
+      "published_sha256": "044a6f3699e25425972c2b8bb6fda5e1e868b6f979254903b4c1b0887aff40ea",
       "transformation": "FIRST_PARTY_DOCUMENT"
     }
   ],

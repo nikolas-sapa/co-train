@@ -1,0 +1,76 @@
+"""UNRUN proposal: original _directory with synthetic disposal observers."""
+import sys
+import types
+import weakref
+
+
+def _directory(info, private):
+    require(stat.S_ISDIR(info.st_mode)
+            and info.st_uid in (0, os.getuid()), "owned directory")
+    require(not info.st_mode & 0o022
+            or info.st_uid == 0 and bool(info.st_mode & stat.S_ISVTX),
+            "unsafe writable directory")
+    if private:
+        require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700,
+                "private owner700 directory")
+    return info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid
+
+
+def capture(handled):
+    events = []
+    registry = {}
+    state = {"uid_dead": False}
+    expected_handled = sys.exception()
+    info = types.SimpleNamespace(st_dev=1, st_ino=2, st_mode=0o40700,
+                                 st_uid=0, st_gid=20)
+    scope = {"__builtins__": _directory.__builtins__}
+
+    def observe_handled():
+        if sys.exception() is not expected_handled:
+            events.append("handled-state-mismatch")
+
+    def first_require(ok, label):
+        observe_handled()
+        events.append(f"require:{label}:uid_dead={state['uid_dead']}")
+        if not ok:
+            raise AssertionError("unexpected synthetic policy refusal")
+
+    def replacement_require(ok, label):
+        observe_handled()
+        events.append(f"replacement:{label}")
+        if not ok:
+            raise AssertionError("unexpected synthetic policy refusal")
+
+    scope["require"] = first_require
+
+    class Uid:
+        def __del__(self):
+            observe_handled()
+            events.append("del:uid")
+            state["uid_dead"] = True
+            scope["require"] = replacement_require
+
+    def fake_getuid():
+        events.append("getuid")
+        value = Uid()
+        registry["uid"] = weakref.ref(value)
+        return value
+
+    scope["os"] = types.SimpleNamespace(getuid=fake_getuid)
+    scope["stat"] = types.SimpleNamespace(
+        S_ISDIR=lambda mode: (mode & 0o170000) == 0o040000,
+        S_IMODE=lambda mode: mode & 0o7777,
+        S_ISVTX=0o1000,
+    )
+    function = types.FunctionType(_directory.__code__, scope)
+    if not handled:
+        result = function(info, False)
+        return result, registry, events, state
+    try:
+        raise RuntimeError("outer handled sentinel")
+    except RuntimeError as outer:
+        expected_handled = outer
+        result = function(info, False)
+        if sys.exception() is not outer:
+            raise AssertionError("outer handled exception was not restored")
+        return result, registry, events, state

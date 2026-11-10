@@ -1,0 +1,27 @@
+"""UNRUN proposal: same positive expectations for separate RED/GREEN sources."""
+import gc
+
+import pytest
+
+from train import _qualification_directory_disposal_v353 as baseline
+
+
+EXPECTED = [
+    "getuid",
+    "del:uid",
+    "require:owned directory:uid_dead=True",
+    "replacement:unsafe writable directory",
+]
+
+
+@pytest.mark.parametrize("handled", [False, True])
+def test_membership_disposal_and_callable_capture(handled):
+    result, registry, events, state = baseline.capture(handled)
+    try:
+        assert result == (1, 2, 0o40700, 0, 20)
+        assert events == EXPECTED, "membership disposal/callable capture order"
+        assert state == {"uid_dead": True}
+        assert set(registry) == {"uid"}
+        assert registry["uid"]() is None
+    finally:
+        gc.collect()
