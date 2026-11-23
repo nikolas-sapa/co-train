@@ -148,6 +148,9 @@ def test_cold_import_has_no_effects(monkeypatch):
     before = dict(os.environ)
     attempted = []
     monkeypatch.delitem(sys.modules, "train.native_preflight", raising=False)
+    # Restore the parent package attribute with sys.modules so later
+    # `from train import native_preflight` never sees a second module copy.
+    monkeypatch.delattr(importlib.import_module("train"), "native_preflight", raising=False)
 
     def reject(*args, **kwargs):
         attempted.append("observation")

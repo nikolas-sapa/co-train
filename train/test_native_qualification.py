@@ -697,6 +697,9 @@ def test_05_cold_import_has_zero_effects(monkeypatch, capsys):
     capsys.readouterr()
     with monkeypatch.context() as patch:
         patch.delitem(sys.modules, MODULE, raising=False)
+        # The fresh import rebinds the parent package attribute too; restore it with
+        # sys.modules, or `from train import native_qualification` sees a second copy.
+        patch.delattr(importlib.import_module("train"), MODULE.rpartition(".")[2], raising=False)
         patch.setattr(sys, "dont_write_bytecode", True)
         patch.setattr(builtins, "__import__", guarded_import)
         patch.setattr(builtins, "open", guarded_open)

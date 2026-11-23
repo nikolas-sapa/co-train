@@ -262,10 +262,13 @@ def test_explicit_keyword_only_reporting_signature():
     signature = inspect.signature(native_training.build_sql_trainer)
     assert list(signature.parameters) == [
         "tasks", "db_root", "output_dir", "model_dir", "model_revision",
-        "max_seq_length", "steps", "root", "reporting",
+        "max_seq_length", "steps", "root", "reporting", "capture_ids", "capture_sink",
     ]
     assert signature.parameters["reporting"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["reporting"].default is None
+    for name in ("capture_ids", "capture_sink"):
+        assert signature.parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
+        assert signature.parameters[name].default is None
 
 
 @pytest.mark.parametrize("explicit_none", [False, True])
