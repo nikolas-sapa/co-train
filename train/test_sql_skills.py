@@ -456,7 +456,8 @@ def test_promotion_data_roundtrip_complete_result_and_immutability(tmp_path, mon
     assert counts == dict(build=0, dispatch=0, score=0)
     assert receipt.candidate_sha256 == pin(module.encode_candidate(state.candidate))
     assert receipt.scope == state.candidate.scope and receipt.source == state.candidate.source
-    assert receipt.binding.source_paths == (
+    assert receipt.binding.source_paths == module.SOURCE_PATHS_V2
+    assert receipt.binding.source_paths[:2] == (
         "train/sql_skills.py", "train/sql_skill_eval.py",
     )
     for ref, captured in zip(receipt.qualifications, captures):
