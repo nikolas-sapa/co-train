@@ -1,0 +1,14 @@
+{
+  "test_owned_sql_sdk_canonical.py": {
+    "bytes": 263160,
+    "sha256": "493a905b3fa99116e67bbaa0120ab0e16d85fb0256f2c364ff478742567c671e"
+  },
+  "test_owned_sql_sdk_retirement.py": {
+    "bytes": 697150,
+    "sha256": "e62949fcce301be96593c77aa88bf06de15fd1f167a67d4d79e2cf97eff24f71"
+  },
+  "test_sql_lifecycle_process.py": {
+    "bytes": 246761,
+    "sha256": "fd23278f69698eb90878f7f6fbc64a05b56d0daab4423527e58216eb43e4a0ad"
+  }
+}

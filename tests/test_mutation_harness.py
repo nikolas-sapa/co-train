@@ -30,6 +30,25 @@ TEST_SOURCE = (
     "def test_value():\n"
     "    assert VALUE == 1\n"
 )
+EXPECTED_PTC_CONTEXT = (
+    "process_watchdog.py",
+    "pytest.ini",
+    "cotrain_bash_qa.py",
+    "cotrain_bash_qa_env.py",
+    "cotrain_bash_qa_eval.py",
+    "cotrain_ptc_qa.py",
+    "cotrain_owned_sql.py",
+    "train/__init__.py",
+    "train/guards.py",
+    "train/sql_episodes.py",
+    "train/sql_reporting.py",
+    "spec/spikes/reference/sql-sdk-writer-barrier/probe.py",
+)
+CONTEXT_IMPORTS = (
+    "cotrain_bash_qa", "cotrain_bash_qa_env", "cotrain_bash_qa_eval",
+    "cotrain_ptc_qa", "cotrain_owned_sql",
+    "train", "train.guards", "train.sql_episodes", "train.sql_reporting",
+)
 
 
 def _load_runner(name):
@@ -101,8 +120,10 @@ def _configure_cli(name, module, monkeypatch, tmp_path, mutations,
         (directory / "__init__.py").write_text("")
     (root / "docs").mkdir()
     (root / "docs" / "pre-registration.md").write_text("# Offline fixture\n")
-    shutil.copy(REPO / "process_watchdog.py", root / "process_watchdog.py")
-    shutil.copy(REPO / "pytest.ini", root / "pytest.ini")
+    for relative in EXPECTED_PTC_CONTEXT:
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(REPO / relative, destination)
     (root / name / "subject.py").write_text(SOURCE)
     (root / name / "test_subject.py").write_text(TEST_SOURCE)
     (root / name / target).write_text(source)
@@ -175,6 +196,125 @@ def test_ptc_fresh_copies_required_packages_exactly_once(package, monkeypatch, t
     for dependency in ("ptc", "ledger", "bench"):
         assert (sandbox / dependency / "__init__.py").is_file()
     assert sandbox.parent == tmp_path
+
+
+def _assert_ptc_context(sandbox):
+    missing = [relative for relative in EXPECTED_PTC_CONTEXT
+               if not (sandbox / relative).is_file()]
+    assert not missing, f"missing declared package context: {missing}"
+
+
+@pytest.mark.parametrize("package", ["ptc", "ledger", "bench"])
+def test_ptc_fresh_copies_explicit_context(package, monkeypatch, tmp_path):
+    module = _load_runner("ptc")
+    _local_tempdirs(monkeypatch, module, tmp_path)
+    sandbox = module.fresh(package)
+    _assert_ptc_context(sandbox)
+    assert module.CONTEXT_FILES == EXPECTED_PTC_CONTEXT
+    context_files = {
+        path.relative_to(sandbox).as_posix()
+        for path in sandbox.rglob("*") if path.is_file()
+        and path.relative_to(sandbox).parts[0] not in ("ptc", "ledger", "bench")
+    }
+    assert len(EXPECTED_PTC_CONTEXT) == 12
+    assert context_files == set(EXPECTED_PTC_CONTEXT)
+    for relative in EXPECTED_PTC_CONTEXT:
+        destination = sandbox / relative
+        assert destination.read_bytes() == (REPO / relative).read_bytes()
+        assert destination.resolve().is_relative_to(sandbox.resolve())
+        assert not any(path.is_symlink()
+                       for path in (destination, *destination.parents)
+                       if path.is_relative_to(sandbox))
+
+
+def _probe_ptc_context(module, sandbox, code, *arguments):
+    return module.run_bounded(
+        [sys.executable, "-I", "-B", "-c",
+         "import pathlib,sys; "
+         "sandbox=pathlib.Path(sys.argv[1]).resolve(); "
+         "sys.path.insert(0,str(sandbox)); " + code,
+         str(sandbox), *arguments],
+        cwd=sandbox.parent, timeout=10,
+        env={**os.environ, "PYTHONPATH": str(sandbox),
+             "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+
+
+def test_ptc_fresh_context_imports_only_sandbox_sources(monkeypatch, tmp_path):
+    module = _load_runner("ptc")
+    _local_tempdirs(monkeypatch, module, tmp_path)
+    sandbox = module.fresh("ptc")
+    _assert_ptc_context(sandbox)
+    result = _probe_ptc_context(
+        module, sandbox,
+        "import importlib,json; "
+        "names=json.loads(sys.argv[2]); "
+        "origins={name:str(pathlib.Path(importlib.import_module(name).__file__).resolve()) "
+        "for name in names}; "
+        "reference=sandbox / sys.argv[3]; "
+        "assert reference.read_bytes(); "
+        "source=pathlib.Path(sys.argv[4]).resolve(); "
+        "borrowed={name:str(pathlib.Path(mod.__file__).resolve()) "
+        "for name,mod in tuple(sys.modules.items()) "
+        "if getattr(mod,'__file__',None) "
+        "and pathlib.Path(mod.__file__).resolve().is_relative_to(source)}; "
+        "print(json.dumps({'origins':origins,'borrowed':borrowed,"
+        "'reference':str(reference.resolve())}))",
+        json.dumps(CONTEXT_IMPORTS), EXPECTED_PTC_CONTEXT[-1], str(REPO),
+    )
+    assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
+    report = json.loads(result.stdout)
+    assert set(report["origins"]) == set(CONTEXT_IMPORTS)
+    for name, origin in report["origins"].items():
+        relative = "train/__init__.py" if name == "train" else name.replace(".", "/") + ".py"
+        assert Path(origin) == (sandbox / relative).resolve()
+    assert report["borrowed"] == {}
+    assert Path(report["reference"]) == (sandbox / EXPECTED_PTC_CONTEXT[-1]).resolve()
+
+
+@pytest.mark.parametrize("missing", [
+    "cotrain_owned_sql.py", "spec/spikes/reference/sql-sdk-writer-barrier/probe.py",
+])
+def test_ptc_fresh_context_missing_dependency_is_not_borrowed(
+    missing, monkeypatch, tmp_path,
+):
+    module = _load_runner("ptc")
+    _local_tempdirs(monkeypatch, module, tmp_path)
+    sandbox = module.fresh("ptc")
+    _assert_ptc_context(sandbox)
+    assert (REPO / missing).is_file()
+    (sandbox / missing).unlink()  # Only this test's newly generated copy.
+    code = ("import cotrain_owned_sql" if missing == "cotrain_owned_sql.py"
+            else "(sandbox / sys.argv[2]).read_bytes()")
+    result = _probe_ptc_context(module, sandbox, code, missing)
+    assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
+    if missing == "cotrain_owned_sql.py":
+        assert "ModuleNotFoundError: No module named 'cotrain_owned_sql'" in result.stderr
+    else:
+        assert "FileNotFoundError" in result.stderr
+        assert str(sandbox / missing) in result.stderr
+    assert str(REPO) not in result.stderr
+
+
+@pytest.mark.parametrize("package", ["ptc", "ledger", "bench"])
+def test_ptc_run_selects_only_requested_package(package, monkeypatch, tmp_path):
+    module = _load_runner("ptc")
+    _local_tempdirs(monkeypatch, module, tmp_path)
+    _configure_cli("ptc", module, monkeypatch, tmp_path, [])
+    for sibling in ("ptc", "ledger", "bench"):
+        (module.REPO / sibling / "test_subject.py").write_text(
+            "def test_selected_package():\n"
+            f"    assert {sibling == package!r}, 'unselected sibling collected: {sibling}'\n"
+        )
+    sandbox = module.fresh(package)
+    result = module.run(sandbox, package)
+    assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
+    assert re.search(r"\b1 passed\b", result.stdout), result.stdout
+    assert "unselected sibling collected" not in result.stdout + result.stderr
+    assert result.args == [
+        sys.executable, "-m", "pytest", f"{package}/", "-q", "--no-header",
+        "-p", "no:cacheprovider",
+    ]
 
 
 @pytest.mark.parametrize("package", ["ptc", "ledger", "bench"])
@@ -370,3 +510,178 @@ def test_mutation_cli_real_pytest_fixture_outcomes(
         assert "SURVIV" in row.upper()
     else:
         assert "died" in row.lower() or "killed" in row.lower()
+
+
+def _diagnostic_sandbox(monkeypatch, tmp_path, source):
+    """Declare tiny offline packages, never run the repository's PTC suite."""
+    module = _load_runner("ptc")
+    _local_tempdirs(monkeypatch, module, tmp_path)
+    _configure_cli("ptc", module, monkeypatch, tmp_path, [])
+    (module.REPO / "ptc" / "test_subject.py").write_text(source)
+    for sibling in ("ledger", "bench"):
+        (module.REPO / sibling / "test_sibling.py").write_text(
+            "from pathlib import Path\n\n"
+            "def test_unselected_sibling():\n"
+            "    Path('sibling-ran').write_text('unexpected')\n"
+            "    assert False, 'unselected sibling collected'\n"
+        )
+    return module, module.fresh("ptc")
+
+
+def test_ptc_diagnostic_default_argv_unchanged(monkeypatch, tmp_path):
+    module = _load_runner("ptc")
+    calls = []
+
+    def bounded(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return _result(0)
+
+    monkeypatch.setattr(module, "run_bounded", bounded)
+    module.run(tmp_path, "ledger")
+    module.run(tmp_path, "ledger", diagnostic=False)
+    module.run(tmp_path, "ledger", diagnostic=True)
+    expected = [
+        sys.executable, "-m", "pytest", "ledger/", "-q", "--no-header",
+        "-p", "no:cacheprovider",
+    ]
+    assert [argv for argv, _ in calls] == [
+        expected, expected, expected + ["--maxfail=1"],
+    ]
+    assert module.SUITE_TIMEOUT == 300.0
+    assert [kwargs for _, kwargs in calls] == [{
+        "cwd": tmp_path, "timeout": 300.0,
+        "env": {**module.ENV, "PYTHONPATH": str(tmp_path)},
+    }] * 3
+
+
+def test_ptc_diagnostic_green_runs_all_selected_tests(monkeypatch, tmp_path):
+    module, sandbox = _diagnostic_sandbox(
+        monkeypatch, tmp_path,
+        "from pathlib import Path\n\n"
+        "def test_one():\n"
+        "    Path('one-ran').write_text('1')\n\n"
+        "def test_two():\n"
+        "    Path('two-ran').write_text('2')\n\n"
+        "def test_three():\n"
+        "    Path('three-ran').write_text('3')\n",
+    )
+    result = module.run(sandbox, "ptc", diagnostic=True)
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert re.search(r"\b3 passed\b", result.stdout), result.stdout
+    assert {p.name for p in sandbox.glob("*-ran")} == {
+        "one-ran", "two-ran", "three-ran",
+    }
+    assert "unselected sibling collected" not in result.stdout + result.stderr
+    assert result.args[-1] == "--maxfail=1"
+
+
+def test_ptc_diagnostic_stops_after_real_first_failure(monkeypatch, tmp_path):
+    module, sandbox = _diagnostic_sandbox(
+        monkeypatch, tmp_path,
+        "from pathlib import Path\n\n"
+        "def test_first_failure():\n"
+        "    Path('first-ran').write_text('1')\n"
+        "    assert False, 'diagnostic first assertion'\n\n"
+        "def test_later_infrastructure_error():\n"
+        "    Path('second-ran').write_text('2')\n"
+        "    raise RuntimeError('later infrastructure-like exception')\n",
+    )
+    result = module.run(sandbox, "ptc", diagnostic=True)
+    assert result.returncode == 1, (result.stdout, result.stderr)
+    assert {p.name for p in sandbox.glob("*-ran")} == {"first-ran"}
+    assert "AssertionError: diagnostic first assertion" in result.stdout
+    assert "ptc/test_subject.py:" in result.stdout
+    assert "stopping after 1 failures" in result.stdout
+    assert re.search(r"\b1 failed\b", result.stdout), result.stdout
+    assert "later infrastructure-like exception" not in result.stdout + result.stderr
+
+
+def test_ptc_diagnostic_collection_error_preserves_exit_two(monkeypatch, tmp_path):
+    module, sandbox = _diagnostic_sandbox(
+        monkeypatch, tmp_path,
+        "from pathlib import Path\n"
+        "raise ImportError('diagnostic collection failure')\n\n"
+        "def test_never_runs():\n"
+        "    Path('body-ran').write_text('unexpected')\n",
+    )
+    result = module.run(sandbox, "ptc", diagnostic=True)
+    assert result.returncode == 2, (result.stdout, result.stderr)
+    assert not list(sandbox.glob("*-ran"))
+    assert "ImportError: diagnostic collection failure" in result.stdout
+    assert "ptc/test_subject.py:" in result.stdout
+    assert re.search(r"\b1 error\b", result.stdout), result.stdout
+
+
+def test_ptc_diagnostic_preserves_nonstandard_session_exit(monkeypatch, tmp_path):
+    module, sandbox = _diagnostic_sandbox(
+        monkeypatch, tmp_path,
+        "from pathlib import Path\n\n"
+        "def test_unit():\n"
+        "    Path('unit-ran').write_text('1')\n",
+    )
+    (sandbox / "ptc" / "conftest.py").write_text(
+        "def pytest_sessionfinish(session, exitstatus):\n"
+        "    session.exitstatus = 3\n"
+    )
+    result = module.run(sandbox, "ptc", diagnostic=True)
+    assert result.returncode == 3, (result.stdout, result.stderr)
+    assert {p.name for p in sandbox.glob("*-ran")} == {"unit-ran"}
+    assert re.search(r"\b1 passed\b", result.stdout), result.stdout
+    assert "FAILED" not in result.stdout + result.stderr
+
+
+def test_ptc_diagnostic_timeout_preserves_existing_contract(monkeypatch, tmp_path):
+    module = _load_runner("ptc")
+    calls = []
+
+    def timeout(argv, **kwargs):
+        calls.append((argv, kwargs))
+        exc = subprocess.TimeoutExpired(
+            argv, kwargs["timeout"], output="original stdout",
+            stderr="original stderr",
+        )
+        exc.add_note("original cleanup note")
+        raise exc
+
+    monkeypatch.setattr(module, "run_bounded", timeout)
+    result = module.run(tmp_path, "ptc", diagnostic=True)
+    assert len(calls) == 1
+    assert calls[0][1] == {
+        "cwd": tmp_path, "timeout": 300.0,
+        "env": {**module.ENV, "PYTHONPATH": str(tmp_path)},
+    }
+    assert result.args == calls[0][0]
+    assert result.args[-1] == "--maxfail=1"
+    assert result.returncode == 124
+    assert result.stdout == (
+        "original stdout\nHUNG: suite exceeded 300.0s\nFAILED (hung)::timeout"
+    )
+    assert result.stderr == "original stderr\nWATCHDOG: original cleanup note\n"
+
+
+def test_ptc_mutation_cli_never_enables_diagnostic_mode(
+    monkeypatch, tmp_path, capsys,
+):
+    module = _load_runner("ptc")
+    _local_tempdirs(monkeypatch, module, tmp_path)
+    mutations = [(label, "VALUE = 1", "VALUE = 2")
+                 for label in ("survivor-probe", "killed-probe", "invalid-probe")]
+    _configure_cli("ptc", module, monkeypatch, tmp_path, mutations)
+    codes = iter([0, 0, 1, 2])
+    calls = []
+
+    def run(*args, **kwargs):
+        code = next(codes)
+        calls.append((args, kwargs, code))
+        return _result(code)
+
+    monkeypatch.setattr(module, "run", run)
+    assert module.main() == 2
+    output = capsys.readouterr().out
+    assert [code for _, _, code in calls] == [0, 0, 1, 2]
+    assert all(len(args) == 2 and args[1] == "ptc" and kwargs == {}
+               for args, kwargs, _ in calls)
+    assert len({args[0] for args, _, _ in calls}) == 4
+    assert "SURVIV" in _row(output, "survivor-probe").upper()
+    assert "died" in _row(output, "killed-probe")
+    _assert_invalid(_row(output, "invalid-probe"))

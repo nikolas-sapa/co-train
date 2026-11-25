@@ -36,6 +36,20 @@ ENV = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
 # and the SQL tests need `bench`. Missing either makes collection fail, not a
 # mutant die. Include the target only once when it is one of these packages.
 SIBLINGS = ("ptc", "ledger", "bench")
+CONTEXT_FILES = (
+    "process_watchdog.py",
+    "pytest.ini",
+    "cotrain_bash_qa.py",
+    "cotrain_bash_qa_env.py",
+    "cotrain_bash_qa_eval.py",
+    "cotrain_ptc_qa.py",
+    "cotrain_owned_sql.py",
+    "train/__init__.py",
+    "train/guards.py",
+    "train/sql_episodes.py",
+    "train/sql_reporting.py",
+    "spec/spikes/reference/sql-sdk-writer-barrier/probe.py",
+)
 
 
 def fresh(pkg: str) -> pathlib.Path:
@@ -43,8 +57,10 @@ def fresh(pkg: str) -> pathlib.Path:
     for name in dict.fromkeys((pkg, *SIBLINGS)):
         shutil.copytree(REPO / name, d / name,
                         ignore=shutil.ignore_patterns("__pycache__"))
-    shutil.copy(REPO / "process_watchdog.py", d / "process_watchdog.py")
-    shutil.copy(REPO / "pytest.ini", d / "pytest.ini")
+    for relative in CONTEXT_FILES:
+        destination = d / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(REPO / relative, destination)
     return d
 
 
@@ -58,10 +74,17 @@ it certainly did not pass -- but it has to be *recorded* as one rather than wait
 """
 
 
-def run(d: pathlib.Path, pkg: str):
-    """Bound the suite and its original process group, including after leader exit."""
+def run(d: pathlib.Path, pkg: str, *, diagnostic: bool = False):
+    """Bound the suite and its original process group, including after leader exit.
+
+    diagnostic=True stops after the first failure and may hide later infrastructure
+    errors. Diagnostic results are not mutation verdicts or full-baseline
+    qualification, even on exit 0.
+    """
     argv = [sys.executable, "-m", "pytest", f"{pkg}/", "-q", "--no-header",
             "-p", "no:cacheprovider"]
+    if diagnostic is True:
+        argv.append("--maxfail=1")
     try:
         return run_bounded(
             argv, cwd=d, timeout=SUITE_TIMEOUT, env={**ENV, "PYTHONPATH": str(d)},

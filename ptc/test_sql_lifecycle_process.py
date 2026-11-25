@@ -959,6 +959,94 @@ import asyncio, copy, dataclasses, fcntl, hashlib, json, os, select
 import socket, sqlite3, struct, subprocess, sys, threading, time, types
 from pathlib import Path
 
+class _ObservedTestGates:
+    """Fixture observations only. Never invent a native gate or an ACK."""
+    def __init__(self, *, ensure_intents):
+        self.ensure_intents = ensure_intents
+        self.lock = threading.Lock()
+        self.rows, self.objects, self.keys, self.occurrences = [], {}, {}, {}
+        self.observed = []
+        self.retiring = False
+
+    def observe(self, hit, release):
+        assert type(hit) is dict and hit.get("kind") == "HIT"
+        invocation, name = hit.get("invocation_id"), hit.get("name")
+        assert type(invocation) is str and invocation
+        assert type(name) is str and name
+        event = hit.get("event")
+        assert event is None or type(event) is str
+        with self.lock:
+            previous = self.objects.get(id(hit))
+            if previous is not None:
+                return previous["hit"]
+            base = (invocation, "HIT", name, event)
+            occurrence = hit.get("occurrence")
+            if occurrence is None:
+                occurrence = self.occurrences.get(base, 0) + 1
+            assert type(occurrence) is int and occurrence > 0
+            self.occurrences[base] = max(self.occurrences.get(base, 0), occurrence)
+            key = (*base, occurrence)
+            row = self.keys.get(key)
+            if row is None:
+                row = dict(hit=hit, key=key, release=release, released=False, busy=False)
+                self.keys[key] = row
+                self.rows.append(row)  # Retain actual decoded object.
+            self.observed.append(hit)  # Keep aliases alive; never reuse an object ID.
+            self.objects[id(hit)] = row
+            retiring = self.retiring
+        if retiring:
+            self._release(row)  # Late observation, AFTER original real intents.
+        return row["hit"]
+
+    def released(self, hit):
+        # Ordinary successful releases owe the same exact-occurrence ledger.
+        with self.lock:
+            row = self.objects[id(hit)]
+            row["released"] = True
+
+    def pending_for(self, invocation_id):
+        with self.lock:
+            return next((row["hit"] for row in self.rows
+                         if row["key"][0] == invocation_id
+                         and not row["released"] and not row["busy"]), None)
+
+    def _release(self, row):
+        with self.lock:
+            if row["released"] or row["busy"]:
+                return
+            row["busy"] = True
+        try:
+            # Neither public API calls nor I/O run under bookkeeping locks.
+            self.ensure_intents()
+            row["release"]()
+        except BaseException:
+            with self.lock:
+                row["busy"] = False
+            raise
+        else:
+            self.released(row["hit"])
+            with self.lock:
+                row["busy"] = False
+
+    def release_one(self, hit):
+        with self.lock:
+            row = self.objects[id(hit)]
+        self._release(row)
+
+    def release_pending(self):
+        with self.lock:
+            self.retiring = True
+            rows = tuple(self.rows)
+        primary = None
+        for row in rows:
+            try:
+                self._release(row)
+            except BaseException as exc:
+                if primary is None:
+                    primary = exc
+        if primary is not None:
+            raise primary
+
 def _fence_owned_start(owner, spawn_lock, stopping):
     original = owner._start
     def start():
@@ -973,6 +1061,7 @@ SCRIPT = str(Path(__file__).resolve())
 if MODE == "host":
     SOURCE, ROOT, ROLE, PHASE, MUTANT = sys.argv[2:7]
     END = float(sys.argv[7])
+    PREPARED = tuple(sys.argv[8:])
     LOOP = asyncio.new_event_loop()  # Anonymous self-pipe, before network guards.
 else:
     JOB, ROLE = Path(sys.argv[2]), sys.argv[3]
@@ -981,10 +1070,125 @@ else:
         PHASE, MUTANT, END = sys.argv[4], sys.argv[5], float(sys.argv[6])
     else:
         END = float(sys.argv[4])
-        PHASE, MUTANT = "", "none"
+        PHASE, MUTANT = "", sys.argv[5] if len(sys.argv) == 6 else "none"
+        assert MUTANT in ("none", "program-observation-sentinel", "invalid-target-zero")
+        assert MUTANT != "invalid-target-zero" or ROLE == "scorer"
 sys.path.insert(0, SOURCE)
 from ptc import sql_isolation as m
+# CREATOR_BOUNDARY_BEGIN
+# GUARDIAN_BUDGET_BEGIN
+_guardian_budget_ready = False
+if MODE == "guardian":
+    try:
+        _guardian_budget_clock = time.monotonic_ns
+        _guardian_budget_write = os.write
+        _guardian_budget_ready = True
+    except BaseException:
+        pass  # Disable metadata, never recapture after fixture replacements.
+# GUARDIAN_BUDGET_END
+# CREATOR_BOUNDARY_END
+# CREATOR_BOUNDARY_BEGIN
+_boundary_original_ready = False
+if MODE == "host" and PHASE.startswith("sdk-"):
+    # Original objects, before fixture thread/creator replacements or acceptance.
+    try:
+        _boundary_original_thread = threading.Thread
+        _boundary_original_active = threading._active
+        _boundary_original_frames = sys._current_frames
+        _boundary_original_write = os.write
+        _boundary_original_clock = time.monotonic_ns
+        _boundary_original_core = (
+            m.OwnedSqlInvocation._controller.__code__,
+            m.OwnedSqlInvocation._register_pipe.__code__,
+            m.OwnedSqlInvocation._wait_startup.__code__,
+            m._CreatorPopen.__init__.__code__)
+        _boundary_original_ready = True
+    except BaseException:
+        pass  # Disable diagnostics; never retry after fixture replacements.
+# CREATOR_BOUNDARY_END
 
+# SDK_TIMELINE_RUNTIME_HELPER_BEGIN
+_timeline_original_deque = _timeline_original_popleft = None
+try:
+    from collections import deque as _timeline_original_deque
+    _timeline_original_popleft = _timeline_original_deque.popleft
+except BaseException:
+    pass  # Unavailable capture; never retry after fixture replacements.
+
+class _SdkTimeline:
+    """Partial observations only; original CPython3.12.13 popleft claims slots."""
+    def __init__(self, *, clock, write):
+        self._clock, self._write = clock, write
+        self._free_slots = _timeline_original_deque(range(64))
+        self._emit_token = _timeline_original_deque([0])
+        self._rows = [None] * 64
+        self._disabled = self._unavailable = self._truncated = False
+
+    def note(self, event, owner=None, registry=()):
+        try:
+            index = _timeline_original_popleft(self._free_slots)
+        except IndexError:
+            self._truncated = True
+            return  # No clock or registry work after slot exhaustion.
+        except BaseException:
+            self._unavailable = True
+            self._disabled = True
+            return
+        try:
+            if self._disabled:
+                return  # Consume this claimed slot without reuse.
+            if type(event) is not int or not 1 <= event <= 6:
+                raise ValueError
+            ordinal = 0
+            if owner is not None:
+                for position, record in enumerate(registry[:64], 1):
+                    if record.actual is owner:
+                        ordinal = position
+                        break
+                if ordinal == 0:
+                    raise ValueError
+            ns = self._clock()  # At most one attempt per unique slot.
+            if type(ns) is not int or not 0 <= ns <= 9223372036854775807:
+                raise ValueError
+            row = (event, ordinal, ns)
+            self._rows[index] = row  # Publish only a complete immutable tuple.
+        except BaseException:
+            self._unavailable = True
+            self._disabled = True  # No retry, slot reuse, recapture or flag clear.
+
+    def emit_failure(self):
+        try:
+            _timeline_original_popleft(self._emit_token)
+        except IndexError:
+            return
+        except BaseException:
+            self._unavailable = True
+            self._disabled = True
+            return
+        self._disabled = True
+        try:
+            snapshot = []
+            for index in range(64):
+                row = self._rows[index]  # Inspect each cell once, no coherent epoch.
+                if row is None:
+                    continue
+                if (type(row) is not tuple or len(row) != 3
+                        or any(type(value) is not int for value in row)
+                        or not 1 <= row[0] <= 6 or not 0 <= row[1] <= 64
+                        or not 0 <= row[2] <= 9223372036854775807):
+                    self._unavailable = True
+                    continue
+                snapshot.append(row)
+            truncated = 1 if self._truncated else 0
+            wire = ('{"kind":"SDK_TIMELINE","header":[1,0,%d,%d],"rows":[%s]}\n' % (
+                truncated, len(snapshot),
+                ",".join("[%d,%d,%d]" % row for row in snapshot))).encode("ascii")
+            if len(wire) <= 4096 and self._write is not None:
+                self._write(2, wire)  # One token, one attempt; never repair a short write.
+        except BaseException:
+            self._unavailable = True
+            self._disabled = True
+# SDK_TIMELINE_RUNTIME_HELPER_END
 ENV = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}
 CAP_NS = 12000000000
 ADAPTER_RESPONSES = {
@@ -1012,10 +1216,59 @@ forbidden_calls = []
 def forbidden(*args, **kwargs):
     forbidden_calls.append(1)
     raise AssertionError("GUEST_FIXTURE_FORBIDDEN_NATIVE_NETWORK_SQL_OR_GROUP_IO")
-socket.socket.connect = socket.socket.connect_ex = socket.socket.bind = forbidden
-socket.getaddrinfo = forbidden
+if MODE == "host" and PHASE.startswith("sdk-"):
+    # Capture trusted methods ONCE, before denial. Only first-party numeric
+    # loopback ephemeral listeners and their recorded endpoints are permitted.
+    # The SDK framework wraps these already-strict methods, never an unguarded
+    # socket class. Guardian/role interpreters keep the blanket guard below.
+    sdk_endpoints, sdk_sockets = set(), []
+    sdk_retiring = threading.Event()
+    trusted_bind = socket.socket.bind
+    trusted_connect, trusted_connect_ex = socket.socket.connect, socket.socket.connect_ex
+    trusted_resolve = socket.getaddrinfo
+    def sdk_bind(sock, address):
+        if (sdk_retiring.is_set() or sock.family not in (socket.AF_INET, socket.AF_INET6)
+                or not isinstance(address, tuple) or len(address) < 2
+                or address[0] not in ("127.0.0.1", "::1") or address[1] != 0):
+            return forbidden(sock, address)
+        sdk_sockets.append(sock)  # Retain actual listener before bind.
+        value = trusted_bind(sock, address)
+        actual = sock.getsockname()
+        sdk_endpoints.add((actual[0], actual[1]))
+        return value
+    def sdk_connect(sock, address):
+        if (sdk_retiring.is_set() or sock.family not in (socket.AF_INET, socket.AF_INET6)
+                or not isinstance(address, tuple) or len(address) < 2
+                or (address[0], address[1]) not in sdk_endpoints):
+            return forbidden(sock, address)
+        sdk_sockets.append(sock)  # Retain actual transport socket before connect.
+        return trusted_connect(sock, address)
+    def sdk_connect_ex(sock, address):
+        if (sdk_retiring.is_set() or sock.family not in (socket.AF_INET, socket.AF_INET6)
+                or not isinstance(address, tuple) or len(address) < 2
+                or (address[0], address[1]) not in sdk_endpoints):
+            return forbidden(sock, address)
+        sdk_sockets.append(sock)
+        return trusted_connect_ex(sock, address)
+    def sdk_resolve(host, port, *args, **kwargs):
+        if (host, port) not in sdk_endpoints:
+            return forbidden(host, port)
+        return trusted_resolve(host, port, *args, **kwargs)
+    socket.socket.bind = sdk_bind
+    socket.socket.connect, socket.socket.connect_ex = sdk_connect, sdk_connect_ex
+    socket.getaddrinfo = sdk_resolve
+else:
+    socket.socket.connect = socket.socket.connect_ex = socket.socket.bind = forbidden
+    socket.getaddrinfo = forbidden
 sqlite3.connect = forbidden
-subprocess.Popen = forbidden  # Concrete _CreatorPopen's original base survives.
+if MODE == "host" and PHASE.startswith("sdk-"):
+    class ForbiddenPopen(subprocess.Popen):
+        # Lazy SDK MCP imports evaluate Popen[bytes]. Construction always denies.
+        def __init__(self, *args, **kwargs):
+            forbidden(*args, **kwargs)
+    subprocess.Popen = ForbiddenPopen
+else:
+    subprocess.Popen = forbidden  # Concrete _CreatorPopen's original base survives.
 os.killpg = os.system = forbidden
 original_kill = os.kill
 def direct_only(pid, sig):
@@ -1044,9 +1297,102 @@ def write_record(fd, item):
     assert len(raw) < 4096
     assert os.write(fd, raw) == len(raw)
 
+# CREATOR_BOUNDARY_BEGIN
+# GUARDIAN_BUDGET_BEGIN
+def _guardian_budget_diagnostic(ready, safety):
+    """Non-atomic budget metadata only, never a cause or physical receipt."""
+    try:
+        if not _guardian_budget_ready:
+            return
+        observed_ns = _guardian_budget_clock()
+        if type(ready) is not list:
+            return
+        if not ready:
+            reason = "TIMEOUT"
+        elif (len(ready) == 1 and type(safety) is int and safety >= 0
+              and type(ready[0]) is int and ready[0] == safety):
+            reason = "SAFETY_READY"
+        else:
+            return  # Unexpected readiness does not establish either reason.
+        end_ns = int(END * 1000000000)
+        cutoff_ns = int((END - 3.5) * 1000000000)
+        if any(type(value) is not int or not 0 <= value <= 9223372036854775807
+               for value in (end_ns, cutoff_ns, observed_ns)):
+            return
+        wire = json.dumps(dict(
+            kind="FIXTURE_GUARDIAN_BUDGET", reason=reason,
+            end_ns=end_ns, cutoff_ns=cutoff_ns, observed_ns=observed_ns),
+            separators=(",", ":")).encode("utf-8") + b"\n"
+        if len(wire) <= 512:
+            _guardian_budget_write(2, wire)  # One captured write, including short writes.
+    except BaseException:
+        pass  # Original diagnostics, cleanup and ownership decisions still run.
+# GUARDIAN_BUDGET_END
+# CREATOR_BOUNDARY_END
+# CREATOR_BOUNDARY_BEGIN
+# HOST_BUDGET_BEGIN
+def _host_budget_diagnostic(site, ready=None, inputs=None):
+    """Boundary observation only, not retirement initiation or physical proof."""
+    try:
+        if (type(MODE) is not str or MODE != "host"
+                or type(PHASE) is not str or not PHASE.startswith("sdk-")
+                or _boundary_original_ready is not True):
+            return
+        if type(site) is not str:
+            return
+        if site == "WATCHDOG_DECISION":
+            if (type(inputs) is not list or len(inputs) not in (2, 3)
+                    or any(type(value) is not int or value < 0 for value in inputs)
+                    or inputs[0] != 0 or len(set(inputs)) != len(inputs)
+                    or type(ready) is not list
+                    or any(type(value) is not int or value < 0 for value in ready)):
+                return
+            if inputs[1] in ready:
+                return  # Original DONE precedence, including combined readiness.
+            if not ready:
+                reason = "TIMEOUT"
+            elif len(inputs) == 3 and inputs[2] in ready:
+                reason = "RACE_READY"
+            elif 0 in ready:
+                reason = "STDIN_READY"
+            else:
+                reason = "OTHER"
+        elif site == "HOST_EXCEPTION":
+            reason = "EXCEPTION_BOUNDARY"
+        else:
+            return
+        observed_ns = _boundary_original_clock()
+        end_ns = int(END * 1000000000)
+        cutoff_ns = int((END - 3.75) * 1000000000)
+        if any(type(value) is not int or not 0 <= value <= 9223372036854775807
+               for value in (end_ns, cutoff_ns, observed_ns)):
+            return
+        wire = json.dumps(dict(
+            kind="FIXTURE_HOST_BUDGET", site=site, reason=reason,
+            end_ns=end_ns, cutoff_ns=cutoff_ns, observed_ns=observed_ns),
+            separators=(",", ":")).encode("utf-8") + b"\n"
+        if len(wire) <= 512:
+            _boundary_original_write(2, wire)  # One attempt, even on a short write.
+    except BaseException:
+        pass  # Never replace the original failure, control flow or ownership.
+# HOST_BUDGET_END
+# CREATOR_BOUNDARY_END
 def failure_diagnostic(where, exc=None, **state):
     # Bounded code locations only: never locals, source lines, request bytes,
     # exception text, absolute paths, or synthetic proof/ACK substitutions.
+    if MODE == "host" and PHASE.startswith("sdk-"):
+        # SDK failures have separate bounded task/delivery inventories. Do not
+        # reintroduce arbitrary SDK filenames/function names via legacy stacks.
+        try:
+            raw = json.dumps(dict(
+                kind="FIXTURE_FAILURE_STATE", lane="host",
+                where="host-error" if where == "host-error" else "OTHER",
+                error="CancelledError" if type(exc) is asyncio.CancelledError else "OTHER"),
+                separators=(",", ":")).encode("utf-8") + b"\n"
+            os.write(2, raw)
+        except BaseException:
+            pass
+        return
     def location(frame, line):
         return [Path(frame.f_code.co_filename).name[:64],
                 frame.f_code.co_name[:64], line]
@@ -1068,6 +1414,336 @@ def failure_diagnostic(where, exc=None, **state):
         separators=(",", ":")).encode() + b"\n"
     os.write(2, raw)  # Regular fixture stderr file, outside the proof channel.
 
+# CREATOR_BOUNDARY_BEGIN
+def _creator_boundary_refs(roots):
+    """Resolve original code identities only against fixed, trusted source ASTs."""
+    import ast
+    refs = []
+    for label, code, tree, path in roots:
+        if type(code) is not types.CodeType or type(label) is not int or not 1 <= label <= 7:
+            continue
+        scope = tree
+        for name in path:
+            matches = [node for node in scope.body
+                       if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+                       and node.name == name]
+            if len(matches) != 1:
+                scope = None
+                break
+            scope = matches[0]
+        if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        first = min([scope.lineno] + [node.lineno for node in scope.decorator_list])
+        if code.co_firstlineno != first:
+            continue
+        # Only statements in this code's lexical scope, never a nested code's body.
+        statements, pending = {}, list(scope.body)
+        while pending:
+            node = pending.pop()
+            if isinstance(node, ast.stmt):
+                statements[node.lineno] = statements.get(node.lineno, 0) + 1
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
+                                     ast.Lambda)):
+                pending.extend(ast.iter_child_nodes(node))
+        coordinates = frozenset(line for line, count in statements.items()
+                                if count == 1 and 0 < line <= 2147483647)
+        refs.append((label, code, coordinates))
+    return tuple(refs)
+
+
+class _CreatorBoundaryDiagnostic:
+    """Failure-only, non-atomic metadata. Neither causal nor physical proof."""
+    def __init__(self, *, refs, original_thread, active, current_frames, write, clock):
+        self.refs = refs
+        self.original_thread, self.active = original_thread, active
+        self.current_frames, self.write, self.clock = current_frames, write, clock
+        self.task_type = asyncio.Task
+        self.owner_ordinals, self.task_ordinals = [], []
+        self.emitted = {}
+
+    def ordinal(self, actual, retained):
+        for index in range(len(retained)):
+            if retained[index] is actual:
+                return index + 1
+        retained.append(actual)  # Keep identity alive across the two observations.
+        return len(retained)
+
+    def location(self, code, line, leaf):
+        for label, original, coordinates in self.refs:
+            if code is original and type(line) is int and line in coordinates:
+                return [label, line, 1 if leaf else 2]
+        return [0, 0, 0 if leaf else 3]
+
+    def frames(self, frame, stream):
+        if type(frame) is not types.FrameType:
+            stream["flags"] |= 8
+            stream["exhausted"] = True
+            return
+        for depth in range(8):
+            row = self.location(frame.f_code, frame.f_lineno, depth == 0)
+            if depth == 0 and row[0] == 0:
+                stream["flags"] |= 16
+            following = frame.f_back
+            if following is None or depth == 7:
+                stream["exhausted"] = True
+            if depth == 7 and following is not None:
+                stream["flags"] |= 2
+            yield row
+            frame = following
+            if frame is None:
+                return
+
+    def coroutine(self, coroutine, stream):
+        chain = []
+        unknown = False
+        for _ in range(8):
+            if type(coroutine) is not types.CoroutineType:
+                unknown = True
+                stream["flags"] |= 8
+                break  # Never read attributes of a foreign awaitable.
+            chain.append(coroutine)
+            awaited = coroutine.cr_await
+            if awaited is None:
+                break
+            coroutine = awaited
+        else:
+            if awaited is not None:
+                unknown = True
+                stream["flags"] |= 2
+        # Await links are bounded separately. Read location fields only on each
+        # fair collector turn, never precompute locations beyond its total budget.
+        chain.reverse()
+        if unknown:
+            stream["flags"] |= 16
+            if len(chain) == 8:
+                stream["flags"] |= 2
+                chain = chain[:7]
+            if not chain:
+                stream["exhausted"] = True
+            yield [0, 0, 0]
+        leaf = not unknown
+        observed = False
+        for index in range(len(chain)):
+            actual = chain[index]
+            code, frame = actual.cr_code, actual.cr_frame
+            if frame is None:
+                stream["flags"] |= 8 | 16
+                if leaf:
+                    leaf = False
+                    yield [0, 0, 0]  # Missing leaf, never promote a surviving caller.
+                continue
+            observed = True
+            row = self.location(code, frame.f_lineno, leaf)
+            if leaf and row[0] == 0:
+                stream["flags"] |= 16
+            if index == len(chain) - 1:
+                stream["exhausted"] = True
+            yield row
+            leaf = False
+        if not observed and not unknown:
+            stream["flags"] |= 1
+        stream["exhausted"] = True
+
+    def prepare(self, site, retirement, owners, slots, trace):
+        header = dict(kind="SDK_CREATOR_BOUNDARY", version=1, site=site,
+                      timestamp=0, flags=1, retirement=0,
+                      inspected=[0, 0, 0, 0], omitted=[0, 0, 0, 0],
+                      unavailable=[0, 0, 0, 0])
+        def integer(value, maximum=2147483647):
+            if type(value) is not int or value < 0:
+                header["flags"] |= 16
+                return 0
+            if value > maximum:
+                header["flags"] |= 16
+                return maximum
+            return value
+        header["timestamp"] = integer(self.clock(), 9223372036854775807)
+        if {label for label, _, _ in self.refs} != {1, 2, 3, 4, 5, 6, 7}:
+            header["flags"] |= 32
+        retained_tasks, task_roles, task_total = [], {}, 0
+        try:
+            acquired = retirement.lock.acquire(False)
+        except BaseException:
+            acquired = False
+        if not acquired:
+            header["flags"] |= 2
+            header["unavailable"][1] = 1
+        else:
+            try:
+                tasks = retirement.tasks | retirement.stop_tasks | retirement.internal_tasks
+                task_total = len(tasks)
+                # Reference copying is not frame/coroutine/state inspection.
+                retained_tasks = list(tasks)[:256]
+                task_roles = {task: retirement.task_roles.get(task, ("unclassified", None))
+                              for task in retained_tasks if type(task) is self.task_type}
+                for bit, event in (
+                        (1, retirement.requested), (2, retirement.async_started),
+                        (4, retirement.async_done), (8, retirement.fallback_requested),
+                        (16, retirement.complete)):
+                    if event.is_set():
+                        header["retirement"] |= bit
+                if retirement.finalized is True:
+                    header["retirement"] |= 32
+            finally:
+                retirement.lock.release()
+        # Never hold the retirement and creator bookkeeping locks together.
+        entries = []
+        creator_total = 0
+        try:
+            acquired = trace.lock.acquire(False)
+        except BaseException:
+            acquired = False
+        if not acquired:
+            header["flags"] |= 4
+            header["unavailable"][3] = 1
+        else:
+            try:
+                creator_total = len(trace.entries)
+                entries = trace.entries[:256]
+            finally:
+                trace.lock.release()
+        inspected_owners = owners[:64]
+        inspected_slots = slots[:256]
+        header["unavailable"][2] += sum(type(slot) is not dict for slot in inspected_slots)
+        header["unavailable"][3] += sum(type(entry) is not dict for entry in entries)
+        header["inspected"] = [len(inspected_owners), len(retained_tasks),
+                               len(inspected_slots), len(entries)]
+        ranked_owners = []
+        for actual in inspected_owners:
+            ordinal = self.ordinal(actual, self.owner_ordinals)
+            ranked_owners.append((actual._completion is not None, ordinal, actual))
+        ranked_owners.sort(key=lambda row: row[0])  # Stable retained-owner order.
+        ranked_tasks = []
+        for task in retained_tasks:
+            ordinal = self.ordinal(task, self.task_ordinals)
+            if type(task) is not self.task_type:
+                header["unavailable"][1] += 1
+                continue
+            status = int(self.task_type.done(task)) | (2 * int(self.task_type.cancelled(task)))
+            ranked_tasks.append((bool(status & 1), ordinal, task, status))
+        ranked_tasks.sort(key=lambda row: row[0])
+        selected_owners, selected_tasks = ranked_owners[:8], ranked_tasks[:32]
+        header["omitted"] = [
+            integer(len(owners) - len(selected_owners)),
+            integer(task_total - len(selected_tasks)),
+            integer(len(slots) - len(inspected_slots)),
+            integer(creator_total - len(entries))]
+        # Candidate identities are published BEFORE the bracketed single frame read.
+        candidates = []
+        for _, _, actual in selected_owners:
+            thread = actual._thread
+            ident = thread.ident if type(thread) is self.original_thread else None
+            candidates.append((thread, ident))
+        before = after = current = None
+        try:
+            if type(self.active) is dict:
+                before = self.active.copy()
+                current = self.current_frames()
+                after = self.active.copy()
+        except BaseException:
+            pass
+        owner_rows, task_rows, streams = [], [], []
+        states = ("ALLOCATED", "ABORT_LATCHED", "UNRESOLVED_OWNED", "ADMITTED",
+                  "HOST_SEALED", "DRAINED", "GUARDIAN_REAPED", "SPAWNING",
+                  "STARTING", "RUNNING", "CLEANING")
+        for index in range(len(selected_owners)):
+            _, ordinal, actual = selected_owners[index]
+            state = actual._state
+            state_id = states.index(state) + 1 if type(state) is str and state in states else 0
+            completion = int(actual._completion is not None) | (2 * int(actual._intent is not None))
+            row = [integer(ordinal), state_id, completion,
+                   integer(len(actual._endpoints)), integer(len(actual._children)),
+                   sum(type(slot) is dict and slot.get("invocation") is actual
+                       for slot in inspected_slots),
+                   sum(type(entry) is dict and entry.get("registry") is actual._children
+                       for entry in entries), 0, 0, 0]
+            stream = dict(row=row, offset=7, flags=0, locations=[], exhausted=False)
+            if header["unavailable"][2] or header["unavailable"][3]:
+                stream["flags"] |= 8
+            if header["flags"] & 16:
+                stream["flags"] |= 32
+            thread, ident = candidates[index]
+            associated = (
+                type(thread) is self.original_thread and type(ident) is int
+                and type(before) is dict and type(after) is dict
+                and before.get(ident) is thread and after.get(ident) is thread
+                and thread.ident == ident and type(current) is dict)
+            if not associated:
+                stream["flags"] |= 8
+                stream["exhausted"] = True
+                stream["iterator"] = iter(())
+            else:
+                frame = current.get(ident)
+                if frame is None:
+                    stream["flags"] |= 1
+                    stream["exhausted"] = True
+                    stream["iterator"] = iter(())
+                else:
+                    stream["iterator"] = self.frames(frame, stream)
+            owner_rows.append(row)
+            streams.append(stream)
+        for _, ordinal, task, status in selected_tasks:
+            role, kind = task_roles[task]
+            role_id = {"unclassified": 1, "driver": 2, "cleanup": 3}.get(role, 0) if (
+                type(role) is str) else 0
+            kind_id = 1 if kind is None else (
+                {"owner-close": 2, "resource-close": 3, "scope-drain": 4}.get(kind, 0)
+                if type(kind) is str else 0)
+            row = [integer(ordinal), role_id, kind_id, status, 0, 0, 0]
+            stream = dict(row=row, offset=4, flags=0, locations=[], exhausted=False)
+            stream["iterator"] = self.coroutine(self.task_type.get_coro(task), stream)
+            task_rows.append(row)
+            streams.append(stream)
+        # First opportunity for EVERY stream precedes any stream's second row.
+        used = 0
+        for depth in range(8):
+            for stream in streams:
+                try:
+                    if stream["exhausted"]:
+                        continue
+                    if used == 64:
+                        stream["flags"] |= 4
+                        continue
+                    location = next(stream["iterator"])
+                except StopIteration:
+                    stream["exhausted"] = True
+                    continue
+                stream["locations"].append(location)
+                used += 1
+        # Flatten only after fair collection, keeping each stream contiguous.
+        locations = []
+        for stream in streams:
+            row, offset = stream["row"], stream["offset"]
+            row[offset:offset + 3] = [
+                len(locations), len(stream["locations"]), stream["flags"]]
+            locations.extend(stream["locations"])
+        for row in owner_rows:
+            if row[9] & 8:
+                header["unavailable"][0] += 1
+        for row in task_rows:
+            if row[6] & 8:
+                header["unavailable"][1] += 1
+        if any(header["unavailable"]):
+            header["flags"] |= 8
+        for field in ("inspected", "omitted", "unavailable"):
+            header[field] = [integer(value) for value in header[field]]
+        assert len(json.dumps(header, separators=(",", ":")).encode("utf-8")) <= 512
+        return dict(header, owners=owner_rows, tasks=task_rows, locations=locations)
+
+    def emit(self, site, retirement, owners, slots, trace):
+        if type(site) is not int or site not in (1, 2):
+            return
+        claim = object()
+        if self.emitted.setdefault(site, claim) is not claim:
+            return  # Atomic claim before preparation/I/O, including failures.
+        try:
+            report = self.prepare(site, retirement, owners, slots, trace)
+            wire = json.dumps(report, separators=(",", ":")).encode("utf-8") + b"\n"
+            assert len(wire) <= 6400 < 8192
+            self.write(2, wire)  # Exactly one captured write, even if short/failed.
+        except BaseException:
+            pass  # Never replace the original error, ledger, outcome or SAFE decision.
+# CREATOR_BOUNDARY_END
 def role_main():
     profile = m.execution_profile_from_bytes((JOB / "profile.json").read_bytes())
     journal = json.loads((JOB / "journal.json").read_bytes())
@@ -1100,6 +1776,21 @@ def role_main():
                 1.0, "match", True, "static fixture, not SQL", 1, 1)
     result = m.encode_wire_message(
         ROLE, "result", response, request_sha256=journal["request_sha256"])
+    if (ROLE == "scorer" and MUTANT == "invalid-target-zero"
+            and request.predicted_sql == "fixture-score-status:gold_error"):
+        # One static target WIRE only. Request/policy/decoder/ACK stay original.
+        result = m.encode_wire_message(
+            ROLE, "result", scorer_fixture_result("fixture-score-status:mismatch"),
+            request_sha256=journal["request_sha256"])
+    if ROLE == "program" and MUTANT == "program-observation-sentinel":
+        # Directed wire-only mutation. Keep original decoder, flags/context
+        # and exit-grant protocol; no replacement native response/ACK object.
+        assert request.program == "print('adapter ordinary fixture')"
+        envelope = json.loads(result)
+        envelope["payload"]["observation"] = "directed PROGRAM observation sentinel\n"
+        envelope["sha256"] = hashlib.sha256(
+            m.canonical_json_bytes(envelope["payload"])).hexdigest()
+        result = m.canonical_json_bytes(envelope) + b"\n"
     output(result)
     # Delegate grant validation, but give the real helper a finite pipe reader.
     class Input:
@@ -1338,7 +2029,9 @@ def guardian_main():
                 assert args[0] == state.journal["config"]
                 state.role = m._CreatorPopen(
                     [sys.executable, "-I", "-B", SCRIPT, "role", str(JOB),
-                     ROLE, str(END)], _registry=state.role_registry,
+                     ROLE, str(END), *([MUTANT] if PHASE == "static-frame"
+                     and MUTANT in ("program-observation-sentinel", "invalid-target-zero") else [])],
+                    _registry=state.role_registry,
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL, close_fds=True, env=ENV, bufsize=0)
                 return {"Id": "c"*64}
@@ -1415,7 +2108,10 @@ def guardian_main():
                       "adapter-cancel", "score-adapter-cancel") and kind == "REQUEST_DELIVERED" or
             PHASE == "latency-startup" and kind == "GUARDIAN_ACK")
         if selected and PHASE not in hits:
-            barrier(PHASE)
+            if PHASE == "adapter-cancel" and kind == "REQUEST_DELIVERED":
+                barrier(PHASE, event=kind)
+            else:
+                barrier(PHASE)
         return value
     m._event = observe_event
     grant = m._grant_exit
@@ -1496,6 +2192,11 @@ def guardian_main():
         ready = select.select([safety, done_r], [], [], remaining(END-3.5))[0]
         if done_r in ready:
             return
+# CREATOR_BOUNDARY_BEGIN
+# GUARDIAN_BUDGET_BEGIN
+        _guardian_budget_diagnostic(ready, safety)
+# GUARDIAN_BUDGET_END
+# CREATOR_BOUNDARY_END
         failure_diagnostic("guardian-before-safety", hits=hits[-8:],
             published=[context.published for context in contexts[:2]],
             monitor_alive=[context.monitor.is_alive() for context in contexts[:2]])
@@ -1545,6 +2246,15 @@ def guardian_main():
 
 
 def host_main():
+    _sdk_timeline = None
+    if PHASE == "sdk-positive-two":
+        try:
+            _sdk_timeline = _SdkTimeline(
+                clock=_boundary_original_clock if _boundary_original_ready else None,
+                write=_boundary_original_write if _boundary_original_ready else None)
+            _sdk_timeline.note(1)
+        except BaseException:
+            pass
     root = Path(ROOT)
     stopping, finished = threading.Event(), threading.Event()
     spawn_lock, cleanup_lock = threading.Lock(), threading.Lock()
@@ -1558,13 +2268,111 @@ def host_main():
     mutation_hits = [0]
     cached_validation = [None]
     cancel_write_original = [None]
+    sdk_resources = None
+# CREATOR_BOUNDARY_BEGIN
+    creator_boundary = None
+# CREATOR_BOUNDARY_END
+    sdk_test_gates = None
+    sdk_watchdog_race = sdk_wake_setup_error = None
+    if PHASE.startswith("sdk-"):
+        from ptc.test_owned_sql_sdk_canonical import _SdkRetirement
+        def disable_sdk():
+            stopping.set()
+            sdk_retiring.set()
+        # Register the staged physical owner BEFORE any SDK bridge/framework
+        # construction. Never substitute its evidence for a public owner ACK.
+        sdk_resources = _SdkRetirement(
+            loop=LOOP, deadline=END-0.25, disable=disable_sdk,
+            cooperative_cutoff=END-3.75)
+        sdk_resources.cancel_receipts = []
+        def ensure_sdk_intents():
+            def cancel(actual):
+                previous = [receipt for retained, receipt in
+                            tuple(sdk_resources.cancel_receipts) if retained is actual]
+                if previous:
+                    receipt = previous[0]
+                else:
+                    receipt = actual.request_cancel("runner_closed")
+                    sdk_resources.cancel_receipts.append((actual, receipt))
+                if receipt.status == "already_completed":
+                    assert actual._completion is not None
+                else:
+                    assert receipt.status in ("accepted", "repeated")
+                    assert receipt.intent is not None
+                    assert receipt.intent is actual.snapshot().intent
+                return receipt
+            retained = tuple(owners)
+            receipts = sdk_resources.attempt_each("owner-cancel", retained, cancel)
+            assert len(receipts) == len(retained), "SDK_PUBLIC_INTENT_MISSING"
+
+        sdk_test_gates = _ObservedTestGates(ensure_intents=ensure_sdk_intents)
+
+        def release_sdk_controllers():
+            # ALL original public intents precede ANY fixture gate release.
+            ensure_sdk_intents()
+            for event in tuple(gates):
+                if not event.is_set():
+                    event.set()
+            sdk_resources.attempt_each(
+                "test-gate", (None,), lambda _: sdk_test_gates.release_pending())
+        sdk_resources.release = release_sdk_controllers
+        async def close_sdk_sockets():
+            # These sockets alias SDK-owned listeners/transports. Start this
+            # fallback with all stops, but let the actual owners unregister
+            # them before closing any remaining descriptors. Stop errors
+            # remain on their original tasks for retirement qualification.
+            current = asyncio.current_task()
+            stops = tuple(record.task for record in sdk_resources.resources
+                          if record.task is not None and record.task is not current)
+            if stops:
+                await asyncio.gather(*stops, return_exceptions=True)
+            sdk_resources.attempt_each(
+                "socket-close", sdk_sockets, lambda actual: actual.close())
+        sdk_resources.retain_resource(
+            "fixture-sockets", sdk_sockets, close_sdk_sockets,
+            lambda: all(actual.fileno() == -1 for actual in sdk_sockets))
+        if PHASE == "sdk-retire-watchdog-race":
+            from ptc.test_owned_sql_sdk_retirement_physical import _sdk_watchdog_wake
+            try:
+                sdk_watchdog_race = _sdk_watchdog_wake(
+                    PHASE, sdk_resources, cleanup_lock, spawn_lock)
+            except BaseException as exc:
+                # Even a partial pipe constructor belongs to staged retirement,
+                # not an ordinary setup exit before the lifetime owner starts.
+                sdk_wake_setup_error = exc
     keeper = threading.Thread(target=finished.wait,
                               name="guest-fixture-host-lifetime", daemon=False)
     keeper.start()
     def emit(kind, **data):
         item = dict(kind=kind, lane="host", **data)
         LOOP.call_soon_threadsafe(queue.put_nowait, item)
+
+    def sdk_diagnostic(kind, report):
+        # Closed allowlisted payloads only, stderr is not the SAFE channel.
+        try:
+            assert kind in ("SDK_CANCEL_DELIVERY", "SDK_RETIREMENT_REFUSAL")
+            raw = json.dumps(dict(kind=kind, diagnostic=report),
+                             separators=(",", ":")).encode("utf-8") + b"\n"
+            assert len(raw) <= 8192
+            os.write(2, raw)
+        except BaseException:
+            pass  # Never suppress actual cleanup/proof because emission failed.
+# CREATOR_BOUNDARY_BEGIN
+        if kind == "SDK_RETIREMENT_REFUSAL" and creator_boundary is not None:
+            try:
+                creator_boundary.emit(2, sdk_resources, owners, slots, trace)
+            except BaseException:
+                pass
+# CREATOR_BOUNDARY_END
+
+    if sdk_resources is not None:
+        sdk_resources.emit_diagnostic = lambda report: sdk_diagnostic(
+            "SDK_RETIREMENT_REFUSAL", report)
     trace = CreatorTrace(emit, stopping)
+
+    def release_sdk_gate(slot):
+        # Same genuine gate mechanism as ordinary release, exactly one token.
+        assert os.write(slot["gate_w"], b"G") == 1
 
     def reader(slot):
         buffer = bytearray()
@@ -1587,7 +2395,10 @@ def host_main():
                     buffer[:] = rest
                     item = json.loads(raw)
                     item["invocation_id"] = slot["invocation_id"]
-                    slot["messages"].append(item)
+                    if sdk_test_gates is not None and item["kind"] == "HIT":
+                        sdk_test_gates.observe(
+                            item, lambda slot=slot: release_sdk_gate(slot))
+                    slot["messages"].append(item)  # Observe BEFORE publication.
                     if item["kind"] == "SAFE":
                         assert item.get("independent") is True
                         assert all(row["waited"] and not row["ambiguous"]
@@ -1596,7 +2407,8 @@ def host_main():
                     LOOP.call_soon_threadsafe(queue.put_nowait, item)
         except BaseException as exc:
             LOOP.call_soon_threadsafe(queue.put_nowait,
-                dict(kind="READER_ERROR", error=type(exc).__name__ + ": " + str(exc)))
+                dict(kind="READER_ERROR", error=type(exc).__name__ if
+                     sdk_resources is not None else type(exc).__name__ + ": " + str(exc)))
 
     def host_barrier(name):
         event = threading.Event()
@@ -1626,7 +2438,13 @@ def host_main():
             try:
                 process = invocation._spawn(
                     [sys.executable, "-I", "-B", SCRIPT, "guardian", str(job),
-                     ROLE, PHASE, MUTANT, str(END), str(control_fd), str(cancel_fd),
+                     invocation.role if PHASE.startswith("sdk-") else ROLE,
+                     ("adapter-cancel" if PHASE == "sdk-cancel-program"
+                      and invocation.role == "program" else
+                      "score-adapter-cancel" if PHASE == "sdk-cancel-scorer"
+                      and invocation.role == "scorer" else
+                      "static-frame" if PHASE.startswith("sdk-") else PHASE),
+                     MUTANT, str(END), str(control_fd), str(cancel_fd),
                      str(gate_r), str(diagnostic_w), str(safety_r)],
                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=log,
                     pass_fds=(control_fd, cancel_fd, lock_fd, gate_r, diagnostic_w, safety_r),
@@ -1653,11 +2471,57 @@ def host_main():
             process.wait = post_wait
             return process
     m._spawn_owned_guardian = spawn
+# CREATOR_BOUNDARY_BEGIN
+    if sdk_resources is not None and _boundary_original_ready:
+        try:
+            # No acceptance has run. Capture the installed original fixture code
+            # and canonical nested code without invoking either.
+            from ptc.test_owned_sql_sdk_canonical import _sdk_acceptance
+            _boundary_original_acceptance = _sdk_acceptance.__code__
+            _boundary_close_codes = [
+                code for code in _boundary_original_acceptance.co_consts
+                if type(code) is types.CodeType and code.co_name == "observed_close"]
+            _boundary_original_close = (
+                _boundary_close_codes[0] if len(_boundary_close_codes) == 1 else None)
+            creator_boundary = _CreatorBoundaryDiagnostic(
+                refs=(), original_thread=_boundary_original_thread,
+                active=_boundary_original_active, current_frames=_boundary_original_frames,
+                write=_boundary_original_write, clock=_boundary_original_clock)
+            import ast
+            _boundary_core_source = (Path(SOURCE) / "ptc/sql_isolation.py").read_bytes()
+            _boundary_canonical_source = (
+                Path(SOURCE) / "ptc/test_owned_sql_sdk_canonical.py").read_bytes()
+            assert hashlib.sha256(_boundary_core_source).hexdigest() == (
+                "25e76d1b0f4a96a57712a837a1a092db4442bc31eba0ca0a0336d0f7a749968e")
+            assert hashlib.sha256(_boundary_canonical_source).hexdigest() == (
+                "493a905b3fa99116e67bbaa0120ab0e16d85fb0256f2c364ff478742567c671e")
+            _boundary_core_ast = ast.parse(_boundary_core_source)
+            _boundary_canonical_ast = ast.parse(_boundary_canonical_source)
+            _boundary_guest_ast = ast.parse(Path(SCRIPT).read_bytes())
+            _boundary_roots = (
+                (1, _boundary_original_core[0], _boundary_core_ast,
+                 ("OwnedSqlInvocation", "_controller")),
+                (2, _boundary_original_core[1], _boundary_core_ast,
+                 ("OwnedSqlInvocation", "_register_pipe")),
+                (3, _boundary_original_core[2], _boundary_core_ast,
+                 ("OwnedSqlInvocation", "_wait_startup")),
+                (4, _boundary_original_core[3], _boundary_core_ast,
+                 ("_CreatorPopen", "__init__")),
+                (5, spawn.__code__, _boundary_guest_ast, ("host_main", "spawn")),
+                (6, m._CreatorPopen.__init__.__code__, _boundary_guest_ast,
+                 ("CreatorTrace", "__init__", "constructor")),
+                (7, _boundary_original_close, _boundary_canonical_ast,
+                 ("_sdk_acceptance", "observed_close")))
+            creator_boundary.refs = _creator_boundary_refs(_boundary_roots)
+        except BaseException:
+            pass  # Missing/ambiguous source stays unavailable, never alters retirement.
+# CREATOR_BOUNDARY_END
 
     acquire = m._acquire_cancel_frame
     def observe_acquisition(*args, **kwargs):
         value = acquire(*args, **kwargs)
-        identity = {"invocation_id": args[1].hex} if PHASE.startswith("score-adapter-") else {}
+        identity = {"invocation_id": args[1].hex} if PHASE.startswith(
+            ("score-adapter-", "sdk-")) else {}
         emit("CONSUMED", at_ns=time.monotonic_ns(), times=list(value), **identity)
         return value
     m._acquire_cancel_frame = observe_acquisition
@@ -1684,7 +2548,197 @@ def host_main():
         return value
     m._validate_finalization = observe_validation
 
+    native_started, native_done = threading.Event(), threading.Event()
+    native_retained, native_fds, native_objects, native_endpoints = [], set(), [], []
+    native_entries, native_fenced = [], [False, False]
+
+    def sdk_native_proof():
+        # Current actual-object evidence, never the absence of an event/PID.
+        if not native_done.is_set() or not all(native_fenced):
+            return False
+        if not all(slot["safe"].is_set() for slot in slots):
+            return False
+        for entry in native_entries:
+            actual = entry["process"]
+            if (not getattr(actual, "_creator_waited", False)
+                    or getattr(actual, "_creator_ambiguous", True)
+                    or type(actual.returncode) is not int):
+                return False
+        if any(getattr(actual, "_thread", None) is not None
+               and actual._thread.is_alive() for actual in native_retained):
+            return False
+        for actual in native_retained:
+            if (getattr(actual, "_resources", ())
+                    or getattr(actual, "_host_read", None) is not None
+                    or getattr(actual, "_seal_lock_fd", None) is not None
+                    or any(endpoint.fd is not None
+                           for endpoint in getattr(actual, "_endpoints", ()))):
+                return False
+        if any(slot["reader"].is_alive() for slot in slots):
+            return False
+        for fd in native_fds:
+            try:
+                os.fstat(fd)
+            except OSError as exc:
+                if exc.errno == 9:
+                    continue
+                return False
+            return False
+        return (all(getattr(actual, "closed", False) for actual in native_objects)
+                and all(endpoint.fd is None for endpoint in native_endpoints))
+
+    def sdk_native_cleanup():
+        # Claim under a SHORT lock. Concurrent callers wait ONLY outside it;
+        # no SDK completion or loop work is awaited with cleanup_lock held.
+        race = (sdk_watchdog_race if sdk_watchdog_race is not None
+                and sdk_watchdog_race.reads == 1 else None)
+        call = race.native_enter() if race is not None else None
+        with cleanup_lock:
+            claimed = not native_started.is_set()
+            if claimed:
+                native_started.set()
+        if race is not None:
+            race.native_claim(call, claimed)  # AFTER releasing cleanup_lock.
+        if not claimed:
+            native_done.wait(timeout=max(0, END-0.25-time.monotonic()))
+            if race is not None:
+                race.join_supervisor_native()
+            proof = sdk_native_proof()
+            if race is not None:
+                race.native_exit(call, proof)
+            return proof
+        end = END-0.25
+        attempt = sdk_resources.attempt_each
+        if PHASE == "sdk-retire-two-slot-verification":
+            def attempt(stage, items, action):
+                def observed(actual):
+                    sdk_resources.physical_probe.note_native_attempt(stage, actual)
+                    return action(actual)
+                return sdk_resources.attempt_each(stage, items, observed)
+        stopping.set()
+        attempt("release", (None,), lambda _: release_sdk_controllers())
+
+        def close_fd(fd):
+            native_fds.add(fd)
+            try:
+                os.close(fd)
+            except OSError as exc:
+                if exc.errno != 9:
+                    raise
+
+        def signal(slot):
+            try:
+                os.write(slot["safety_w"], b"S")
+            except BrokenPipeError:
+                pass
+
+        def nested_safe(slot):
+            # Exited guardians owe the SAME nested proof; never kill one
+            # owning unknown descendants just to satisfy an outer timeout.
+            assert slot["safe"].wait(max(0, end-time.monotonic())), (
+                "GUARDIAN_NESTED_SAFE_PROOF_MISSING")
+            if PHASE == "sdk-retire-two-slot-verification":
+                sdk_resources.physical_probe.after_slot_safe(slot)
+
+        def reap(entry):
+            actual = entry["process"]
+            matching = [slot for slot in slots
+                        if slot["invocation"]._children is entry["registry"]]
+            assert len(matching) == 1 and matching[0]["safe"].is_set()
+            assert getattr(actual, "pid", None) is not None
+            assert not actual._creator_ambiguous
+            if actual.poll() is None:
+                actual.kill()
+            actual.wait(timeout=max(0, end-time.monotonic()))
+            assert actual._creator_waited and not actual._creator_ambiguous
+
+        def retire_owner(actual):
+            assert native_fenced[0], "OWNER_CREATOR_FENCE_MISSING"
+            if not hasattr(actual, "_lock"):
+                assert not getattr(actual, "_resources", ())
+                assert getattr(actual, "_thread", None) is None
+                return
+            if hasattr(actual, "_retained"):
+                actual._retained.set()  # Physical release, not public ACK.
+            thread = getattr(actual, "_thread", None)
+            if thread is not None:
+                thread.join(timeout=max(0, end-time.monotonic()))
+                assert not thread.is_alive(), "HOST_CONTROLLER_JOIN_ABSENT"
+            assert actual._lock.acquire(timeout=max(0, end-time.monotonic()))
+            try:
+                endpoints = tuple(getattr(actual, "_endpoints", ()))
+                native_endpoints.extend(endpoints)
+                native_fds.update(endpoint.fd for endpoint in endpoints
+                                  if endpoint.fd is not None)
+                attempt("endpoint", endpoints, lambda endpoint: endpoint.close())
+                resources = tuple(getattr(actual, "_resources", ()))
+                fds = {item for item in resources if type(item) is int}
+                if getattr(actual, "_host_read", None) is not None:
+                    fds.add(actual._host_read)
+                attempt("owner-fd", fds, close_fd)
+                objects = [item for item in resources if type(item) is not int]
+                native_objects.extend(objects)
+                attempt("owner-object", objects, lambda item: item.close())
+                if hasattr(actual, "_resources"):
+                    actual._resources.clear()
+                actual._host_read = actual._seal_lock_fd = None
+            finally:
+                actual._lock.release()
+
+        def stop_reader(slot):
+            os.write(slot["reader_stop_w"], b"S")
+            slot["reader"].join(timeout=max(0, end-time.monotonic()))
+            assert not slot["reader"].is_alive(), "DIAGNOSTIC_READER_JOIN_ABSENT"
+
+        def close_streams(entry):
+            actual = entry["process"]
+            assert actual._creator_waited and not actual._creator_ambiguous
+            streams = [stream for stream in (actual.stdin, actual.stdout, actual.stderr)
+                       if stream is not None]
+            native_objects.extend(streams)
+            attempt("creator-stream", streams, lambda stream: stream.close())
+
+        def freeze_owners(_):
+            assert spawn_lock.acquire(timeout=max(0, end-time.monotonic()))
+            try:
+                native_retained.extend(owners if owners else (
+                    () if owner is None else (owner,)))
+                native_fenced[0] = True
+            finally:
+                spawn_lock.release()
+
+        def freeze_creators(_):
+            assert native_fenced[0], "CREATOR_CONSTRUCTION_NOT_FENCED"
+            assert trace.lock.acquire(timeout=max(0, end-time.monotonic()))
+            try:
+                native_entries.extend(trace.entries)
+                native_fenced[1] = True
+            finally:
+                trace.lock.release()
+
+        try:
+            attempt("owner-fence", (None,), freeze_owners)
+            attempt("creator-fence", (None,), freeze_creators)
+            # Signal ALL slots first. One failed slot cannot skip any later
+            # slot, creator, owner, reader, descriptor or stream attempt.
+            attempt("guardian-signal", slots, signal)
+            attempt("guardian-safe", slots, nested_safe)
+            attempt("creator-reap", native_entries, reap)
+            attempt("controller", tuple(owners) if owners else native_retained, retire_owner)
+            attempt("reader", slots, stop_reader)
+            for slot in slots:
+                attempt("slot-fd", slot["fds"], close_fd)
+            attempt("creator-streams", native_entries, close_streams)
+        finally:
+            native_done.set()
+        proof = sdk_native_proof()
+        if race is not None:
+            race.native_exit(call, proof)
+        return proof
+
     def cleanup():
+        if sdk_resources is not None:
+            return sdk_native_cleanup()
         stopping.set()
         for event in gates:
             event.set()
@@ -1748,13 +2802,227 @@ def host_main():
 
     def report(result, code):
         assert finished.is_set()
-        keeper.join(timeout=0.2)
+        if sdk_resources is not None:
+            if not sdk_resources.prove_safe():
+                return
+            probe = getattr(sdk_resources, "physical_probe", None)
+            if probe is not None:
+                # Acceptance qualification cannot interrupt physical teardown
+                # or suppress its real SAFE. A failed qualifier is NOT an
+                # expected-failure pass in the outer driver.
+                try:
+                    proof = probe.qualify()
+                except BaseException as exc:
+                    sdk_resources.fail("physical-qualifier", exc)
+
+                    def error_origin(error):
+                        origin = error.__traceback__
+                        if origin is None:
+                            return None
+                        while origin.tb_next is not None:
+                            origin = origin.tb_next
+                        return dict(
+                            file=Path(origin.tb_frame.f_code.co_filename).name,
+                            line=origin.tb_lineno)
+                    proof = dict(verified=False, phase=probe.phase,
+                                 fault_hits=probe.fault_hits,
+                                 qualification_error=type(exc).__name__,
+                                 qualification_origin=error_origin(exc),
+                                 retirement_error_count=len(sdk_resources.errors),
+                                 retirement_error_types=[
+                                     dict(stage=stage[:64], error=type(error).__name__,
+                                          origin=error_origin(error))
+                                     for stage, error in sdk_resources.errors[:16]])
+                result = dict(result, physical_qualification=proof)
+            if sdk_resources.outcome is not None:
+                result = dict(result, **sdk_resources.outcome)
+            result.update(
+                retirement_stages=dict(sdk_resources.stages),
+                executor_workers=len(sdk_resources.workers),
+                live_executor_workers=sum(actual.is_alive()
+                                          for actual in sdk_resources.workers),
+                executor_helpers=len(sdk_resources.executor_helpers),
+                live_executor_helpers=sum(actual.is_alive()
+                                          for actual in sdk_resources.executor_helpers),
+                physical_finalized=sdk_resources.finalized,
+                retirement_errors=len(sdk_resources.errors))
+            if PHASE in (
+                    "sdk-program-one", "sdk-cancel-program", "sdk-cancel-scorer",
+                    "sdk-invalid-gold_error", "sdk-invalid-gold_timeout",
+                    "sdk-invalid-gold_truncated", "sdk-invalid-db_missing", "sdk-scoring-timeout",
+                    "sdk-sibling-score-failure"):
+                primary = sdk_resources.primary
+                nonprimary = sum(error is not primary for _, error in sdk_resources.errors)
+                open_fds = 0
+                for fd in native_fds:
+                    try:
+                        os.fstat(fd)
+                    except OSError as exc:
+                        if exc.errno != 9:
+                            raise
+                    else:
+                        open_fds += 1
+                result["program_physical"] = dict(
+                    native_proof=sdk_native_proof(), slots=len(slots),
+                    nested_safe=sum(slot["safe"].is_set() for slot in slots),
+                    creators=len(native_entries),
+                    creator_waits=sum(getattr(entry["process"], "_creator_waited", False)
+                                      for entry in native_entries),
+                    ambiguous_creators=sum(getattr(
+                        entry["process"], "_creator_ambiguous", True) for entry in native_entries),
+                    live_readers=sum(slot["reader"].is_alive() for slot in slots),
+                    open_slot_fds=open_fds,
+                    resource_stop_calls=[record.stop_calls for record in sdk_resources.resources],
+                    resource_errors=sum(
+                        record.task is None or not record.task.done()
+                        or record.task.cancelled() or record.task.exception() is not None
+                        for record in sdk_resources.resources),
+                    nonprimary_errors=nonprimary)
+                failure = getattr(sdk_resources, "program_failure", None)
+                if (failure is not None and sdk_resources.finalized
+                        and sdk_native_proof() and nonprimary == 0):
+                    result["acceptance_failure"] = failure
+                else:
+                    result.pop("acceptance_failure", None)
+            if PHASE in (
+                    "sdk-invalid-gold_error", "sdk-invalid-gold_timeout",
+                    "sdk-invalid-gold_truncated", "sdk-invalid-db_missing"):
+                result["invalid_qualification"] = dict(
+                    verified=False, status=PHASE.removeprefix("sdk-invalid-"))
+                try:
+                    controller = sdk_resources.invalid_controller
+                    proof = controller.qualify(result["program_physical"])
+                    if sdk_resources.invalid_control:
+                        result["invalid_control_qualification"] = proof
+                    else:
+                        result["invalid_qualification"] = proof
+                except BaseException as exc:
+                    sdk_resources.fail("invalid-qualifier", exc)
+                    result.update(sdk_resources.outcome or {})
+                    result["retirement_errors"] = len(sdk_resources.errors)
+            if PHASE == "sdk-sibling-score-failure":
+                from ptc.test_owned_sql_sdk_canonical import _sdk_sibling_qualification
+                result["sibling_qualification"] = dict(verified=False)
+                try:
+                    proof = _sdk_sibling_qualification(sdk_resources, result["program_physical"])
+                    if proof.get("gate") == "SDK_SIBLING_FAULT_ORIGIN":
+                        result["sibling_control_qualification"] = proof
+                    else:
+                        result["sibling_qualification"] = proof
+                except BaseException as exc:
+                    sdk_resources.fail("sibling-qualifier", exc)
+                    result.update(sdk_resources.outcome or {})
+                    result["retirement_errors"] = len(sdk_resources.errors)
+                # Fresh FINAL ledger after the unchanged qualifier and physical
+                # retirement. One bounded stderr attempt, never outcome proof.
+                try:
+                    from ptc.test_owned_sql_sdk_canonical import _sdk_sibling_error_diagnostic
+                    diagnostic = _sdk_sibling_error_diagnostic(
+                        sdk_resources, getattr(sdk_resources, "sibling_diagnostic_refs", ()))
+                    raw = (json.dumps(dict(
+                        kind="SDK_SIBLING_FINAL_LEDGER", diagnostic=diagnostic),
+                        separators=(",", ":")) + "\n").encode("utf-8")
+                    if len(raw) > 8192:
+                        raise ValueError("SDK_SIBLING_FINAL_LEDGER_UNAVAILABLE")
+                except BaseException:
+                    raw = b'{"kind":"SDK_SIBLING_FINAL_LEDGER_UNAVAILABLE"}\n'
+                try:
+                    os.write(2, raw)  # No retry, including after a short write.
+                except BaseException:
+                    pass
+            if PHASE == "sdk-scoring-timeout":
+                from ptc.test_owned_sql_sdk_canonical import _sdk_timeout_qualification
+                result["timeout_qualification"] = dict(verified=False)
+                try:
+                    proof = _sdk_timeout_qualification(sdk_resources, result["program_physical"])
+                    if sdk_resources.timeout_bundle.mutant == "timeout-early-public-release":
+                        result["timeout_control_qualification"] = proof
+                    else:
+                        result["timeout_qualification"] = proof
+                except BaseException as exc:
+                    sdk_resources.fail("timeout-qualifier", exc)
+                    result.update(sdk_resources.outcome or {})
+                    result["retirement_errors"] = len(sdk_resources.errors)
+                # FINAL ledger, after qualifier failure was recorded. Diagnostic
+                # failure must not alter qualification, SAFE or stdout protocol.
+                try:
+                    from ptc.test_owned_sql_sdk_canonical import _sdk_timeout_error_diagnostic
+                    diagnostic = _sdk_timeout_error_diagnostic(
+                        sdk_resources, getattr(sdk_resources, "timeout_diagnostic_refs", ()))
+                    raw = (json.dumps(dict(
+                        kind="SDK_TIMEOUT_FINAL_LEDGER", diagnostic=diagnostic),
+                        separators=(",", ":")) + "\n").encode("utf-8")
+                    if len(raw) > 8192:
+                        raise ValueError("SDK_TIMEOUT_FINAL_LEDGER_UNAVAILABLE")
+                except BaseException:
+                    raw = b'{"kind":"SDK_TIMEOUT_FINAL_LEDGER_UNAVAILABLE"}\n'
+                try:
+                    os.write(2, raw)  # One attempt; no retry after possible partial emission.
+                except BaseException:
+                    pass
+            if result.get("ok") is not True:
+                code = 1
+        keeper.join(timeout=(max(0, END-time.monotonic())
+                             if sdk_resources is not None else 0.2))
         assert not keeper.is_alive()
         write_record(1, dict(safe=True, **result))
         os._exit(code)
     def watchdog():
-        ready = select.select([0, done_r], [], [], remaining(END-3.75))[0]
+        inputs = [0, done_r]
+        if sdk_watchdog_race is not None:
+            inputs.append(sdk_watchdog_race.fds[0])
+        ready = select.select(inputs, [], [], remaining(END-3.75))[0]
         if done_r in ready:
+            return
+# CREATOR_BOUNDARY_BEGIN
+# HOST_BUDGET_BEGIN
+        if sdk_resources is not None:
+            _host_budget_diagnostic("WATCHDOG_DECISION", ready, inputs)
+# HOST_BUDGET_END
+# CREATOR_BOUNDARY_END
+        if sdk_watchdog_race is not None and sdk_watchdog_race.fds[0] in ready:
+            try:
+                sdk_watchdog_race.read_fault(END-3.75)
+            except BaseException as exc:
+                sdk_resources.fail("watchdog-trigger", exc)
+            if sdk_resources.request_native_handoff() == "ALREADY_RETIRED":
+                return
+            try:
+                sdk_resources.request_fallback()
+                sdk_resources.request(stop_loop=True)
+                if not sdk_resources.wait_native_handoff(END-3.5):
+                    return  # Guardian safety remains independent at this bound.
+                try:
+                    cleanup()  # Ready means stopped LOOP and released drive lock.
+                except BaseException as exc:
+                    sdk_resources.fail("watchdog-native", exc)
+            finally:
+                sdk_resources.supervisor_native_finished()
+            # This explicit early test path never reports/exits from supervisor.
+            # Main retains driving ownership and emits the sole final SAFE.
+            sdk_resources.complete.wait(max(0, END-0.25-time.monotonic()))
+            return
+        if sdk_resources is not None:
+            if sdk_resources.request_native_handoff() == "ALREADY_RETIRED":
+                return
+            try:
+                sdk_resources.fail("watchdog",
+                                   AssertionError("independent fixture safety deadline"))
+                sdk_resources.request_fallback()
+                sdk_resources.request(stop_loop=True)
+                if not sdk_resources.wait_native_handoff(END-3.5):
+                    return
+                try:
+                    cleanup()  # Native only, after explicit MAIN authorization.
+                except BaseException as exc:
+                    sdk_resources.fail("watchdog-native", exc)
+            finally:
+                sdk_resources.supervisor_native_finished()
+            # No native/retirement lock is held while main services LOOP.
+            sdk_resources.complete.wait(max(0, END-0.25-time.monotonic()))
+            if sdk_resources.finalized:
+                finished.set()
+                report(dict(ok=False, error="independent fixture safety deadline"), 91)
             return
         try:
             cleanup()
@@ -1762,6 +3030,10 @@ def host_main():
             return  # Lifetime keeper prevents unsafe ordinary-error exit.
         report(dict(ok=False, error="independent fixture safety deadline"), 91)
     supervisor = threading.Thread(target=watchdog, name="guest-host-safety", daemon=False)
+    if sdk_watchdog_race is not None:
+        sdk_watchdog_race.supervisor = supervisor  # Retain before Thread.start.
+    if sdk_resources is not None:
+        sdk_resources.permitted_threads = lambda: {keeper, supervisor}
     supervisor.start()
 
     guardian_hits = [0]
@@ -1787,6 +3059,11 @@ def host_main():
         if invocation is not None:
             matching = [slot for slot in slots if slot["invocation"] is invocation]
             assert len(matching) == 1
+            if sdk_test_gates is not None:
+                hit = sdk_test_gates.pending_for(invocation.invocation_id.hex)
+                assert hit is not None, "SDK_UNOBSERVED_TEST_GATE_RELEASE"
+                sdk_test_gates.release_one(hit)
+                return
             os.write(matching[0]["gate_w"], b"G")
             return
         for event in gates:
@@ -2689,6 +3966,8 @@ def host_main():
 
     async def run():
         nonlocal owner
+        if sdk_wake_setup_error is not None:
+            raise sdk_wake_setup_error
         binary = root / "guest-observer-inert"
         binary.write_bytes(b"never execute native observer bytes\n")
         source_root = m.installed_source_root()
@@ -2706,6 +3985,33 @@ def host_main():
         db.write_bytes(b"inert first-party bytes, not SQLite\n")
         digest = hashlib.sha256(db.read_bytes()).hexdigest()
         executor = m.PilotExecutor(profile, state_dir=root / "guest-run")
+        if PHASE.startswith("sdk-"):
+            from ptc.test_owned_sql_sdk_canonical import _run_sdk_host_case
+            assert ROLE == ("program" if PHASE == "sdk-cancel-program" else "scorer")
+            assert len(PREPARED) == 5
+            assert MUTANT == "none" or (
+                PHASE == "sdk-program-one"
+                and MUTANT == "program-observation-sentinel") or (
+                PHASE == "sdk-invalid-gold_error" and MUTANT == "invalid-target-zero") or (
+                PHASE == "sdk-scoring-timeout" and MUTANT == "timeout-early-public-release") or (
+                PHASE == "sdk-sibling-score-failure" and MUTANT == "omit-sibling-fault")
+            actor = types.SimpleNamespace(
+                owners=owners, spawn_lock=spawn_lock, stopping=stopping,
+                gates=gates, trace=trace, slots=slots, next_event=next_event,
+                messages=messages, release=release, test_gates=sdk_test_gates,
+                ensure_intents=ensure_sdk_intents, diagnostic=sdk_diagnostic,
+                emit=emit, end=END, retirement=sdk_resources,
+                fence_owned_start=_fence_owned_start,
+                forbidden_calls=forbidden_calls, bound_sockets=sdk_sockets,
+                native_proof=sdk_native_proof, watchdog_race=sdk_watchdog_race)
+            try:
+                if _sdk_timeline is not None:
+                    actor._sdk_timeline = _sdk_timeline
+            except BaseException:
+                pass
+            return await _run_sdk_host_case(
+                loop=LOOP, root=root, prepared=PREPARED, phase=PHASE,
+                mutant=MUTANT, profile=profile, executor=executor, actor=actor)
         if PHASE.startswith("score-adapter-"):
             assert ROLE == "scorer" and MUTANT == "none"
             return await run_scorer_adapter(profile, db, digest, executor)
@@ -3102,9 +4408,36 @@ def host_main():
 
     result, code = None, 0
     try:
-        result = LOOP.run_until_complete(run())
+        if sdk_resources is not None:
+            with sdk_resources.loop_drive_lock:
+                acceptance_driver = LOOP.create_task(run())
+                sdk_resources.retain_driver(acceptance_driver)
+                result = LOOP.run_until_complete(acceptance_driver)
+        else:
+            result = LOOP.run_until_complete(run())
         result = dict(ok=True, **result)
+        if sdk_resources is not None and sdk_resources.outcome is not None:
+            # A retirement checkpoint is explicitly NOT evaluation success.
+            result.update(sdk_resources.outcome)
     except BaseException as exc:
+        if sdk_resources is not None:
+# CREATOR_BOUNDARY_BEGIN
+# HOST_BUDGET_BEGIN
+            _host_budget_diagnostic("HOST_EXCEPTION")
+# HOST_BUDGET_END
+# CREATOR_BOUNDARY_END
+            sdk_resources.fail("host", exc)
+            if PHASE == "sdk-program-one":
+                from ptc.test_owned_sql_sdk_canonical import _program_acceptance_failure
+                sdk_resources.program_failure = _program_acceptance_failure(
+                    exc, sdk_resources)
+# CREATOR_BOUNDARY_BEGIN
+        if creator_boundary is not None:
+            try:
+                creator_boundary.emit(1, sdk_resources, owners, slots, trace)
+            except BaseException:
+                pass
+# CREATOR_BOUNDARY_END
         fields = ("kind", "lane", "name", "actor", "index", "registered",
                   "independent")
         observed = [item for slot in slots for item in slot["messages"]]
@@ -3116,8 +4449,20 @@ def host_main():
                        if key in item} for item in messages[-24:]],
             received=[{key: item[key] for key in fields
                        if key in item} for item in observed[-24:]])
-        result, code = dict(ok=False, error=type(exc).__name__ if PHASE.startswith(
-            "score-adapter-") else type(exc).__name__+": "+str(exc)), 1
+        result, code = dict(
+            (sdk_resources.outcome or {}) if PHASE in (
+                "sdk-program-one", "sdk-cancel-program", "sdk-cancel-scorer",
+                "sdk-invalid-gold_error", "sdk-invalid-gold_timeout",
+                "sdk-invalid-gold_truncated", "sdk-invalid-db_missing", "sdk-scoring-timeout",
+                "sdk-sibling-score-failure") else {},
+            ok=False, error=type(exc).__name__ if (
+                PHASE.startswith("score-adapter-")
+                or PHASE in (
+                    "sdk-program-one", "sdk-cancel-program", "sdk-cancel-scorer",
+                    "sdk-invalid-gold_error", "sdk-invalid-gold_timeout",
+                    "sdk-invalid-gold_truncated", "sdk-invalid-db_missing", "sdk-scoring-timeout",
+                    "sdk-sibling-score-failure"))
+            else type(exc).__name__+": "+str(exc)), 1
     finally:
         # Record the API decision before independently touching physical owners.
         result = dict(result or {}, mutation_hits=mutation_hits[0]+guardian_hits[0],
@@ -3125,7 +4470,24 @@ def host_main():
                       hook_hits=sum(item["kind"] == "HIT" for item in messages))
         if cancel_write_original[0] is not None:
             os.write = cancel_write_original[0]
-        cleanup()
+        if sdk_resources is not None:
+            sdk_resources.record_outcome(result)
+            sdk_resources.finish(
+                native_retire=sdk_native_cleanup, verify_native=sdk_native_proof)
+            result.update(sdk_resources.outcome or {})
+            if result.get("ok") is not True:
+                code = 1
+            try:
+                if (_sdk_timeline is not None
+                        and ((sdk_resources.outcome or {}).get("ok") is not True
+                             or not sdk_resources.finalized)):
+                    _sdk_timeline.emit_failure()
+            except BaseException:
+                pass
+            assert sdk_resources.finalized, "SDK_PHYSICAL_PROOF_MISSING"
+            finished.set()
+        else:
+            cleanup()
         if unresolved_owners and result.get("ok") is True:
             if any(actual._completion is not None or actual._authority.ack is not None
                    for actual in unresolved_owners):
@@ -3143,8 +4505,12 @@ def host_main():
         if denied:
             result.update(ok=False, error="forbidden fixture IO attempted", forbidden=denied)
             code = 1
+            if sdk_resources is not None:
+                sdk_resources.fail("forbidden", AssertionError("forbidden fixture IO attempted"))
+                sdk_resources.record_outcome(result)
         os.write(done_w, b"D")
-        supervisor.join(timeout=0.2)
+        supervisor.join(timeout=(max(0, END-time.monotonic())
+                                 if sdk_resources is not None else 0.2))
         assert not supervisor.is_alive()
         LOOP.close()  # Pending unknown API tasks die only with this safe interpreter.
     report(result, code)
@@ -3170,7 +4536,8 @@ class _GuestOuterLedger(list):
         super().append(process)
 
 
-def _owned_guest_case(tmp_path, role, phase, *, mutant="none"):
+def _owned_guest_case(
+        tmp_path, role, phase, *, mutant="none", prepared=None, expected_ok=True):
     """Private explicit driver. Each fresh interpreter gets one immutable mode.
 
     No env/profile selector or repository-source mutation. Unknown-proof and
@@ -3178,6 +4545,34 @@ def _owned_guest_case(tmp_path, role, phase, *, mutant="none"):
     the separate program-R test crosses the REAL unchanged 10s role ceiling.
     All cases retain one shared 19.5s outer safety deadline.
     """
+    assert type(expected_ok) is bool
+    if not expected_ok:
+        from ptc.test_owned_sql_sdk_retirement_physical import _PHYSICAL_PHASES
+        assert phase in _PHYSICAL_PHASES and role == "scorer"
+        assert mutant == "none" and prepared is not None and len(prepared) == 5
+    assert prepared is None or (
+        phase.startswith("sdk-") and len(prepared) == 5 and (
+            mutant == "none" or (phase == "sdk-program-one"
+                                and mutant == "program-observation-sentinel") or (
+                phase == "sdk-invalid-gold_error" and mutant == "invalid-target-zero") or (
+                phase == "sdk-scoring-timeout" and mutant == "timeout-early-public-release") or (
+                phase == "sdk-sibling-score-failure" and mutant == "omit-sibling-fault")))
+    assert phase != "sdk-sibling-score-failure" or (
+        role == "scorer" and expected_ok and prepared is not None
+        and type(prepared) is tuple and len(prepared) == 5
+        and mutant in ("none", "omit-sibling-fault"))
+    assert mutant != "omit-sibling-fault" or (
+        phase == "sdk-sibling-score-failure" and role == "scorer"
+        and prepared is not None and expected_ok)
+    assert mutant != "program-observation-sentinel" or (
+        phase == "sdk-program-one" and prepared is not None and expected_ok)
+    assert mutant != "invalid-target-zero" or (
+        phase == "sdk-invalid-gold_error" and role == "scorer"
+        and prepared is not None and expected_ok)
+    assert mutant != "timeout-early-public-release" or (
+        phase == "sdk-scoring-timeout" and role == "scorer"
+        and prepared is not None and expected_ok)
+    prepared_args = [] if prepared is None else [str(value) for value in prepared]
     script = tmp_path / "owned-guest-fixture.py"
     script.write_text(_OWNED_GUEST_PROBE)
     registry = _GuestOuterLedger()
@@ -3188,17 +4583,61 @@ def _owned_guest_case(tmp_path, role, phase, *, mutant="none"):
         process = _OwnedProbeProcess(
             [sys.executable, "-I", "-B", str(script), "host",
              str(m.installed_source_root()), str(tmp_path), role, phase, mutant,
-             str(deadline)], registry=registry, stdin=subprocess.PIPE,
+             str(deadline), *prepared_args], registry=registry, stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=log, bufsize=0,
             env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"})
         result = json.loads(_line(process, max(0, deadline-time.monotonic()-1.0)))
         assert result.get("safe") is True, "outer host omitted independent nested SAFE"
         process.wait(timeout=max(0.001, deadline-time.monotonic()))
-        assert result.get("ok") is True and process.returncode == 0, result
+        if expected_ok:
+            if phase == "sdk-program-one" and not (
+                    result.get("ok") is True and process.returncode == 0):
+                # Pytest rewrites assert messages. Keep this actual receipt
+                # dictionary for the phase-bound expected-failure proof.
+                raise AssertionError(result)
+            if phase in (
+                    "sdk-invalid-gold_error", "sdk-invalid-gold_timeout",
+                    "sdk-invalid-gold_truncated", "sdk-invalid-db_missing") and not (
+                    result.get("ok") is True and process.returncode == 0):
+                raise AssertionError(result)
+            if phase == "sdk-scoring-timeout" and not (
+                    result.get("ok") is True and process.returncode == 0):
+                raise AssertionError(result)
+            if phase == "sdk-sibling-score-failure" and not (
+                    result.get("ok") is True and process.returncode == 0):
+                raise AssertionError(result)
+            assert result.get("ok") is True and process.returncode == 0, result
+        else:
+            assert result.get("ok") is False and process.returncode == 1, result
+            assert process.actual_wait
+            assert result.get("physical_finalized") is True, result
+            proof = result.get("physical_qualification", {})
+            assert proof.get("verified") is True and proof.get("phase") == phase, json.dumps(proof)
+            assert proof.get("fault_hits") == 1 and proof.get("primary_preserved") is True, result
+            if phase == "sdk-retire-framework-finalizer":
+                from ptc.test_owned_sql_sdk_retirement_physical import (
+                    _framework_path_assert_location)
+                assert result.get("error") == "AssertionError", result
+                assert proof.get("original_assert_origin_verified") is True, result
+                assert proof.get("original_assert_origin") == _framework_path_assert_location(
+                    Path(__file__).with_name("test_bash_qa_eval_integration.py")), result
+            else:
+                assert result.get("error") == "_SdkPhysicalFault", result
+            assert result.get("retirement_stages") == {
+                "async": 1, "framework": 1, "executor": 1, "undo": 1}, result
+            assert result.get("executor_workers", 0) >= 1, result
+            assert result.get("executor_helpers", 0) >= 1, result
+            assert result.get("live_executor_workers") == 0, result
+            assert result.get("live_executor_helpers") == 0, result
+            result["outer_actual_wait"] = process.actual_wait
         return result
     finally:
         try:
-            for process in registry:
+            for process in (tuple(registry) if phase in (
+                    "sdk-program-one", "sdk-cancel-program", "sdk-cancel-scorer",
+                    "sdk-invalid-gold_error", "sdk-invalid-gold_timeout",
+                    "sdk-invalid-gold_truncated", "sdk-invalid-db_missing", "sdk-scoring-timeout",
+                    "sdk-sibling-score-failure") else registry):
                 if getattr(process, "pid", None) is None:
                     continue
                 try:
@@ -3217,8 +4656,28 @@ def _owned_guest_case(tmp_path, role, phase, *, mutant="none"):
                     if stream is not None:
                         stream.close()
                 _OWNED_GUEST_OUTER_OWNERS.remove(process)
+                if phase in (
+                        "sdk-program-one", "sdk-cancel-program", "sdk-cancel-scorer",
+                        "sdk-invalid-gold_error", "sdk-invalid-gold_timeout",
+                        "sdk-invalid-gold_truncated", "sdk-invalid-db_missing", "sdk-scoring-timeout",
+                        "sdk-sibling-score-failure"):
+                    registry.remove(process)
         finally:
             log.close()
+        if phase in (
+                "sdk-program-one", "sdk-cancel-program", "sdk-cancel-scorer",
+                "sdk-invalid-gold_error", "sdk-invalid-gold_timeout",
+                "sdk-invalid-gold_truncated", "sdk-invalid-db_missing", "sdk-scoring-timeout",
+                "sdk-sibling-score-failure"):
+            assert result is not None and result.get("safe") is True
+            assert process.actual_wait and type(process.returncode) is int
+            streams_closed = all(stream is None or stream.closed for stream in (
+                process.stdin, process.stdout, process.stderr))
+            ledger_released = process not in registry and process not in _OWNED_GUEST_OUTER_OWNERS
+            assert streams_closed and ledger_released
+            result["outer_retirement"] = dict(
+                actual_wait=process.actual_wait, returncode=process.returncode,
+                streams_closed=streams_closed, ledger_released=ledger_released)
 
 
 @pytest.mark.parametrize("role", ["program", "scorer"])
